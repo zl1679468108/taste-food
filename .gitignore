@@ -1,0 +1,47 @@
+## Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+## Build output
+client/dist/
+server/dist/
+
+## Environment
+.env
+.env.local
+.env.*.local
+
+## IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode/settings.json
+.vscode/launch.json
+
+## OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## Logs
+logs/
+*.log
+
+## Cache
+.turbo/
+.eslintcache
+.stylelintcache
+.prettiercache
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+## Taro
+client/.temp/
+client/.cache/
+
+## Coverage
+coverage/

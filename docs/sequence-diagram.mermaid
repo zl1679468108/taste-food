@@ -1,0 +1,66 @@
+sequenceDiagram
+    participant C as 顾客 (微信小程序)
+    participant WX as 微信API
+    participant S as NestJS 后端
+    participant DB as Supabase
+    participant WS as WebSocket Gateway
+    participant A as 商家端
+
+    Note over C: 1. 扫码进入
+    C->>WX: wx.scanCode() 获取店铺ID/桌号
+    WX-->>C: shop_id, table_no
+
+    Note over C: 2. 浏览菜单
+    C->>S: GET /api/categories?shop_id=
+    S->>DB: SELECT * FROM categories WHERE shop_id=?
+    DB-->>S: categories[]
+    S-->>C: categories[]
+
+    C->>S: GET /api/menu-items?shop_id=&category_id=
+    S->>DB: SELECT * FROM menu_items WHERE shop_id=? AND category_id=?
+    DB-->>S: items[]
+    S-->>C: MenuItemWithSpecs[]
+
+    Note over C: 3. 加购（前端Zustand）
+    C->>C: 点击+ → 规格选择 → cartStore.addItem()
+
+    Note over C: 4. 确认订单
+    C->>C: 点击去结算 → cartStore.getItems()
+
+    Note over C: 5. 触发微信授权
+    C->>WX: wx.login() 获取code
+    WX-->>C: code
+    C->>S: POST /api/auth/wechat-login { code }
+    S->>WX: 后端用code换openid
+    WX-->>S: openid
+    S->>DB: upsert user
+    S-->>C: { token, openid, isNewUser }
+
+    Note over C: 6. 创建订单
+    C->>S: POST /api/orders { shop_id, items[], delivery_type, ... }
+    S->>DB: INSERT INTO orders + order_items
+    S->>DB: INSERT INTO delivery_info
+    DB-->>S: order
+    S-->>C: CreateOrderResponse{ order }
+
+    Note over C: 7. 模拟支付
+    C->>S: POST /api/orders/:id/pay { payment_method: "mock" }
+    S->>DB: UPDATE orders SET status='paid', paid_at=NOW()
+    S->>WS: emit('order_status_changed', { orderId, status: 'paid' })
+    DB-->>S: success
+    S-->>C: PayOrderResponse{ success: true }
+
+    Note over WS,A: 8. 实时推送至商家
+    WS->>A: emit('new_order', NewOrderPayload)
+    A->>A: 闪烁提示 + 待接单列表更新
+
+    Note over A: 9. 商家接单
+    A->>S: PATCH /api/admin/orders/:id/status { status: 'accepted' }
+    S->>DB: UPDATE orders SET status='accepted'
+    S->>WS: emit('order_status_changed', { orderId, status: 'accepted' })
+    DB-->>S: ok
+    S-->>A: success
+
+    Note over WS,C: 10. 状态推送到顾客
+    WS->>C: emit('order_status_changed', { orderId, status: 'accepted' })
+    C->>C: 订单详情页自动更新状态

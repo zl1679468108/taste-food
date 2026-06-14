@@ -1,0 +1,40 @@
+{
+  "name": "taste-food-client",
+  "version": "1.0.0",
+  "private": true,
+  "description": "小买卖点餐系统 - 微信小程序客户端",
+  "main": "index.js",
+  "scripts": {
+    "build:weapp": "NODE_OPTIONS=--openssl-legacy-provider taro build --type weapp",
+    "build:weapp:watch": "NODE_OPTIONS=--openssl-legacy-provider taro build --type weapp --watch",
+    "start:weapp": "npm run build:weapp -- --watch",
+    "start": "npm run build:weapp -- --watch"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.23.0",
+    "@nutui/nutui-react-taro": "^2.0.0",
+    "@tarojs/components": "^4.0.0",
+    "@tarojs/plugin-framework-react": "^4.2.0",
+    "@tarojs/react": "^4.0.0",
+    "@tarojs/runtime": "^4.0.0",
+    "@tarojs/taro": "^4.0.0",
+    "dayjs": "^1.11.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "socket.io-client": "^4.8.3",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@tarojs/cli": "^4.0.0",
+    "@tarojs/mini-runner": "^4.0.0",
+    "@tarojs/plugin-http": "^4.2.0",
+    "@types/react": "^18.2.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "postcss": "^8.4.0",
+    "sass": "^1.69.0",
+    "typescript": "^5.3.0"
+  }
+}

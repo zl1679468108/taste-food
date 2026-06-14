@@ -1,0 +1,111 @@
+/* ========== 订单列表页样式 ========== */
+
+.order-list-page {
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+/* 订单卡片 */
+.order-card {
+  background: #fff;
+  margin: 10px 12px;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+
+  &:active {
+    opacity: 0.85;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  &__shop {
+    font-size: 15px;
+    font-weight: 500;
+    color: #333;
+  }
+
+  &__status {
+    font-size: 13px;
+    font-weight: 500;
+    padding: 2px 10px;
+    border-radius: 10px;
+  }
+
+  &__goods {
+    margin-bottom: 10px;
+  }
+
+  &__goods-item {
+    font-size: 13px;
+    color: #666;
+    line-height: 1.6;
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid #f5f5f5;
+    padding-top: 10px;
+  }
+
+  &__time {
+    font-size: 12px;
+    color: #999;
+  }
+
+  &__total {
+    font-size: 14px;
+    color: #333;
+
+    &-price {
+      color: #e74c3c;
+      font-weight: 600;
+      font-size: 16px;
+    }
+  }
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 100px;
+  color: #ccc;
+
+  &__icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+  }
+
+  &__text {
+    font-size: 14px;
+    color: #999;
+  }
+}
+
+/* 加载更多 */
+.load-more {
+  text-align: center;
+  padding: 20px;
+  color: #999;
+  font-size: 13px;
+}
+
+/* 页面加载 */
+.list-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #999;
+  font-size: 14px;
+}
