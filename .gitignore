@@ -38,6 +38,7 @@ logs/
 .prettiercache
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+client/.swc/
 
 ## Taro
 client/.temp/
