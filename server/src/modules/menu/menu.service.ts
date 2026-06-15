@@ -15,7 +15,7 @@ interface CategoryRecord {
   shopId: string;
   name: string;
   sortOrder: number;
-  icon: string;
+  iconKey: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -50,11 +50,11 @@ export class MenuService {
 
     // 分类
     const categories = [
-      { id: uuidv4(), shopId, name: '招牌推荐', sortOrder: 0, icon: '🌟' },
-      { id: uuidv4(), shopId, name: '烤肉类', sortOrder: 1, icon: '🥩' },
-      { id: uuidv4(), shopId, name: '素菜类', sortOrder: 2, icon: '🥬' },
-      { id: uuidv4(), shopId, name: '酒水类', sortOrder: 3, icon: '🍺' },
-      { id: uuidv4(), shopId, name: '主食类', sortOrder: 4, icon: '🍚' },
+      { id: uuidv4(), shopId, name: '招牌推荐', sortOrder: 0, iconKey: 'star' },
+      { id: uuidv4(), shopId, name: '烤肉类', sortOrder: 1, iconKey: 'meat' },
+      { id: uuidv4(), shopId, name: '素菜类', sortOrder: 2, iconKey: 'vegetable' },
+      { id: uuidv4(), shopId, name: '酒水类', sortOrder: 3, iconKey: 'drink' },
+      { id: uuidv4(), shopId, name: '主食类', sortOrder: 4, iconKey: 'rice' },
     ];
 
     for (const cat of categories) {
@@ -115,7 +115,7 @@ export class MenuService {
       shopId: dto.shopId,
       name: dto.name,
       sortOrder: dto.sortOrder ?? 0,
-      icon: dto.icon || '',
+      iconKey: dto.iconKey || '',
       createdAt: now,
       updatedAt: now,
     };
@@ -181,7 +181,7 @@ export class MenuService {
       ...category,
       ...(dto.name !== undefined && { name: dto.name }),
       ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
-      ...(dto.icon !== undefined && { icon: dto.icon }),
+      ...(dto.iconKey !== undefined && { iconKey: dto.iconKey }),
       updatedAt: new Date().toISOString(),
     };
     this.categories.set(id, updated);
@@ -241,7 +241,7 @@ export class MenuService {
       shopId: record.shopId,
       name: record.name,
       sortOrder: record.sortOrder,
-      icon: record.icon || undefined,
+      iconKey: record.iconKey || undefined,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

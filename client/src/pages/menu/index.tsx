@@ -4,6 +4,7 @@ import Taro from '@tarojs/taro';
 import { get } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { formatPriceWithSymbol } from '../../utils/format';
+import { getCategoryIcon } from '../../utils/iconMap';
 import { Shop } from '../../types/shop';
 import { Category, MenuItem } from '../../types/menu';
 import { ApiResponse } from '../../types/api';
@@ -12,7 +13,7 @@ import './index.scss';
 interface CategoryItemData {
   id: string;
   name: string;
-  icon: string;
+  iconKey?: string;
   items: MenuItem[];
 }
 
@@ -71,8 +72,8 @@ export default class MenuPage extends Component<{}, MenuPageState> {
       // 构建分类 + 菜品数据结构
       const categoryItems: CategoryItemData[] = categories.map((cat) => ({
         id: cat.id,
-        name: cat.name.replace(/^[^\w]*/, '').trim() || cat.name,
-        icon: cat.icon || '📋',
+        name: cat.name,
+        iconKey: cat.iconKey,
         items: menuItems.filter((item) => item.categoryId === cat.id),
       }));
 
@@ -216,7 +217,7 @@ export default class MenuPage extends Component<{}, MenuPageState> {
                   }`}
                   onClick={() => this.switchCategory(index)}
                 >
-                  <Text className='category-sidebar__icon'>{cat.icon}</Text>
+                  <Text className='category-sidebar__icon'>{getCategoryIcon(cat.iconKey)}</Text>
                   <Text className='category-sidebar__name'>{cat.name}</Text>
                 </View>
               ))}

@@ -4,6 +4,7 @@ import Taro from '@tarojs/taro';
 import { get, post, patch as httpPatch, del } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
+import { getCategoryIcon } from '../../utils/iconMap';
 import { Category } from '../../types/menu';
 import { MenuItem, MenuItemStatus } from '../../types/menu';
 import './menu-manage.scss';
@@ -357,7 +358,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
               className={`category-chip ${activeCategoryId === cat.id ? 'category-chip--active' : ''}`}
             >
               <Text onClick={() => this.selectCategory(cat.id)}>
-                {cat.icon} {cat.name}
+                {getCategoryIcon(cat.iconKey)} {cat.name}
               </Text>
               <Text
                 className='category-chip__edit'

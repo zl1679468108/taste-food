@@ -39,7 +39,7 @@ CREATE POLICY "categories_admin" ON categories
   FOR ALL
   USING (
     auth.role() = 'admin'
-    AND shop_id = auth.jwt()->>'shop_id'
+    AND shop_id = (auth.jwt()->>'shop_id')::uuid
   );
 
 -- ==================== menu_items ====================
@@ -53,7 +53,7 @@ CREATE POLICY "menu_items_admin" ON menu_items
   FOR ALL
   USING (
     auth.role() = 'admin'
-    AND shop_id = auth.jwt()->>'shop_id'
+    AND shop_id = (auth.jwt()->>'shop_id')::uuid
   );
 
 -- ==================== spec_groups & spec_options ====================
@@ -71,7 +71,7 @@ CREATE POLICY "spec_groups_admin" ON spec_groups
   FOR ALL
   USING (
     auth.role() = 'admin'
-    AND shop_id = auth.jwt()->>'shop_id'
+    AND shop_id = (auth.jwt()->>'shop_id')::uuid
   );
 
 CREATE POLICY "spec_options_admin" ON spec_options
@@ -80,7 +80,7 @@ CREATE POLICY "spec_options_admin" ON spec_options
     auth.role() = 'admin'
     AND spec_group_id IN (
       SELECT id FROM spec_groups
-      WHERE shop_id = auth.jwt()->>'shop_id'
+      WHERE shop_id = (auth.jwt()->>'shop_id')::uuid
     )
   );
 
@@ -98,7 +98,7 @@ CREATE POLICY "orders_select_admin" ON orders
   FOR SELECT
   USING (
     auth.role() = 'admin'
-    AND shop_id = auth.jwt()->>'shop_id'
+    AND shop_id = (auth.jwt()->>'shop_id')::uuid
   );
 
 -- 顾客创建订单
@@ -114,7 +114,7 @@ CREATE POLICY "orders_update_admin" ON orders
   FOR UPDATE
   USING (
     auth.role() = 'admin'
-    AND shop_id = auth.jwt()->>'shop_id'
+    AND shop_id = (auth.jwt()->>'shop_id')::uuid
   );
 
 -- ==================== order_items ====================
@@ -134,7 +134,7 @@ CREATE POLICY "order_items_select_admin" ON order_items
   USING (
     order_id IN (
       SELECT id FROM orders
-      WHERE shop_id = auth.jwt()->>'shop_id'
+      WHERE shop_id = (auth.jwt()->>'shop_id')::uuid
     )
   );
 
@@ -155,7 +155,7 @@ CREATE POLICY "delivery_info_select_owner" ON delivery_info
     order_id IN (
       SELECT id FROM orders
       WHERE user_id = auth.jwt()->>'sub'
-        OR shop_id = auth.jwt()->>'shop_id'
+        OR shop_id = (auth.jwt()->>'shop_id')::uuid
     )
   );
 
@@ -168,5 +168,5 @@ CREATE POLICY "promotions_admin" ON promotions
   FOR ALL
   USING (
     auth.role() = 'admin'
-    AND shop_id = auth.jwt()->>'shop_id'
+    AND shop_id = (auth.jwt()->>'shop_id')::uuid
   );

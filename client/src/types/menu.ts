@@ -4,7 +4,7 @@ export interface Category {
   shopId: string;
   name: string;
   sortOrder: number;
-  icon?: string;
+  iconKey?: string;
   createdAt: string;
   updatedAt: string;
 }

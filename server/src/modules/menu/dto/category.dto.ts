@@ -13,7 +13,7 @@ export class CreateCategoryDto {
 
   @IsString()
   @IsOptional()
-  icon?: string;
+  iconKey?: string;
 }
 
 export class CategoryResponseDto {
@@ -21,7 +21,7 @@ export class CategoryResponseDto {
   shopId!: string;
   name!: string;
   sortOrder!: number;
-  icon?: string;
+  iconKey?: string;
   createdAt!: string;
   updatedAt!: string;
 }
