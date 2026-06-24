@@ -1,0 +1,5 @@
+  console.log
+    发现自动化端口: 21982，尝试连接...
+
+      at Object.<anonymous> (__tests__/miniprogram.e2e.test.ts:26:15)
+

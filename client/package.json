@@ -5,36 +5,47 @@
   "description": "小买卖点餐系统 - 微信小程序客户端",
   "main": "index.js",
   "scripts": {
-    "build:weapp": "NODE_OPTIONS=--openssl-legacy-provider taro build --type weapp",
-    "build:weapp:watch": "NODE_OPTIONS=--openssl-legacy-provider taro build --type weapp --watch",
-    "start:weapp": "npm run build:weapp -- --watch",
-    "start": "npm run build:weapp -- --watch"
+    "build:weapp": "NODE_OPTIONS=--openssl-legacy-provider NODE_ENV=production taro build --type weapp",
+    "build:weapp:watch": "NODE_OPTIONS=--openssl-legacy-provider NODE_ENV=development taro build --type weapp --watch",
+    "start:weapp": "(lsof -ti:3011 | xargs kill -9 2>/dev/null || echo ok); NODE_OPTIONS=--openssl-legacy-provider NODE_ENV=development taro build --type weapp --watch",
+    "start": "(lsof -ti:3011 | xargs kill -9 2>/dev/null || echo ok); NODE_OPTIONS=--openssl-legacy-provider NODE_ENV=development taro build --type weapp --watch",
+    "test": "jest",
+    "test:unit": "jest __tests__/utils.test.ts",
+    "test:e2e": "jest __tests__/miniprogram.e2e.test.ts 2>&1 | tee test-output.txt",
+    "test:connect": "jest __tests__/miniprogram.e2e.test.ts 2>&1 | tee test-output.txt",
+    "test:coverage": "jest --coverage",
+    "devtools:start": "bash ../scripts/start-devtools.sh"
   },
   "dependencies": {
     "@babel/runtime": "^7.23.0",
     "@nutui/nutui-react-taro": "^2.0.0",
-    "@tarojs/components": "^4.0.0",
-    "@tarojs/plugin-framework-react": "^4.2.0",
-    "@tarojs/react": "^4.0.0",
-    "@tarojs/runtime": "^4.0.0",
-    "@tarojs/taro": "^4.0.0",
     "dayjs": "^1.11.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "socket.io-client": "^4.8.3",
-    "zustand": "^4.5.0"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@babel/core": "^7.23.0",
-    "@tarojs/cli": "^4.0.0",
-    "@tarojs/mini-runner": "^4.0.0",
-    "@tarojs/plugin-http": "^4.2.0",
+    "@tarojs/cli": "^4.0.1",
+    "@tarojs/components": "^4.0.1",
+    "@tarojs/mini-runner": "^4.0.1",
+    "@tarojs/plugin-framework-react": "^4.0.1",
+    "@tarojs/plugin-http": "^4.0.1",
+    "@tarojs/react": "^4.0.1",
+    "@tarojs/runtime": "^4.0.1",
+    "@tarojs/taro": "^4.0.1",
+    "@types/jest": "^30.0.0",
     "@types/react": "^18.2.0",
+    "@types/webpack-env": "^1.18.8",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",
+    "jest": "^30.4.2",
+    "miniprogram-automator": "^0.12.1",
     "postcss": "^8.4.0",
     "sass": "^1.69.0",
-    "typescript": "^5.3.0"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   }
 }

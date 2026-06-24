@@ -5,21 +5,35 @@ export default defineAppConfig({
     'pages/order-detail/index',
     'pages/order-list/index',
     'pages/auth/login',
-    'pages/admin/index',
-    'pages/admin/menu-manage',
+  ],
+  subpackages: [
+    {
+      root: 'pages/admin',
+      pages: [
+        'index',
+        'menu-manage',
+        'user-manage',
+      ],
+    },
+    {
+      root: 'pages/rider',
+      pages: [
+        'index',
+      ],
+    },
   ],
   window: {
     navigationBarTitleText: '小买卖点餐',
-    navigationBarBackgroundColor: '#ffffff',
-    navigationBarTextStyle: 'black',
-    backgroundColor: '#f5f5f5',
+    navigationBarBackgroundColor: '#FF6B35',
+    navigationBarTextStyle: 'white',
+    backgroundColor: '#F5F5F5',
     backgroundTextStyle: 'dark',
   },
   tabBar: {
     color: '#999999',
-    selectedColor: '#e74c3c',
+    selectedColor: '#FF6B35',
     backgroundColor: '#ffffff',
-    borderStyle: 'black',
+    borderStyle: 'white',
     list: [
       {
         pagePath: 'pages/menu/index',
@@ -37,27 +51,6 @@ export default defineAppConfig({
   },
 });
 
-function defineAppConfig(config: {
-  pages: string[];
-  window?: {
-    navigationBarTitleText?: string;
-    navigationBarBackgroundColor?: string;
-    navigationBarTextStyle?: 'black' | 'white';
-    backgroundColor?: string;
-    backgroundTextStyle?: 'dark' | 'light';
-  };
-  tabBar?: {
-    color: string;
-    selectedColor: string;
-    backgroundColor: string;
-    borderStyle?: 'black' | 'white';
-    list: {
-      pagePath: string;
-      text: string;
-      iconPath?: string;
-      selectedIconPath?: string;
-    }[];
-  };
-}) {
+function defineAppConfig(config: any) {
   return config;
 }

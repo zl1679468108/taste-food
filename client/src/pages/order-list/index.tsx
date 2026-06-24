@@ -5,19 +5,32 @@ import { get } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatRelativeTime } from '../../utils/format';
 import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP } from '../../utils/constants';
-import { Order, OrderItem } from '../../types/order';
+import { Order, OrderItem, OrderStatus } from '../../types/order';
 import { PaginatedData } from '../../types/api';
-import { onOrderUpdated, removeAllListeners } from '../../services/socket';
+import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import './index.scss';
 
 interface OrderListState {
   orders: Order[];
   loading: boolean;
   loadingMore: boolean;
+  refreshing?: boolean;
   page: number;
   pageSize: number;
   hasMore: boolean;
+  activeFilter: string;
 }
+
+const FILTER_TABS = [
+  { key: '', label: '全部' },
+  { key: OrderStatus.PENDING_PAYMENT, label: '待支付' },
+  { key: OrderStatus.PAID, label: '已支付' },
+  { key: OrderStatus.ACCEPTED, label: '已接单' },
+  { key: OrderStatus.PREPARING, label: '制作中' },
+  { key: OrderStatus.DELIVERING, label: '配送中' },
+  { key: OrderStatus.COMPLETED, label: '已完成' },
+  { key: OrderStatus.CANCELLED, label: '已取消' },
+];
 
 export default class OrderListPage extends Component<{}, OrderListState> {
   private authStore = useAuthStore;
@@ -32,24 +45,33 @@ export default class OrderListPage extends Component<{}, OrderListState> {
       page: 1,
       pageSize: 20,
       hasMore: true,
+      activeFilter: '',
     };
   }
 
   componentDidMount() {
     this.loadOrders(1);
-    // 注册 WebSocket 监听
     onOrderUpdated(() => {
-      console.log('[WS] 订单列表页收到更新，刷新列表');
       this.loadOrders(1);
-    });
+    }, 'order-list');
   }
 
   componentWillUnmount() {
-    removeAllListeners();
+    removePageListeners('order-list');
   }
 
-  async loadOrders(page: number) {
+  /** 下拉刷新 */
+  onPullDownRefresh() {
+    this.setState({ refreshing: true } as any, () => {
+      this.loadOrders(1).then(() => {
+        Taro.stopPullDownRefresh();
+      });
+    });
+  }
+
+  async loadOrders(page: number, filter?: string) {
     const authState = this.authStore.getState();
+    const activeFilter = filter !== undefined ? filter : this.state.activeFilter;
 
     if (!authState.isLoggedIn) {
       this.setState({ loading: false });
@@ -63,12 +85,16 @@ export default class OrderListPage extends Component<{}, OrderListState> {
     }
 
     try {
-      const response = await get<PaginatedData<Order>>('/orders', {
+      const params: Record<string, any> = {
         user_id: authState.user?.userId || '',
         page,
         pageSize: this.state.pageSize,
-      });
+      };
+      if (activeFilter) {
+        params.status = activeFilter;
+      }
 
+      const response = await get<PaginatedData<Order>>('/orders', params);
       const { items, total } = response.data;
       const maxPage = Math.ceil(total / this.state.pageSize);
 
@@ -85,6 +111,13 @@ export default class OrderListPage extends Component<{}, OrderListState> {
     }
   }
 
+  /** 切换筛选 */
+  switchFilter(filter: string) {
+    this.setState({ activeFilter: filter, page: 1 }, () => {
+      this.loadOrders(1);
+    });
+  }
+
   /** 加载更多 */
   loadMore() {
     if (this.state.hasMore && !this.state.loadingMore) {
@@ -97,18 +130,13 @@ export default class OrderListPage extends Component<{}, OrderListState> {
     Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${orderId}` });
   }
 
-  /** 获取商品摘要文本 */
-  getGoodsSummary(items: OrderItem[]): string {
-    return items.map((item) => `${item.name}x${item.quantity}`).join('、');
-  }
-
   /** 获取状态颜色 */
   getStatusColor(status: string): string {
     return ORDER_STATUS_COLOR_MAP[status] || '#999';
   }
 
   render() {
-    const { orders, loading, loadingMore, hasMore } = this.state;
+    const { orders, loading, loadingMore, hasMore, activeFilter } = this.state;
     const authState = this.authStore.getState();
 
     if (loading) {
@@ -180,9 +208,22 @@ export default class OrderListPage extends Component<{}, OrderListState> {
 
     return (
       <View className='order-list-page'>
+        {/* 筛选 Tab */}
+        <View className='filter-tabs'>
+          {FILTER_TABS.map((tab) => (
+            <View
+              key={tab.key}
+              className={`filter-tab ${activeFilter === tab.key ? 'filter-tab--active' : ''}`}
+              onClick={() => this.switchFilter(tab.key)}
+            >
+              <Text>{tab.label}</Text>
+            </View>
+          ))}
+        </View>
+
         <ScrollView
           scrollY
-          style={{ height: '100vh' }}
+          style={{ height: 'calc(100vh - 48px)' }}
           onScrollToLower={() => this.loadMore()}
           enhanced
           showScrollbar={false}

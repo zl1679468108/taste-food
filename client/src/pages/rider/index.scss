@@ -1,0 +1,119 @@
+.rider-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f5f5;
+
+  .tab-bar {
+    display: flex;
+    background: #fff;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+
+    .tab-item {
+      flex: 1;
+      text-align: center;
+      font-size: 16px;
+      color: #666;
+      padding: 8px 0;
+      position: relative;
+
+      &.active {
+        color: #ff6b35;
+        font-weight: bold;
+
+        &::after {
+          content: '';
+          position: absolute;
+          bottom: 0;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 20px;
+          height: 3px;
+          background: #ff6b35;
+          border-radius: 2px;
+        }
+      }
+    }
+  }
+
+  .order-list {
+    flex: 1;
+    padding: 12px;
+    box-sizing: border-box;
+
+    .loading, .empty {
+      text-align: center;
+      padding: 40px 0;
+      color: #999;
+    }
+
+    .order-card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        border-bottom: 1px solid #f0f0f0;
+        padding-bottom: 8px;
+
+        .order-no {
+          font-weight: bold;
+          font-size: 16px;
+        }
+        .status {
+          font-size: 14px;
+        }
+      }
+
+      .card-body {
+        .info-item {
+          margin-bottom: 6px;
+          font-size: 14px;
+          display: flex;
+
+          .label {
+            color: #999;
+            width: 60px;
+          }
+          .value {
+            color: #333;
+            flex: 1;
+          }
+          .price {
+            color: #e74c3c;
+            font-weight: bold;
+          }
+        }
+      }
+
+      .card-footer {
+        margin-top: 15px;
+        display: flex;
+        justify-content: flex-end;
+
+        .btn {
+          padding: 8px 25px;
+          border-radius: 20px;
+          font-size: 14px;
+          font-weight: bold;
+
+          &.grab-btn {
+            background: #ff6b35;
+            color: #fff;
+          }
+
+          &.deliver-btn {
+            background: #4caf50;
+            color: #fff;
+          }
+        }
+      }
+    }
+  }
+}

@@ -107,5 +107,34 @@
   justify-content: center;
   height: 200px;
   color: #999;
+  font-size: 15px;
+}
+
+/* ---- 筛选 Tab ---- */
+.filter-tabs {
+  display: flex;
+  background: #fff;
+  padding: 0 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid #f0f0f0;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.filter-tab {
+  padding: 12px 14px;
   font-size: 14px;
+  color: #757575;
+  white-space: nowrap;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+
+  &--active {
+    color: #FF6B35;
+    font-weight: 600;
+    border-bottom-color: #FF6B35;
+  }
 }

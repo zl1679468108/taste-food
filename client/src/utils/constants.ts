@@ -3,22 +3,9 @@
  * 与后端 common/constants/enums.ts 保持一致
  */
 
-export enum OrderStatus {
-  PENDING_PAYMENT = 'pending_payment',
-  PAID = 'paid',
-  ACCEPTED = 'accepted',
-  PREPARING = 'preparing',
-  DELIVERING = 'delivering',
-  COMPLETED = 'completed',
-  CANCELLED = 'cancelled',
-  REJECTED = 'rejected',
-}
+import { OrderStatus, DeliveryType } from '../types/order';
 
-export enum DeliveryType {
-  DELIVERY = 'delivery',
-  PICKUP = 'pickup',
-  DINE_IN = 'dine_in',
-}
+export { OrderStatus, DeliveryType };
 
 export enum MenuItemStatus {
   ACTIVE = 'active',
@@ -31,6 +18,7 @@ export const ORDER_STATUS_MAP: Record<string, string> = {
   [OrderStatus.PAID]: '已支付',
   [OrderStatus.ACCEPTED]: '已接单',
   [OrderStatus.PREPARING]: '制作中',
+  [OrderStatus.READY_FOR_PICKUP]: '待自取',
   [OrderStatus.DELIVERING]: '配送中',
   [OrderStatus.COMPLETED]: '已完成',
   [OrderStatus.CANCELLED]: '已取消',
@@ -50,6 +38,7 @@ export const ORDER_STATUS_COLOR_MAP: Record<string, string> = {
   [OrderStatus.PAID]: '#3b82f6',             // 蓝色
   [OrderStatus.ACCEPTED]: '#8b5cf6',          // 紫色
   [OrderStatus.PREPARING]: '#f97316',         // 橙色
+  [OrderStatus.READY_FOR_PICKUP]: '#d946ef',  // 品红
   [OrderStatus.DELIVERING]: '#06b6d4',        // 青色
   [OrderStatus.COMPLETED]: '#22c55e',         // 绿色
   [OrderStatus.CANCELLED]: '#6b7280',         // 灰色

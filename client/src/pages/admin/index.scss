@@ -205,7 +205,7 @@
   padding: 40px 0;
   text-align: center;
   color: #999;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 /* 加载更多 */
@@ -247,7 +247,7 @@
 }
 
 .action-modal__title {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
   color: #333;
 }
@@ -344,5 +344,83 @@
   &__text {
     font-size: 14px;
     color: #999;
+  }
+}
+
+/* ========== 新订单横幅通知 ========== */
+.new-order-banner {
+  background: linear-gradient(135deg, #e74c3c, #ff6b6b);
+  color: #fff;
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: pulse 2s infinite;
+
+  &__content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__icon {
+    font-size: 28px;
+  }
+
+  &__text {
+    font-size: 26px;
+    font-weight: 500;
+  }
+
+  &__amount {
+    font-size: 30px;
+    font-weight: 700;
+  }
+
+  &__close {
+    font-size: 28px;
+    opacity: 0.8;
+    padding: 4px 8px;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
+/* 管理动作按钮 */
+.admin-actions {
+  display: flex;
+  padding: 12px;
+  gap: 12px;
+  background: #fff;
+  margin-bottom: 8px;
+}
+
+.action-btn {
+  flex: 1;
+  background: #f8fafc;
+  padding: 16px 0;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #f1f5f9;
+
+  &:active {
+    background: #f1f5f9;
+  }
+
+  &__icon {
+    font-size: 24px;
+    margin-bottom: 6px;
+  }
+
+  & > text {
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
   }
 }

@@ -1,0 +1,160 @@
+openapi: 3.0.0
+info:
+  title: 小买卖点餐系统 API
+  version: 1.0.0
+  description: 面向线下小餐饮店的扫码点餐系统 API
+
+servers:
+  - url: http://localhost:3010/api
+    description: 开发环境
+
+paths:
+  /auth/wechat-login:
+    post:
+      summary: 微信登录
+      tags: [认证]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: 微信登录 code
+                nickName:
+                  type: string
+                  description: 用户昵称
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: number
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      refreshToken:
+                        type: string
+                      userId:
+                        type: string
+                      role:
+                        type: string
+
+  /shops:
+    get:
+      summary: 获取店铺列表
+      tags: [店铺]
+      responses:
+        '200':
+          description: 成功
+
+  /shops/{id}:
+    get:
+      summary: 获取店铺详情
+      tags: [店铺]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+
+  /menu-items:
+    get:
+      summary: 获取菜品列表
+      tags: [菜品]
+      parameters:
+        - name: shop_id
+          in: query
+          schema:
+            type: string
+        - name: category_id
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+
+  /orders:
+    get:
+      summary: 获取订单列表
+      tags: [订单]
+      parameters:
+        - name: shop_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 成功
+
+  /orders/stats/{shopId}:
+    get:
+      summary: 获取订单统计
+      tags: [订单]
+      parameters:
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+
+  /users:
+    get:
+      summary: 获取用户列表
+      tags: [用户]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 成功
+
+  /promotions:
+    get:
+      summary: 获取促销列表
+      tags: [促销]
+      parameters:
+        - name: shopId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功

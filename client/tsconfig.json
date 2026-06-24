@@ -13,11 +13,11 @@
     "noEmit": true,
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": ["@tarojs/taro/types", "@types/webpack-env"]
+    "types": ["@tarojs/taro/types", "@types/webpack-env"],
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "config/**/*"],
   "exclude": ["node_modules", "dist"]

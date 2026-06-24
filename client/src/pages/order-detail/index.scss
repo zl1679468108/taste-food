@@ -214,5 +214,64 @@
   justify-content: center;
   height: 300px;
   color: #999;
-  font-size: 14px;
+  font-size: 15px;
+}
+
+/* ---- 底部操作栏新增样式 ---- */
+.order-actions {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+
+  &__btn {
+    flex: 1;
+    padding: 12px;
+    border-radius: 22px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    border: none;
+
+    &--primary {
+      background: #FF6B35;
+      color: #fff;
+    }
+
+    &--secondary {
+      background: #FFF0EB;
+      color: #FF6B35;
+    }
+
+    &--danger {
+      background: #F5F5F5;
+      color: #757575;
+    }
+
+    &--loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+  }
+
+  &__tip {
+    flex: 1;
+    text-align: center;
+    font-size: 14px;
+    color: #757575;
+    line-height: 1.5;
+  }
+}
+
+.status-card__estimated {
+  font-size: 22px;
+  color: #FF6B35;
+  margin-top: 4px;
+  display: block;
 }

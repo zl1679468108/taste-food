@@ -26,6 +26,14 @@ export class OrderQueryDto {
 
   @IsString()
   @IsOptional()
+  rider_id?: string;
+
+  @IsString()
+  @IsOptional()
+  is_pool?: string;
+
+  @IsString()
+  @IsOptional()
   page?: string;
 
   @IsString()

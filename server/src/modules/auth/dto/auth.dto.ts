@@ -15,6 +15,7 @@ export class WechatLoginDto {
 
 export class AuthResponseDto {
   token!: string;
+  refreshToken!: string;
   user!: {
     id: string;
     openid: string;
@@ -26,7 +27,13 @@ export class AuthResponseDto {
 
 export class LoginResponseDto {
   token!: string;
+  refreshToken!: string;
   userId!: string;
   openid!: string;
   role!: string;
+}
+
+export class RefreshTokenDto {
+  @IsString()
+  refreshToken!: string;
 }

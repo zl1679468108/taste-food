@@ -6,8 +6,10 @@ import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
 import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP } from '../../utils/constants';
 import { Order, OrderStatus } from '../../types/order';
+import { Category } from '../../types/menu';
 import { PaginatedData } from '../../types/api';
-import { onOrderUpdated, onOrderCreated, removeAllListeners } from '../../services/socket';
+import { onOrderUpdated, onOrderCreated, removePageListeners } from '../../services/socket';
+import { DEFAULT_SHOP_ID } from '../../env';
 import './index.scss';
 
 interface OrderStats {
@@ -30,7 +32,9 @@ interface AdminState {
   hasMore: boolean;
   selectedOrder: Order | null;
   modalVisible: boolean;
+  categories: Category[];
   shopId: string;
+  newOrderBanner: { visible: boolean; order: Order | Record<string, unknown> } | null;
 }
 
 const TABS = [
@@ -60,8 +64,10 @@ export default class AdminPage extends Component<{}, AdminState> {
       pageSize: 20,
       hasMore: true,
       selectedOrder: null,
+      categories: [],
       modalVisible: false,
-      shopId: '00000000-0000-0000-0000-000000000001',
+      shopId: DEFAULT_SHOP_ID,
+      newOrderBanner: null,
     };
   }
 
@@ -75,27 +81,36 @@ export default class AdminPage extends Component<{}, AdminState> {
   }
 
   componentWillUnmount() {
-    removeAllListeners();
+    removePageListeners('admin');
   }
 
   /** 设置 WebSocket 监听 */
   setupSocketListeners() {
     // 监听新订单
     onOrderCreated((data) => {
-      console.log('[WS] 管理员收到新订单:', data.order.id);
-      Taro.showToast({
-        title: `新订单 ¥${(data.order.total / 100).toFixed(2)}`,
-        icon: 'none',
-        duration: 3000,
+      this.setState({
+        newOrderBanner: { visible: true, order: data.order },
       });
       this.loadData();
-    });
+    }, 'admin');
 
     // 监听订单更新
     onOrderUpdated((data) => {
-      console.log('[WS] 管理员收到订单更新:', data.order.id, data.order.status);
       this.loadData();
-    });
+    }, 'admin');
+  }
+
+  closeNewOrderBanner() {
+    this.setState({ newOrderBanner: null });
+  }
+
+  handleBannerViewOrder() {
+    const order = this.state.newOrderBanner?.order;
+    if (order) {
+      this.setState({ newOrderBanner: null }, () => {
+        Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${order.id}` });
+      });
+    }
   }
 
   checkAuth() {
@@ -111,6 +126,16 @@ export default class AdminPage extends Component<{}, AdminState> {
   async loadData() {
     this.loadStats();
     this.loadOrders(1);
+    this.loadCategories();
+  }
+
+  async loadCategories() {
+    try {
+      const res = await get<any[]>('/categories');
+      this.setState({ categories: res.data || [] });
+    } catch (e) {
+      console.error('加载分类失败:', e);
+    }
   }
 
   async loadStats() {
@@ -224,13 +249,18 @@ export default class AdminPage extends Component<{}, AdminState> {
         break;
       case OrderStatus.PREPARING:
         if (order.deliveryType === 'delivery') {
-          actions.push({ label: '开始配送', nextStatus: OrderStatus.DELIVERING, type: 'primary' });
+          actions.push({ label: '呼叫配送（制作完成）', nextStatus: OrderStatus.DELIVERING, type: 'primary' });
+        } else if (order.deliveryType === 'pickup') {
+          actions.push({ label: '待自取（制作完成）', nextStatus: OrderStatus.READY_FOR_PICKUP, type: 'primary' });
         } else {
-          actions.push({ label: '完成（自取/堂食）', nextStatus: OrderStatus.COMPLETED, type: 'success' });
+          actions.push({ label: '完成（堂食）', nextStatus: OrderStatus.COMPLETED, type: 'success' });
         }
         break;
+      case OrderStatus.READY_FOR_PICKUP:
+        actions.push({ label: '确认取餐', nextStatus: OrderStatus.COMPLETED, type: 'success' });
+        break;
       case OrderStatus.DELIVERING:
-        actions.push({ label: '完成配送', nextStatus: OrderStatus.COMPLETED, type: 'success' });
+        actions.push({ label: '确认送达', nextStatus: OrderStatus.COMPLETED, type: 'success' });
         break;
     }
 
@@ -254,10 +284,32 @@ export default class AdminPage extends Component<{}, AdminState> {
       hasMore,
       selectedOrder,
       modalVisible,
+      newOrderBanner,
     } = this.state;
 
     return (
       <View className='admin-page'>
+        {/* 新订单横幅通知 */}
+        {newOrderBanner && newOrderBanner.visible && (
+          <View className='new-order-banner'>
+            <View className='new-order-banner__content' onClick={() => this.handleBannerViewOrder()}>
+              <Text className='new-order-banner__icon'>🔔</Text>
+              <Text className='new-order-banner__text'>新订单</Text>
+              <Text className='new-order-banner__amount'>
+                ¥{((newOrderBanner.order.total as number) / 100).toFixed(2)}
+              </Text>
+            </View>
+            <Text
+              className='new-order-banner__close'
+              onClick={(e) => {
+                e.stopPropagation();
+                this.closeNewOrderBanner();
+              }}
+            >
+              ✕
+            </Text>
+          </View>
+        )}
         {/* 统计卡片 */}
         <View className='stats-section'>
           <View className='stat-card'>
@@ -281,6 +333,17 @@ export default class AdminPage extends Component<{}, AdminState> {
           <View className='stat-card'>
             <Text className='stat-card__value'>{stats?.completedCount || 0}</Text>
             <Text className='stat-card__label'>已完成</Text>
+          </View>
+        </View>
+
+        <View className='admin-actions'>
+          <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/menu-manage' })}>
+            <Text className='action-btn__icon'>🍴</Text>
+            <Text>菜品管理</Text>
+          </View>
+          <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/user-manage' })}>
+            <Text className='action-btn__icon'>👥</Text>
+            <Text>会员管理</Text>
           </View>
         </View>
 

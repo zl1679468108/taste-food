@@ -1,11 +1,82 @@
 import { create } from 'zustand';
+import * as TaroImport from '@tarojs/taro';
 import { CartItem } from '../types/cart';
+
+const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
+
+const CART_STORAGE_KEY = 'taste_food_cart';
+const CART_PERSIST_DEBOUNCE_MS = 1000;
 
 /**
  * 生成购物车商品唯一标识
  */
 function generateItemKey(menuItemId: string, specDesc?: string): string {
   return `${menuItemId}_${specDesc || 'default'}`;
+}
+
+// 防抖缓存
+let persistTimer: NodeJS.Timeout | null = null;
+let persistState: { items: CartItem[]; shopId: string | null; remarks: string } | null = null;
+
+/**
+ * 持久化购物车到 Storage（防抖）
+ */
+function persistCart(state: { items: CartItem[]; shopId: string | null; remarks: string }) {
+  // 保存当前状态用于防抖
+  persistState = state;
+  
+  // 清除之前的定时器
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+  }
+
+  // 设置新的定时器，1秒后执行持久化
+  persistTimer = setTimeout(() => {
+    try {
+      if (persistState) {
+        Taro.setStorageSync(CART_STORAGE_KEY, persistState);
+        console.log('[Cart] Shopping cart persisted successfully');
+      }
+    } catch (error) {
+      console.error('[Cart] Failed to persist shopping cart:', error);
+    }
+    persistTimer = null;
+    persistState = null;
+  }, CART_PERSIST_DEBOUNCE_MS); // 1秒防抖延迟
+}
+
+/**
+ * 立即持久化购物车（用于关键操作如清空购物车）
+ */
+function persistCartImmediate(state: { items: CartItem[]; shopId: string | null; remarks: string }) {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  persistState = state;
+  try {
+    Taro.setStorageSync(CART_STORAGE_KEY, state);
+    console.log('[Cart] Shopping cart persisted immediately');
+  } catch (error) {
+    console.error('[Cart] Failed to persist shopping cart:', error);
+  }
+  persistState = null;
+}
+
+/**
+ * 从 Storage 恢复购物车
+ */
+function loadCart(): { items: CartItem[]; shopId: string | null; remarks: string } {
+  try {
+    const data = Taro.getStorageSync(CART_STORAGE_KEY);
+    if (data && Array.isArray(data.items)) {
+      console.log('[Cart] Shopping cart loaded from storage:', data.items.length, 'items');
+      return { items: data.items, shopId: data.shopId || null, remarks: data.remarks || '' };
+    }
+  } catch (error) {
+    console.error('[Cart] Failed to load shopping cart:', error);
+  }
+  return { items: [], shopId: null, remarks: '' };
 }
 
 /** 购物车 Store 状态 */
@@ -35,54 +106,62 @@ interface CartState {
   getTotalPrice: () => number;
   /** 计算总件数 */
   getTotalCount: () => number;
+  /** 手动保存购物车到存储 */
+  saveCart: () => void;
 }
 
+// 从 Storage 恢复初始状态
+const savedCart = loadCart();
+
 export const useCartStore = create<CartState>((set, get) => ({
-  items: [],
-  shopId: null,
-  remarks: '',
+  items: savedCart.items,
+  shopId: savedCart.shopId,
+  remarks: savedCart.remarks,
 
   addItem: (item) => {
     const { items } = get();
     const key = generateItemKey(item.menuItemId, item.specDesc);
     const existingIndex = items.findIndex((i) => i.key === key);
 
+    let newItems: CartItem[];
     if (existingIndex >= 0) {
-      // 已存在则增加数量
       const updated = [...items];
       updated[existingIndex] = {
         ...updated[existingIndex],
         quantity: updated[existingIndex].quantity + item.quantity,
       };
-      set({ items: updated });
+      newItems = updated;
     } else {
-      // 不存在则新增
       const newItem: CartItem = {
         ...item,
         key,
         specDesc: item.specDesc || '',
         imageUrl: item.imageUrl || '',
       };
-      set({ items: [...items, newItem] });
+      newItems = [...items, newItem];
     }
+    set({ items: newItems });
+    persistCart({ items: newItems, shopId: get().shopId, remarks: get().remarks });
   },
 
   removeItem: (key) => {
-    const { items } = get();
-    set({ items: items.filter((i) => i.key !== key) });
+    const { items, shopId, remarks } = get();
+    const newItems = items.filter((i) => i.key !== key);
+    set({ items: newItems });
+    persistCart({ items: newItems, shopId, remarks });
   },
 
   updateQuantity: (key, delta) => {
-    const { items } = get();
-    const updated = items
+    const { items, shopId, remarks } = get();
+    const newItems = items
       .map((item) => {
         if (item.key !== key) return item;
         const newQty = item.quantity + delta;
-        // 数量 <= 0 时移除
         return newQty <= 0 ? null : { ...item, quantity: newQty };
       })
       .filter(Boolean) as CartItem[];
-    set({ items: updated });
+    set({ items: newItems });
+    persistCart({ items: newItems, shopId, remarks });
   },
 
   setQuantity: (key, quantity) => {
@@ -90,28 +169,34 @@ export const useCartStore = create<CartState>((set, get) => ({
       get().removeItem(key);
       return;
     }
-    const { items } = get();
-    const updated = items.map((item) =>
+    const { items, shopId, remarks } = get();
+    const newItems = items.map((item) =>
       item.key === key ? { ...item, quantity } : item,
     );
-    set({ items: updated });
+    set({ items: newItems });
+    persistCart({ items: newItems, shopId, remarks });
   },
 
   clearCart: () => {
     set({ items: [], remarks: '' });
+    // 清空购物车是关键操作，立即持久化
+    persistCartImmediate({ items: [], shopId: get().shopId, remarks: '' });
   },
 
   setRemarks: (text) => {
     set({ remarks: text });
+    persistCart({ items: get().items, shopId: get().shopId, remarks: text });
   },
 
   setShopId: (shopId) => {
     const currentShopId = get().shopId;
-    // 切换店铺时清空购物车
     if (currentShopId && currentShopId !== shopId) {
       set({ items: [], shopId, remarks: '' });
+      // 切换店铺是关键操作，立即持久化
+      persistCartImmediate({ items: [], shopId, remarks: '' });
     } else {
       set({ shopId });
+      persistCart({ items: get().items, shopId, remarks: get().remarks });
     }
   },
 
@@ -125,4 +210,16 @@ export const useCartStore = create<CartState>((set, get) => ({
   getTotalCount: (): number => {
     return get().items.reduce((sum, item) => sum + item.quantity, 0);
   },
+
+  saveCart: () => {
+    const state = get();
+    persistCartImmediate({ items: state.items, shopId: state.shopId, remarks: state.remarks });
+  },
 }));
+
+// 页面卸载时保存购物车
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    useCartStore.getState().saveCart();
+  });
+}

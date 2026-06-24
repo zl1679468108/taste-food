@@ -1,0 +1,106 @@
+@import '../../styles/design-tokens';
+
+.status-timeline {
+  padding: $space-4 $space-4;
+
+  &__title {
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    color: $gray-800;
+    margin-bottom: $space-4;
+  }
+
+  &__item {
+    display: flex;
+    padding-bottom: $space-4;
+    position: relative;
+
+    &:last-child {
+      padding-bottom: 0;
+    }
+  }
+
+  &__dot-col {
+    width: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  &__dot {
+    width: 12px;
+    height: 12px;
+    border-radius: $radius-full;
+    flex-shrink: 0;
+    z-index: 1;
+
+    &--done {
+      background: $success;
+    }
+
+    &--current {
+      background: $info;
+      animation: timeline-pulse 2s infinite;
+    }
+
+    &--pending {
+      background: $gray-300;
+    }
+  }
+
+  &__line {
+    width: 2px;
+    flex: 1;
+    margin-top: 4px;
+
+    &--done {
+      background: $success;
+    }
+
+    &--pending {
+      background: $gray-300;
+    }
+  }
+
+  &__content {
+    flex: 1;
+    padding-left: $space-2;
+  }
+
+  &__label {
+    font-size: $font-base;
+    font-weight: $weight-medium;
+    color: $gray-400;
+
+    &--done {
+      color: $success;
+    }
+
+    &--current {
+      color: $info;
+      font-weight: $weight-semibold;
+    }
+  }
+
+  &__time {
+    font-size: $font-xs;
+    color: $gray-500;
+    margin-top: 2px;
+  }
+
+  &__badge {
+    display: inline-block;
+    font-size: 24rpx;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: rgba(59, 130, 246, 0.1);
+    color: $info;
+    margin-left: 4px;
+  }
+}
+
+@keyframes timeline-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2); }
+  50%      { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.1); }
+}

@@ -33,6 +33,9 @@ export class CreateMenuItemDto {
   @IsString({ each: true })
   @IsOptional()
   specGroupIds?: string[];
+
+  @IsOptional()
+  isFavorite?: boolean;
 }
 
 export class MenuItemResponseDto {
@@ -48,4 +51,6 @@ export class MenuItemResponseDto {
   specGroupIds?: string[];
   createdAt!: string;
   updatedAt!: string;
+
+  isFavorite?: boolean;
 }

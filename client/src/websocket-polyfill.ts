@@ -101,7 +101,9 @@ class MiniProgramWebSocket {
       console.warn('[MiniProgramWebSocket] send() called when not OPEN, state:', this._readyState);
       return;
     }
-    this._task.send({ data });
+    // socket.io 可能发送 string 或 ArrayBuffer，Taro.send 需要 string | ArrayBuffer
+    const sendData = typeof data === 'string' ? data : JSON.stringify(data);
+    this._task.send({ data: sendData });
   }
 
   close(code?: number, reason?: string): void {

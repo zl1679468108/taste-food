@@ -7,6 +7,7 @@ import './login.scss';
 interface LoginPageState {
   loading: boolean;
   loadingCustomer: boolean;
+  loadingRider: boolean;
 }
 
 export default class LoginPage extends Component<{}, LoginPageState> {
@@ -17,6 +18,7 @@ export default class LoginPage extends Component<{}, LoginPageState> {
     this.state = {
       loading: false,
       loadingCustomer: false,
+      loadingRider: false,
     };
   }
 
@@ -52,8 +54,24 @@ export default class LoginPage extends Component<{}, LoginPageState> {
     }
   }
 
+  /** 模拟骑手登录 */
+  async mockRiderLogin() {
+    this.setState({ loadingRider: true });
+    try {
+      await this.authStore.getState().login('rider_code');
+      Taro.showToast({ title: '骑手登录成功', icon: 'success' });
+      setTimeout(() => {
+        Taro.switchTab({ url: '/pages/menu/index' });
+      }, 1000);
+    } catch {
+      // 错误已在 request 中处理
+    } finally {
+      this.setState({ loadingRider: false });
+    }
+  }
+
   render() {
-    const { loading, loadingCustomer } = this.state;
+    const { loading, loadingCustomer, loadingRider } = this.state;
 
     return (
       <View className='login-page'>
@@ -72,17 +90,27 @@ export default class LoginPage extends Component<{}, LoginPageState> {
           <Text className='login-page__desc-text'>
             当前为开发环境，微信登录功能不可用。请使用模拟登录按钮进行测试。
             {'\n'}
-            管理员 code: admin_code | 顾客 code: customer_code
+            管理员: admin_code | 顾客: customer_code | 骑手: rider_code
           </Text>
         </View>
 
         {/* 模拟登录按钮 */}
         <View
           className={`login-page__btn ${loading ? 'login-page__btn--loading' : ''}`}
-          onClick={() => !loading && !loadingCustomer && this.mockAdminLogin()}
+          onClick={() => !loading && !loadingCustomer && !loadingRider && this.mockAdminLogin()}
         >
           <Text className='login-page__btn-icon'>👨‍🍳</Text>
           <Text>{loading ? '登录中...' : '管理员模拟登录'}</Text>
+        </View>
+
+        {/* 骑手登录 */}
+        <View
+          className={`login-page__btn login-page__btn--rider ${loadingRider ? 'login-page__btn--loading' : ''}`}
+          style={{ marginTop: '12px', backgroundColor: '#4CAF50' }}
+          onClick={() => !loading && !loadingCustomer && !loadingRider && this.mockRiderLogin()}
+        >
+          <Text className='login-page__btn-icon'>🛵</Text>
+          <Text>{loadingRider ? '登录中...' : '骑手模拟登录'}</Text>
         </View>
 
         {/* 分隔线 */}

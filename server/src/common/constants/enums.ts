@@ -3,6 +3,7 @@ export enum OrderStatus {
   PAID = 'paid',
   ACCEPTED = 'accepted',
   PREPARING = 'preparing',
+  READY_FOR_PICKUP = 'ready_for_pickup',
   DELIVERING = 'delivering',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
@@ -28,4 +29,17 @@ export enum ShopStatus {
 export enum UserRole {
   CUSTOMER = 'customer',
   ADMIN = 'admin',
+  RIDER = 'rider',
+}
+
+export enum PromotionType {
+  FULL_DISCOUNT = 'full_discount',
+  FIRST_ORDER = 'first_order',
+  COUPON = 'coupon',
+}
+
+export enum PromotionStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+  EXPIRED = 'expired',
 }

@@ -1,0 +1,48 @@
+@import '../../styles/design-tokens';
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $space-8 $space-4;
+
+  &__icon {
+    font-size: 136rpx;
+    margin-bottom: $space-4;
+  }
+
+  &__title {
+    font-size: $font-xl;
+    font-weight: $weight-medium;
+    color: $gray-800;
+    margin-bottom: $space-2;
+  }
+
+  &__desc {
+    font-size: $font-base;
+    color: $gray-500;
+    text-align: center;
+    line-height: 1.5;
+    margin-bottom: $space-4;
+  }
+
+  &__action {
+    height: 40px;
+    padding: 0 24px;
+    border-radius: $radius-2xl;
+    background: $gradient-brand;
+    color: #fff;
+    font-size: $font-md;
+    font-weight: $weight-medium;
+    box-shadow: $shadow-btn;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:active {
+      opacity: 0.85;
+    }
+  }
+}

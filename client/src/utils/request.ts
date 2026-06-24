@@ -1,9 +1,12 @@
-import Taro from '@tarojs/taro';
+import * as TaroImport from '@tarojs/taro';
 import { API_BASE_URL } from '../env';
 import { ApiResponse } from '../types/api';
+import { getCache, setCache, clearCache } from './cache';
+
+const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
 /** 请求方法类型 */
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
 /** 请求选项 */
 interface RequestOptions {
@@ -13,6 +16,10 @@ interface RequestOptions {
   timeout?: number;
   /** 是否显示错误提示（默认 true） */
   showError?: boolean;
+  /** 是否使用缓存（仅 GET 有效） */
+  useCache?: boolean;
+  /** 缓存 key */
+  cacheKey?: string;
 }
 
 /**
@@ -27,6 +34,17 @@ function getToken(): string | null {
 }
 
 /**
+ * 构建缓存 key
+ */
+function buildCacheKey(method: string, url: string, data?: Record<string, any>): string {
+  const sortedParams = data ? JSON.stringify(Object.keys(data).sort().reduce((acc, key) => {
+    acc[key] = data[key];
+    return acc;
+  }, {} as Record<string, any>)) : '';
+  return `${method}:${url}:${sortedParams}`;
+}
+
+/**
  * 统一请求处理
  */
 async function request<T>(
@@ -35,6 +53,14 @@ async function request<T>(
   data?: Record<string, any>,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
+  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  const cacheKey = options?.cacheKey || buildCacheKey(method, fullUrl, data);
+
+  if (method === 'GET' && options?.useCache !== false) {
+    const cached = getCache<ApiResponse<T>>(cacheKey);
+    if (cached) return cached;
+  }
+
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -44,9 +70,6 @@ async function request<T>(
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-
-  // 构建完整 URL
-  const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
 
   try {
     const response = await Taro.request({
@@ -59,15 +82,18 @@ async function request<T>(
 
     const responseData = response.data as ApiResponse<T>;
 
-    // 统一错误处理
     if (responseData.code !== 0) {
-      // 401 - 未认证，跳转登录页
       if (responseData.code === 401) {
         Taro.removeStorageSync('token');
-        Taro.showToast({ title: '登录已过期，请重新登录', icon: 'none' });
-        setTimeout(() => {
-          Taro.navigateTo({ url: '/pages/auth/login' });
-        }, 1500);
+        const pages = Taro.getCurrentPages();
+        const currentPage = pages[pages.length - 1];
+        const isLoginPage = currentPage?.route === 'pages/auth/login';
+        if (!isLoginPage) {
+          Taro.showToast({ title: '登录已过期，请重新登录', icon: 'none' });
+          setTimeout(() => {
+            Taro.reLaunch({ url: '/pages/auth/login' });
+          }, 1500);
+        }
       }
 
       if (options?.showError !== false && responseData.message) {
@@ -77,9 +103,12 @@ async function request<T>(
       throw new RequestError(responseData.message || '请求失败', responseData.code);
     }
 
+    if (method === 'GET' && options?.useCache !== false) {
+      setCache(cacheKey, responseData);
+    }
+
     return responseData;
   } catch (error: any) {
-    // 网络错误
     if (error.errno || error.message === 'Network request failed') {
       const errMsg = '网络连接失败，请检查网络';
       if (options?.showError !== false) {
@@ -88,12 +117,10 @@ async function request<T>(
       throw new RequestError(errMsg, -1);
     }
 
-    // 重新抛出已知错误
     if (error instanceof RequestError) {
       throw error;
     }
 
-    // 未知错误
     throw new RequestError(error.message || '未知错误', -2);
   }
 }
@@ -119,36 +146,44 @@ export function get<T>(
 }
 
 /** POST 请求 */
-export function post<T>(
+export async function post<T>(
   url: string,
   data?: Record<string, any>,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  return request<T>('POST', url, data, options);
+  const result = await request<T>('POST', url, data, options);
+  clearCache(url.split('/')[1] || url);
+  return result;
 }
 
 /** PUT 请求 */
-export function put<T>(
+export async function put<T>(
   url: string,
   data?: Record<string, any>,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  return request<T>('PUT', url, data, options);
+  const result = await request<T>('PUT', url, data, options);
+  clearCache(url.split('/')[1] || url);
+  return result;
 }
 
 /** DELETE 请求 */
-export function del<T>(
+export async function del<T>(
   url: string,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  return request<T>('DELETE', url, undefined, options);
+  const result = await request<T>('DELETE', url, undefined, options);
+  clearCache(url.split('/')[1] || url);
+  return result;
 }
 
 /** PATCH 请求 */
-export function patch<T>(
+export async function patch<T>(
   url: string,
   data?: Record<string, any>,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  return request<T>('PATCH', url, data, options);
+  const result = await request<T>('PATCH', url, data, options);
+  clearCache(url.split('/')[1] || url);
+  return result;
 }

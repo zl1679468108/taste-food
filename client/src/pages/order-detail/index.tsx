@@ -2,10 +2,11 @@ import { Component } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, post } from '../../utils/request';
+import { useCartStore } from '../../stores/cartStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
 import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP } from '../../utils/constants';
 import { Order, OrderStatus } from '../../types/order';
-import { onOrderUpdated, removeAllListeners } from '../../services/socket';
+import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import './index.scss';
 
 interface OrderDetailState {
@@ -16,6 +17,8 @@ interface OrderDetailState {
 }
 
 export default class OrderDetailPage extends Component<{}, OrderDetailState> {
+  private cartStore = useCartStore;
+
   constructor(props: {}) {
     super(props);
 
@@ -48,14 +51,43 @@ export default class OrderDetailPage extends Component<{}, OrderDetailState> {
   setupSocketListener() {
     onOrderUpdated((data) => {
       if (data.order.id === this.orderId) {
-        console.log('[WS] 订单详情页收到更新，刷新数据');
         this.loadOrder(this.orderId);
       }
-    });
+    }, 'order-detail');
   }
 
+  /** 再来一单 */
+  async reorder() {
+    const { order } = this.state;
+    if (!order) return;
+
+    try {
+      const cartStore = this.cartStore.getState();
+      // 清空现有购物车，添加再来一单的商品
+      cartStore.clearCart();
+      order.items.forEach((item) => {
+        cartStore.addItem({
+          menuItemId: item.menuItemId || item.id,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          specDesc: item.specDesc || '',
+          imageUrl: item.imageUrl || '',
+        });
+      });
+      Taro.showToast({ title: '已加入购物车', icon: 'success' });
+      setTimeout(() => {
+        Taro.switchTab({ url: '/pages/menu/index' });
+      }, 800);
+    } catch (error: any) {
+      console.error('再来一单失败:', error);
+      Taro.showToast({ title: '操作失败', icon: 'none' });
+    }
+  }
+
+
   componentWillUnmount() {
-    removeAllListeners();
+    removePageListeners('order-detail');
   }
 
   async loadOrder(orderId: string) {
@@ -162,6 +194,11 @@ export default class OrderDetailPage extends Component<{}, OrderDetailState> {
           <Text className='status-card__time'>
             下单时间: {formatTime(order.createdAt)}
           </Text>
+          {order.estimatedCompletion && (
+            <Text className='status-card__estimated'>
+              预计完成: {formatTime(order.estimatedCompletion)}
+            </Text>
+          )}
         </View>
 
         {/* 配送信息 */}
@@ -227,8 +264,8 @@ export default class OrderDetailPage extends Component<{}, OrderDetailState> {
           <View className='price-detail__row'>
             <Text>配送费</Text>
             <Text className='price-detail__row-value'>
-              {total - subtotal > 0
-                ? formatPriceWithSymbol(total - subtotal)
+              {order.deliveryFee > 0
+                ? formatPriceWithSymbol(order.deliveryFee)
                 : '免费'}
             </Text>
           </View>
@@ -252,7 +289,7 @@ export default class OrderDetailPage extends Component<{}, OrderDetailState> {
 
         {/* 底部操作栏 */}
         <View className='order-actions'>
-          {order.status === OrderStatus.PENDING_PAYMENT && (
+          {[OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status) && (
             <>
               <View
                 className='order-actions__btn order-actions__btn--danger'
@@ -261,10 +298,51 @@ export default class OrderDetailPage extends Component<{}, OrderDetailState> {
                 取消订单
               </View>
               <View
-                className={`order-actions__btn order-actions__btn--primary ${paying ? '' : ''}`}
+                className={`order-actions__btn order-actions__btn--primary ${paying ? 'order-actions__btn--loading' : ''}`}
                 onClick={() => !paying && this.payOrder()}
               >
                 {paying ? '支付中...' : `立即支付 ${formatPriceWithSymbol(total)}`}
+              </View>
+            </>
+          )}
+          {(order.status === OrderStatus.PAID || order.status === OrderStatus.ACCEPTED || order.status === OrderStatus.PREPARING || order.status === OrderStatus.DELIVERING) && (
+            <View className='order-actions__tip'>
+              <Text>商家正在处理您的订单，请耐心等待</Text>
+            </View>
+          )}
+          {order.status === OrderStatus.COMPLETED && (
+            <>
+              <View
+                className='order-actions__btn order-actions__btn--secondary'
+                onClick={() => this.reorder()}
+              >
+                再来一单
+              </View>
+              <View
+                className='order-actions__btn order-actions__btn--primary'
+                onClick={() => {
+                  Taro.navigateTo({ url: '/pages/menu/index' });
+                }}
+              >
+                继续点餐
+              </View>
+            </>
+          )}
+          {order.status === OrderStatus.CANCELLED && (
+            <>
+              <View
+                className='order-actions__btn order-actions__btn--secondary'
+                onClick={() => this.reorder()}
+              >
+                再来一单
+              </View>
+              <View
+                className='order-actions__btn order-actions__btn--primary'
+                onClick={() => {
+                  Taro.switchTab({ url: '/pages/menu/index' });
+                }}
+              >
+                去点餐
               </View>
             </>
           )}

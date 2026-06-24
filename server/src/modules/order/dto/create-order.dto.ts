@@ -6,15 +6,18 @@ import {
   IsArray,
   ValidateNested,
   Min,
+MinLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DeliveryType } from '../../../common/constants/enums';
 
 export class CreateOrderItemDto {
   @IsString()
+  @MinLength(1)
   menuItemId!: string;
 
   @IsString()
+  @MinLength(1)
   name!: string;
 
   @IsNumber()
@@ -24,6 +27,11 @@ export class CreateOrderItemDto {
   @IsNumber()
   @Min(0)
   price!: number;
+
+  @IsString()
+  @MinLength(1)
+  @IsOptional()
+  contactNameValid?: string;
 
   @IsString()
   @IsOptional()
@@ -36,6 +44,7 @@ export class CreateOrderItemDto {
 
 export class CreateOrderDto {
   @IsString()
+  @MinLength(1)
   shopId!: string;
 
   @IsString()
@@ -69,4 +78,8 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   contactPhone?: string;
+
+  @IsNumber()
+  @IsOptional()
+  deliveryFee?: number;
 }

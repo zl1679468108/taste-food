@@ -1,12 +1,13 @@
 import { Component } from 'react';
-import { View, Text, Input, ScrollView } from '@tarojs/components';
+import { View, Text, Input, ScrollView, Picker } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, post, patch as httpPatch, del } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { getCategoryIcon } from '../../utils/iconMap';
 import { Category } from '../../types/menu';
-import { MenuItem, MenuItemStatus } from '../../types/menu';
+import { MenuItem } from '../../types/menu';
+import { DEFAULT_SHOP_ID } from '../../env';
 import './menu-manage.scss';
 
 interface FormMode {
@@ -29,6 +30,7 @@ interface MenuManageState {
   formName: string;
   formDescription: string;
   formEmoji: string;
+  formImageUrl: string;
   formPrice: string; // 元
   formCategoryId: string;
   formStatus: string;
@@ -64,6 +66,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
       formName: '',
       formDescription: '',
       formEmoji: '🍖',
+      formImageUrl: '',
       formPrice: '',
       formCategoryId: '',
       formStatus: 'active',
@@ -96,7 +99,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
   async loadData() {
     this.setState({ loading: true });
     try {
-      const shopId = '00000000-0000-0000-0000-000000000001';
+      const shopId = DEFAULT_SHOP_ID;
 
       const [categoriesRes, menuItemsRes] = await Promise.all([
         get<Category[]>(`/categories?shop_id=${shopId}`),
@@ -130,6 +133,42 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
     return menuItems.filter((item) => item.categoryId === activeCategoryId);
   }
 
+  /** 上传图片 */
+  async handleUploadImage() {
+    try {
+      const res = await Taro.chooseImage({ count: 1 });
+      const tempFilePath = res.tempFilePaths[0];
+
+      Taro.showLoading({ title: '上传中...' });
+
+      const authState = this.authStore.getState();
+      const uploadRes = await Taro.uploadFile({
+        url: `${process.env.TAR_APP_API_URL || 'http://localhost:3010/api'}/storage/images/menu`,
+        filePath: tempFilePath,
+        name: 'image',
+        header: {
+          Authorization: `Bearer ${authState.token}`,
+        },
+        formData: {
+          originalName: 'item.jpg',
+          userId: authState.user?.userId || '',
+        },
+      });
+
+      Taro.hideLoading();
+      const data = JSON.parse(uploadRes.data);
+      if (data.code === 0) {
+        this.setState({ formImageUrl: data.data.url });
+        Taro.showToast({ title: '上传成功', icon: 'success' });
+      } else {
+        throw new Error(data.message);
+      }
+    } catch (e: any) {
+      Taro.hideLoading();
+      Taro.showToast({ title: '上传失败: ' + (e.message || ''), icon: 'none' });
+    }
+  }
+
   /** 打开添加菜品表单 */
   openAddForm() {
     const { activeCategoryId } = this.state;
@@ -140,6 +179,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
       formName: '',
       formDescription: '',
       formEmoji: '🍖',
+      formImageUrl: '',
       formPrice: '',
       formCategoryId: activeCategoryId || '',
       formStatus: 'active',
@@ -155,6 +195,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
       formName: item.name,
       formDescription: item.description || '',
       formEmoji: '🍖',
+      formImageUrl: item.imageUrl || '',
       formPrice: (item.price / 100).toString(),
       formCategoryId: item.categoryId,
       formStatus: item.status,
@@ -163,7 +204,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
 
   /** 保存菜品表单 */
   async saveItemForm() {
-    const { formMode, editingItem, formName, formDescription, formPrice, formCategoryId } = this.state;
+    const { formMode, editingItem, formName, formDescription, formPrice, formCategoryId, formImageUrl } = this.state;
 
     if (!formName || !formPrice) {
       Taro.showToast({ title: '请填写名称和价格', icon: 'none' });
@@ -181,9 +222,9 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
       description: formDescription,
       price: priceInFen,
       categoryId: formCategoryId,
-      shopId: '00000000-0000-0000-0000-000000000001',
+        shopId: DEFAULT_SHOP_ID,
       status: this.state.formStatus,
-      imageUrl: '',
+      imageUrl: formImageUrl,
     };
 
     try {
@@ -292,7 +333,7 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
     try {
       await post<any>('/categories', {
         name: newCategoryName,
-        shopId: '00000000-0000-0000-0000-000000000001',
+      shopId: DEFAULT_SHOP_ID,
         sortOrder: parseInt(newCategorySort, 10) || 0,
       });
       Taro.showToast({ title: '分类创建成功', icon: 'success' });
@@ -422,10 +463,10 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
                       <View
                         className='menu-item-admin-card__image'
                         style={{
-                          background: `linear-gradient(135deg, #ff6b6b, #ffa07a)`,
+                          background: item.imageUrl ? `url(${item.imageUrl}) center/cover no-repeat` : `linear-gradient(135deg, #ff6b6b, #ffa07a)`,
                         }}
                       >
-                        <Text>{formEmoji}</Text>
+                        {!item.imageUrl && <Text>{formEmoji}</Text>}
                         <Text className='menu-item-admin-card__status-badge'>
                           {item.status === 'active' ? '上架' : '下架'}
                         </Text>
@@ -514,6 +555,20 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
                 </View>
 
                 <View className='form-field'>
+                  <Text className='form-field__label'>菜品图片</Text>
+                  <View className='image-upload' onClick={() => this.handleUploadImage()}>
+                    {this.state.formImageUrl ? (
+                      <View className='image-preview' style={{ backgroundImage: `url(${this.state.formImageUrl})` }} />
+                    ) : (
+                      <View className='image-placeholder'>
+                        <Text className='icon'>📷</Text>
+                        <Text className='text'>点击上传图片</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                <View className='form-field'>
                   <Text className='form-field__label'>展示图标</Text>
                   <View className='emoji-grid'>
                     {EMOJI_OPTIONS.map((emoji) => (
@@ -541,30 +596,23 @@ export default class MenuManagePage extends Component<{}, MenuManageState> {
 
                 <View className='form-field'>
                   <Text className='form-field__label'>所属分类</Text>
-                  <View
-                    className='form-field__select'
-                  >
-                    <select
-                      value={formCategoryId}
-                      onChange={(e: any) =>
-                        this.setState({ formCategoryId: e.target.value || e.detail.value })
+                  <Picker
+                    mode='selector'
+                    range={categories.map(cat => cat.name)}
+                    value={categories.findIndex(cat => cat.id === formCategoryId)}
+                    onChange={(e) => {
+                      const index = Number(e.detail.value);
+                      if (categories[index]) {
+                        this.setState({ formCategoryId: categories[index].id });
                       }
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        border: 'none',
-                        background: 'transparent',
-                        fontSize: 14,
-                        outline: 'none',
-                      }}
-                    >
-                      {categories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </option>
-                      ))}
-                    </select>
-                  </View>
+                    }}
+                  >
+                    <View className='form-field__select'>
+                      <Text style={{ fontSize: 14, color: formCategoryId ? '#333' : '#999' }}>
+                        {categories.find(cat => cat.id === formCategoryId)?.name || '请选择分类'}
+                      </Text>
+                    </View>
+                  </Picker>
                 </View>
               </View>
               <View className='form-modal__footer'>

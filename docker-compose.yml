@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  server:
+    build: ./server
+    ports:
+      - "3010:3010"
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=3010
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  # PC 管理后台
+  admin:
+    build: ./admin
+    ports:
+      - "3012:80"
+    depends_on:
+      - server
+    networks:
+      - app-network
+
+  # Nginx 反向代理（可选）
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    depends_on:
+      - server
+      - admin
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

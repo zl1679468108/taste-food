@@ -1,0 +1,102 @@
+/* ============================================
+   Design Tokens — 小买卖点餐系统
+   对齐 ui-prototype.html 原型设计系统
+   ============================================ */
+
+/* ---------- 色彩体系（对齐原型） ---------- */
+$primary:        #FF6B35;
+$primary-light:  #FFF0EB;
+$primary-dark:   #E55A2B;
+$primary-end:    #FF8F65;
+
+$success:        #00C853;
+$warning:        #FFB300;
+$danger:         #FF5252;
+$info:           #2196F3;
+
+$gray-50:   #FAFAFA;
+$gray-100:  #F5F5F5;
+$gray-200:  #EEEEEE;
+$gray-300:  #E0E0E0;
+$gray-400:  #BDBDBD;
+$gray-500:  #9E9E9E;
+$gray-600:  #757575;
+$gray-700:  #616161;
+$gray-800:  #424242;
+$gray-900:  #212121;
+
+$gradient-brand:   linear-gradient(135deg, #FF6B35, #FF8F65);
+$gradient-warm:    linear-gradient(135deg, #FFF3E0, #FFE0B2);
+$gradient-red:     linear-gradient(135deg, #FFEBEE, #FFCDD2);
+$gradient-green:   linear-gradient(135deg, #E8F5E9, #C8E6C9);
+$gradient-blue:    linear-gradient(135deg, #E3F2FD, #BBDEFB);
+$gradient-gold:    linear-gradient(135deg, #FFF8E1, #FFECB3);
+
+$gradient-stat:    linear-gradient(135deg, #FFF3E0, #FFE0B2);
+$gradient-admin:   linear-gradient(135deg, #FF6B35, #FF8F65);
+
+$text-primary:     #212121;
+$text-secondary:   #757575;
+$text-hint:        #BDBDBD;
+
+/* ---------- 字体系统 ---------- */
+$font-xs:    24rpx;
+$font-sm:    26rpx;
+$font-base:  28rpx;
+$font-md:    30rpx;
+$font-lg:    34rpx;
+$font-xl:    36rpx;
+$font-2xl:   40rpx;
+$font-3xl:   44rpx;
+$font-4xl:   48rpx;
+$font-5xl:   56rpx;
+$font-6xl:   68rpx;
+
+$weight-regular: 400;
+$weight-medium:  500;
+$weight-semibold:600;
+$weight-bold:    700;
+
+$font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+  'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+
+/* ---------- 间距系统 ---------- */
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 20px;
+$space-6: 24px;
+$space-8: 32px;
+
+/* ---------- 圆角系统（对齐原型） ---------- */
+$radius-sm:   6px;
+$radius-md:   10px;
+$radius-lg:   14px;
+$radius-xl:   16px;
+$radius-2xl:  20px;
+$radius-3xl:  24px;
+$radius-full: 50%;
+
+/* ---------- 阴影系统（对齐原型） ---------- */
+$shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.06);
+$shadow-md:  0 2px 8px rgba(0, 0, 0, 0.08);
+$shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.12);
+$shadow-top: 0 -2px 10px rgba(0, 0, 0, 0.06);
+$shadow-btn: 0 2px 6px rgba(255, 107, 53, 0.3);
+
+/* ---------- 动效 ---------- */
+$cubic-bezier-popup: cubic-bezier(0.32, 0.72, 0, 1);
+$cubic-bezier-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+/* ---------- 骨架屏 shimmer ---------- */
+@mixin shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+}
+
+/* ---------- 安全区域 ---------- */
+@mixin safe-area-bottom {
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
+}

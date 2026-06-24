@@ -1,0 +1,13 @@
+const config = {
+  // 生产环境配置
+  env: {
+    NODE_ENV: '"production"',
+    API_BASE_URL: '"http://localhost:3010/api"',
+    WS_URL: '"ws://localhost:3010"',
+  },
+  mini: {
+    ...{},
+  },
+};
+
+export default config;

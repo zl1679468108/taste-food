@@ -1,14 +1,18 @@
-import { Component } from 'react';
-import { View, Text, ScrollView, Image } from '@tarojs/components';
-import Taro from '@tarojs/taro';
-import { get } from '../../utils/request';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, ScrollView, Input } from '@tarojs/components';
+import Taro, { createSelectorQuery } from '@tarojs/taro';
+import { get, post } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
+import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { getCategoryIcon } from '../../utils/iconMap';
 import { Shop } from '../../types/shop';
-import { Category, MenuItem } from '../../types/menu';
-import { ApiResponse } from '../../types/api';
+import { Category, MenuItem, SpecGroup, SpecOption } from '../../types/menu';
+import { DEFAULT_SHOP_ID } from '../../env';
 import './index.scss';
+import FlyInAnimation from '../../components/FlyInAnimation';
+import MenuItemCard from '../../components/MenuItemCard';
+import CartItemRow from '../../components/CartItemRow';
 
 interface CategoryItemData {
   id: string;
@@ -17,134 +21,299 @@ interface CategoryItemData {
   items: MenuItem[];
 }
 
-interface MenuPageState {
-  shop: Shop | null;
-  categories: CategoryItemData[];
-  activeCategoryIndex: number;
-  loading: boolean;
-  cartPopupVisible: boolean;
-  specPopupVisible: boolean;
-  selectedItem: MenuItem | null;
-  selectedSpecs: Record<string, string>;
-  quantity: number;
+interface SpecOptionWithPrice extends SpecOption {
+  isSelected: boolean;
 }
 
-export default class MenuPage extends Component<{}, MenuPageState> {
-  private cartStore = useCartStore;
+interface SpecGroupWithSelection extends SpecGroup {
+  selectedOptions: SpecOptionWithPrice[];
+}
 
-  constructor(props: {}) {
-    super(props);
+export default function MenuPage() {
+  const cartStore = useCartStore();
 
-    this.state = {
-      shop: null,
-      categories: [],
-      activeCategoryIndex: 0,
-      loading: true,
-      cartPopupVisible: false,
-      specPopupVisible: false,
-      selectedItem: null,
-      selectedSpecs: {},
-      quantity: 1,
-    };
-  }
+  const [shop, setShop] = useState<Shop | null>(null);
+  const [categories, setCategories] = useState<CategoryItemData[]>([]);
+  const [activeCategoryIndex, setActiveCategoryIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [cartPopupVisible, setCartPopupVisible] = useState(false);
+  const [specPopupVisible, setSpecPopupVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
+  const [selectedSpecs, setSelectedSpecs] = useState<Record<string, string>>({});
+  const [selectedSpecOptionIds, setSelectedSpecOptionIds] = useState<Record<string, string>>({});
+  const [quantity, setQuantity] = useState(1);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [flyInVisible, setFlyInVisible] = useState(false);
+  const [flyInPosition, setFlyInPosition] = useState({ x: 0, y: 0 });
+  const [itemSpecs, setItemSpecs] = useState<SpecGroupWithSelection[]>([]);
+  const [loadingSpecs, setLoadingSpecs] = useState(false);
+  const [scrollIntoView, setScrollIntoView] = useState('');
+  const [specExtraPrice, setSpecExtraPrice] = useState(0);
+  const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  componentDidMount() {
-    this.loadData();
-  }
+  // Refs to avoid stale closures in callbacks
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
+  const selectedItemRef = useRef(selectedItem);
+  selectedItemRef.current = selectedItem;
+  const selectedSpecsRef = useRef(selectedSpecs);
+  selectedSpecsRef.current = selectedSpecs;
+  const selectedSpecOptionIdsRef = useRef(selectedSpecOptionIds);
+  selectedSpecOptionIdsRef.current = selectedSpecOptionIds;
+  const itemSpecsRef = useRef(itemSpecs);
+  itemSpecsRef.current = itemSpecs;
+  const quantityRef = useRef(quantity);
+  quantityRef.current = quantity;
 
-  async loadData() {
-    this.setState({ loading: true });
+  useEffect(() => {
+    loadData();
+  }, []);
 
+  async function loadData() {
+    setLoading(true);
     try {
-      const defaultShopId = '00000000-0000-0000-0000-000000000001';
-
-      // 并行获取店铺和菜单数据
-      const [shopRes, categoriesRes, menuItemsRes] = await Promise.all([
-        get<Shop>(`/shops/${defaultShopId}`),
-        get<Category[]>(`/categories?shop_id=${defaultShopId}`),
-        get<MenuItem[]>(`/menu-items?shop_id=${defaultShopId}`),
+      const [shopRes, categoriesRes, menuItemsRes, popularRes] = await Promise.all([
+        get<Shop>(`/shops/${DEFAULT_SHOP_ID}`),
+        get<Category[]>('/categories', { shop_id: DEFAULT_SHOP_ID }),
+        get<MenuItem[]>('/menu-items', { shop_id: DEFAULT_SHOP_ID }),
+        get<MenuItem[]>('/menu-items/popular', { shop_id: DEFAULT_SHOP_ID }),
       ]);
 
-      const shop = shopRes.data;
-      const categories = categoriesRes.data;
-      const menuItems = menuItemsRes.data;
+      const shopData = shopRes.data;
+      const categoriesData = categoriesRes.data;
+      const menuItemsData = menuItemsRes.data;
+      const popularItems = popularRes.data || [];
 
-      // 构建分类 + 菜品数据结构
-      const categoryItems: CategoryItemData[] = categories.map((cat) => ({
+      const categoryItems: CategoryItemData[] = categoriesData.map((cat) => ({
         id: cat.id,
         name: cat.name,
         iconKey: cat.iconKey,
-        items: menuItems.filter((item) => item.categoryId === cat.id),
+        items: menuItemsData.filter((item) => item.categoryId === cat.id),
       }));
 
-      this.setState({
-        shop,
-        categories: categoryItems,
-        loading: false,
-      });
+      if (popularItems.length > 0) {
+        categoryItems.unshift({
+          id: 'popular',
+          name: '热门推荐',
+          iconKey: 'hot',
+          items: popularItems,
+        });
+      }
+
+      setShop(shopData);
+      setCategories(categoryItems);
+      setLoading(false);
     } catch (error: any) {
-      this.setState({ loading: false });
+      setLoading(false);
       console.error('加载菜单失败:', error);
     }
   }
 
-  /** 切换分类 */
-  switchCategory(index: number) {
-    this.setState({ activeCategoryIndex: index });
+  function switchCategory(index: number) {
+    const cats = categoriesRef.current;
+    if (index < 0 || index >= cats.length) return;
+    const catId = cats[index].id;
+    setActiveCategoryIndex(index);
+    setScrollIntoView(`cat-${catId}`);
   }
 
-  /** 点击菜品 -> 打开规格选择弹窗 */
-  handleItemClick(item: MenuItem) {
-    const defaultSpecs: Record<string, string> = {};
-    this.setState({
-      selectedItem: item,
-      selectedSpecs: defaultSpecs,
-      quantity: 1,
-      specPopupVisible: true,
+  async function handleItemClick(item: MenuItem) {
+    setLoadingSpecs(true);
+    try {
+      const specsRes = await get<SpecGroup[]>(`/menu-items/${item.id}/specs`);
+      const specsData: SpecGroupWithSelection[] = (specsRes.data || []).map((sg) => ({
+        ...sg,
+        selectedOptions: sg.options.map((opt) => ({
+          ...opt,
+          isSelected: opt.isDefault,
+        })),
+      }));
+
+      const defaultSpecs: Record<string, string> = {};
+      const defaultOptionIds: Record<string, string> = {};
+      specsData.forEach((sg) => {
+        const defOpt = sg.options.find((o) => o.isDefault);
+        if (defOpt) {
+          defaultSpecs[sg.id] = defOpt.name;
+          defaultOptionIds[sg.id] = defOpt.id;
+        }
+      });
+
+      setSelectedItem(item);
+      setSelectedSpecs(defaultSpecs);
+      setSelectedSpecOptionIds(defaultOptionIds);
+      setItemSpecs(specsData);
+      setQuantity(1);
+      setScrollIntoView('');
+      setSpecPopupVisible(true);
+      setLoadingSpecs(false);
+    } catch (error) {
+      console.error('加载规格失败:', error);
+      setSelectedItem(item);
+      setSelectedSpecs({});
+      setSelectedSpecOptionIds({});
+      setItemSpecs([]);
+      setQuantity(1);
+      setSpecPopupVisible(true);
+      setLoadingSpecs(false);
+    }
+  }
+
+  function selectSpec(groupId: string, optionId: string, optionName: string) {
+    const currentSpecs = itemSpecsRef.current;
+    const newSpecs = currentSpecs.map((sg) => {
+      if (sg.id !== groupId) return sg;
+      const newOptions = sg.options.map((opt) => ({
+        ...opt,
+        isSelected: opt.id === optionId,
+      }));
+      return { ...sg, selectedOptions: newOptions };
     });
-  }
 
-  /** 选择规格 */
-  selectSpec(groupId: string, optionName: string) {
-    this.setState((prev) => ({
-      selectedSpecs: { ...prev.selectedSpecs, [groupId]: optionName },
-    }));
-  }
-
-  /** 加入购物车 */
-  addToCart() {
-    const { selectedItem, quantity } = this.state;
-    if (!selectedItem) return;
-
-    const specDesc = Object.values(this.state.selectedSpecs).join('、');
-
-    this.cartStore.getState().addItem({
-      menuItemId: selectedItem.id,
-      name: selectedItem.name,
-      price: selectedItem.price,
-      quantity,
-      specDesc: specDesc || undefined,
-      imageUrl: selectedItem.imageUrl,
+    // 计算新的规格加价
+    let newSpecExtraPrice = 0;
+    newSpecs.forEach((sg) => {
+      const selOpt = sg.options.find((o) => o.id === (groupId === sg.id ? optionId : selectedSpecOptionIdsRef.current[sg.id]));
+      if (selOpt) newSpecExtraPrice += selOpt.priceAdjust || 0;
     });
+    setSpecExtraPrice(newSpecExtraPrice);
+
+    setItemSpecs(newSpecs);
+    setSelectedSpecs({ ...selectedSpecsRef.current, [groupId]: optionName });
+    setSelectedSpecOptionIds({ ...selectedSpecOptionIdsRef.current, [groupId]: optionId });
+  }
+
+  async function addToCart() {
+    const item = selectedItemRef.current;
+    if (!item) return;
+
+    const qty = quantityRef.current;
+    const specs = selectedSpecsRef.current;
+    const specOptionIds = selectedSpecOptionIdsRef.current;
+    const specsData = itemSpecsRef.current;
+
+    // 验证必选规格
+    const missingSpecs = specsData
+      .filter((sg) => sg.isRequired && !specOptionIds[sg.id])
+      .map((sg) => sg.name);
+    if (missingSpecs.length > 0) {
+      Taro.showToast({ title: `请选择${missingSpecs.join('、')}`, icon: 'none' });
+      return;
+    }
+
+    const specDesc = Object.values(specs).filter(Boolean).join('、');
+
+    // 计算规格加价
+    let specExtraPrice = 0;
+    specsData.forEach((sg) => {
+      const selOpt = sg.options.find((o) => o.id === specOptionIds[sg.id]);
+      if (selOpt) specExtraPrice += selOpt.priceAdjust || 0;
+    });
+
+    const finalPrice = item.price + specExtraPrice;
+
+    cartStore.addItem({
+      menuItemId: item.id,
+      name: item.name,
+      price: finalPrice,
+      quantity: qty,
+      specDesc: specDesc || '',
+      imageUrl: item.imageUrl || '',
+    });
+
+    // 触发动画 - 避免在回调中捕获 this/store 引用
+    setTimeout(() => {
+      const query = createSelectorQuery();
+      query.select('.spec-popup__add-cart').boundingClientRect((rect: any) => {
+        if (rect && !Array.isArray(rect)) {
+          setFlyInVisible(true);
+          setFlyInPosition({ x: rect.left, y: rect.top });
+          setTimeout(() => {
+            setFlyInVisible(false);
+          }, 600);
+        }
+      }).exec();
+    }, 100);
 
     Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 1000 });
-    this.setState({ specPopupVisible: false });
+    setSpecPopupVisible(false);
   }
 
-  /** 获取菜品背景色 */
-  getItemBgColor(categoryIndex: number): string {
+  function handleSearch(keyword: string) {
+    setSearchKeyword(keyword);
+    
+    // 清除之前的定时器
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    
+    if (!keyword.trim()) {
+      loadData();
+      return;
+    }
+    
+    // 300ms 防抖
+    searchTimerRef.current = setTimeout(() => {
+      searchItems(keyword);
+    }, 300);
+  }
+
+  async function searchItems(keyword: string) {
+    try {
+      const res = await get<MenuItem[]>('/menu-items', { shop_id: DEFAULT_SHOP_ID, search: keyword });
+      const menuItemsData = res.data;
+      const cats = categoriesRef.current;
+      const searchedCategories = cats.map((cat) => ({
+        ...cat,
+        items: menuItemsData.filter((item) => item.categoryId === cat.id),
+      }));
+      setCategories(searchedCategories);
+    } catch (error) {
+      console.error('搜索失败:', error);
+    }
+  }
+
+  async function toggleFavorite(item: MenuItem) {
+    const authState = useAuthStore.getState();
+    if (!authState.isLoggedIn) {
+      Taro.showToast({ title: '请先登录', icon: 'none' });
+      return;
+    }
+
+    try {
+      await post<any>(`/menu-items/${item.id}/favorite`);
+      Taro.showToast({ title: item.isFavorite ? '已取消收藏' : '已收藏', icon: 'success' });
+
+      const cats = categoriesRef.current;
+      const newCategories = cats.map(cat => ({
+        ...cat,
+        items: cat.items.map(i => i.id === item.id ? { ...i, isFavorite: !i.isFavorite } : i)
+      }));
+      setCategories(newCategories);
+    } catch (e) {
+      console.error('收藏操作失败:', e);
+      Taro.showToast({ title: '收藏操作失败', icon: 'none' });
+    }
+  }
+
+  function clearSearch() {
+    setSearchKeyword('');
+    setShowSearch(false);
+    loadData();
+  }
+
+  function getItemBgColor(categoryIndex: number): string {
     const bgClasses = [
-      'emoji-bg-hot',
-      'emoji-bg-meat',
-      'emoji-bg-veg',
-      'emoji-bg-drink',
-      'emoji-bg-rice',
+      'emoji-bg-hot', 'emoji-bg-meat', 'emoji-bg-veg',
+      'emoji-bg-drink', 'emoji-bg-rice',
     ];
     return bgClasses[categoryIndex % bgClasses.length];
   }
 
-  /** 获取菜品 Emoji */
-  getItemEmoji(name: string): string {
+  const getItemBgColorCb = useCallback(getItemBgColor, []);
+
+  function getItemEmoji(name: string): string {
     const meatKeywords = ['烤羊排', '烤鸡翅', '牛肉', '羊肉', '排骨', '鸡胗', '大虾', '鸡翅', '烤串', '鱿鱼'];
     const vegKeywords = ['茄子', '金针菇', '韭菜', '土豆', '玉米'];
     const drinkKeywords = ['可乐', '雪碧', '啤酒', '矿泉水', '酸梅'];
@@ -157,348 +326,315 @@ export default class MenuPage extends Component<{}, MenuPageState> {
     return '🍽️';
   }
 
-  render() {
-    const {
-      shop,
-      categories,
-      activeCategoryIndex,
-      loading,
-      cartPopupVisible,
-      specPopupVisible,
-      selectedItem,
-      selectedSpecs,
-      quantity,
-    } = this.state;
+  const getItemEmojiCb = useCallback(getItemEmoji, []);
 
-    const cartState = this.cartStore.getState();
-    const cartItems = cartState.items;
-    const totalCount = cartState.getTotalCount();
-    const totalPrice = cartState.getTotalPrice();
+  function getSelectedSpecDesc(): string {
+    const specsData = itemSpecsRef.current;
+    const optIds = selectedSpecOptionIdsRef.current;
+    const selectedNames: string[] = [];
+    specsData.forEach(group => {
+      const optionId = optIds[group.id];
+      const option = group.options.find(opt => opt.id === optionId);
+      if (option) {
+        selectedNames.push(option.name);
+      }
+    });
+    return selectedNames.join(' · ');
+  }
 
-    return (
-      <View className='menu-page' style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        {/* 店铺头部 */}
-        {shop && (
-          <View className='menu-header'>
-            <View className='menu-header__avatar'>🏪</View>
-            <View className='menu-header__info'>
-              <View style={{ display: 'flex', alignItems: 'center' }}>
-                <Text className='menu-header__name'>{shop.name}</Text>
-                <Text className='menu-header__status'>
-                  {shop.status === 'open' ? '营业中' : '休息中'}
-                </Text>
-              </View>
-              <Text className='menu-header__desc'>{shop.description}</Text>
+  const authState = useAuthStore.getState();
+  const cartItems = cartStore.items;
+  const cartTotal = cartStore.getTotalPrice();
+  const cartCount = cartStore.items.reduce((s, i) => s + i.quantity, 0);
+
+  return (
+    <View className='page menu-page'>
+      {/* 角色切换悬浮球 */}
+      <View
+        className='role-switcher'
+        onClick={() => {
+          const roles = ['customer', 'admin', 'rider'];
+          const currentIdx = roles.indexOf(authState.user?.role || 'customer');
+          const nextRole = roles[(currentIdx + 1) % roles.length] as 'customer' | 'admin' | 'rider';
+          useAuthStore.getState().switchRole(nextRole);
+        }}
+        style={{
+          position: 'fixed', right: '20px', bottom: '150px', zIndex: 2000,
+          background: '#ff6b35', color: '#fff', padding: '8px 12px',
+          borderRadius: '20px', fontSize: '12px', boxShadow: '0 4px 8px rgba(0,0,0,0.2)'
+        }}
+      >
+        <Text>🔄 {useAuthStore.getState().getRoleLabel(authState.user?.role || 'customer')}</Text>
+      </View>
+
+      {/* 顶部店铺信息 */}
+      <View className='menu-header'>
+        <View className='menu-header__avatar'>🏪</View>
+        <View className='menu-header__info'>
+          <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text className='menu-header__name'>{shop?.name || '小买卖烧烤'}</Text>
+            <View
+              className='menu-header__status'
+              onClick={() => setShowSearch(!showSearch)}
+            >
+              <Text>{showSearch ? '✕ 搜索' : '🔍 搜索'}</Text>
             </View>
           </View>
-        )}
+          <Text className='menu-header__desc'>{shop?.description || '秘制烤肉，真材实料'}</Text>
+        </View>
+      </View>
 
-        {/* 加载状态 */}
-        {loading ? (
-          <View className='loading-container'>
-            <Text>加载中...</Text>
-          </View>
-        ) : (
-          <View className='menu-body'>
-            {/* 左侧分类栏 */}
-            <ScrollView
-              className='category-sidebar'
-              scrollY
-              enhanced
-              showScrollbar={false}
-            >
+      {showSearch && (
+        <View className='menu-page__search-bar'>
+          <Input
+            className='menu-page__search-input'
+            placeholder='搜索菜品'
+            value={searchKeyword}
+            onInput={(e) => handleSearch(e.detail.value)}
+            confirm-type='search'
+          />
+        </View>
+      )}
+
+      {loading ? (
+        <View className='menu-page__empty'>加载中...</View>
+      ) : (
+        <View className='menu-body'>
+          {/* 左侧分类侧边栏 */}
+          <ScrollView className='category-sidebar' scrollY>
+            {categories.map((cat, index) => (
+              <View
+                key={cat.id}
+                className={`category-sidebar__item ${index === activeCategoryIndex ? 'category-sidebar__item--active' : ''}`}
+                onClick={() => switchCategory(index)}
+              >
+                <Text className='category-sidebar__icon'>
+                  {getCategoryIcon(cat.iconKey || cat.name)}
+                </Text>
+                <Text className='category-sidebar__name'>{cat.name}</Text>
+              </View>
+            ))}
+          </ScrollView>
+
+          {/* 右侧菜品列表 */}
+          <ScrollView
+            className='menu-items'
+            scrollY
+            scrollIntoView={scrollIntoView}
+            enhanced
+            showScrollbar={false}
+          >
+            <View className='menu-items__content'>
               {categories.map((cat, index) => (
-                <View
-                  key={cat.id}
-                  className={`category-sidebar__item ${
-                    index === activeCategoryIndex
-                      ? 'category-sidebar__item--active'
-                      : ''
-                  }`}
-                  onClick={() => this.switchCategory(index)}
-                >
-                  <Text className='category-sidebar__icon'>{getCategoryIcon(cat.iconKey)}</Text>
-                  <Text className='category-sidebar__name'>{cat.name}</Text>
-                </View>
-              ))}
-            </ScrollView>
-
-            {/* 右侧菜品列表 */}
-            <ScrollView
-              className='menu-items'
-              scrollY
-              enhanced
-              showScrollbar={false}
-            >
-              {categories.map((cat, catIndex) => (
-                <View key={cat.id}>
+                <View key={cat.id} id={`cat-${cat.id}`}>
                   <Text className='category-title'>{cat.name}</Text>
-                  {cat.items.map((item) => (
-                    <View
-                      key={item.id}
-                      className='menu-item-card'
-                      onClick={() => this.handleItemClick(item)}
-                    >
-                      <View
-                        className={`menu-item-card__image ${this.getItemBgColor(catIndex)}`}
-                      >
-                        <Text>{this.getItemEmoji(item.name)}</Text>
-                      </View>
-                      <View className='menu-item-card__info'>
-                        <View>
-                          <Text className='menu-item-card__name'>
-                            {item.name}
-                          </Text>
-                          {item.description && (
-                            <Text className='menu-item-card__desc'>
-                              {item.description}
-                            </Text>
-                          )}
-                        </View>
-                        <View className='menu-item-card__bottom'>
-                          <Text className='menu-item-card__price'>
-                            <Text className='menu-item-card__price-unit'>¥</Text>
-                            {formatPriceWithSymbol(item.price).replace('¥', '')}
-                          </Text>
-                          <Text className='menu-item-card__sales'>
-                            月售{item.salesCount}
-                          </Text>
-                          <View
-                            className='menu-item-card__add-btn'
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              this.handleItemClick(item);
-                            }}
-                          >
-                            +
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                  ))}
+                  {cat.items.length === 0 ? (
+                    <View className='menu-page__empty-item'>暂无菜品</View>
+                  ) : (
+                    cat.items.map((item) => (
+                      <MenuItemCard
+                        key={item.id}
+                        item={item}
+                        categoryIndex={index}
+                        onItemClick={handleItemClick}
+                        onFavorite={toggleFavorite}
+                        getItemBgColor={getItemBgColorCb}
+                        getItemEmoji={getItemEmojiCb}
+                      />
+                    ))
+                  )}
                 </View>
               ))}
-            </ScrollView>
-          </View>
-        )}
+            </View>
+          </ScrollView>
+        </View>
+      )}
 
-        {/* 底部购物车栏 */}
+      {/* 购物车弹出层 */}
+      {cartPopupVisible && (
         <View
-          className='cart-bar'
-          onClick={() => {
-            if (cartItems.length > 0) {
-              this.setState({ cartPopupVisible: true });
-            }
+          className='cart-popup-mask'
+          onClick={() => setCartPopupVisible(false)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 1100,
           }}
         >
-          <View className='cart-bar__icon-wrap'>
-            <Text className='cart-bar__icon'>🛒</Text>
-            {totalCount > 0 && (
-              <Text className='cart-bar__badge'>
-                {totalCount > 99 ? '99+' : totalCount}
-              </Text>
-            )}
-          </View>
-          <View className='cart-bar__info'>
-            <Text className='cart-bar__total'>
-              {totalCount > 0
-                ? formatPriceWithSymbol(totalPrice)
-                : '购物车是空的'}
-            </Text>
-            {totalCount > 0 && (
-              <Text className='cart-bar__note'>
-                另需配送费 ¥5.00
-              </Text>
-            )}
-          </View>
-          <View
-            className={`cart-bar__btn ${
-              totalCount === 0 ? 'cart-bar__btn--disabled' : ''
-            }`}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (totalCount > 0) {
-                Taro.navigateTo({ url: '/pages/order-confirm/index' });
-              }
-            }}
-          >
-            去结算
-          </View>
-        </View>
-
-        {/* 购物车弹出层 */}
-        {cartPopupVisible && (
-          <View
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0,0,0,0.5)',
-              zIndex: 200,
-            }}
-            onClick={() => this.setState({ cartPopupVisible: false })}
-          >
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 80,
-                left: 12,
-                right: 12,
-                background: '#fff',
-                borderRadius: 16,
-                overflow: 'hidden',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <View className='cart-popup__header'>
-                <Text className='cart-popup__title'>购物车</Text>
-                <View
-                  className='cart-popup__clear'
-                  onClick={() => {
-                    this.cartStore.getState().clearCart();
-                    this.setState({ cartPopupVisible: false });
-                  }}
-                >
-                  清空
-                </View>
-              </View>
-              <View className='cart-popup__list'>
-                {cartItems.length === 0 ? (
-                  <View style={{ textAlign: 'center', padding: '30px 0', color: '#999' }}>
-                    <Text>购物车空空如也</Text>
-                  </View>
-                ) : (
-                  cartItems.map((item) => (
-                    <View key={item.key} className='cart-popup__item'>
-                      <View className='cart-popup__item-info'>
-                        <Text className='cart-popup__item-name'>{item.name}</Text>
-                        {item.specDesc && (
-                          <Text className='cart-popup__item-spec'>{item.specDesc}</Text>
-                        )}
-                      </View>
-                      <Text className='cart-popup__item-price'>
-                        {formatPriceWithSymbol(item.price)}
-                      </Text>
-                      <View className='cart-popup__item-actions'>
-                        <View
-                          className='cart-popup__qty-btn'
-                          onClick={() =>
-                            this.cartStore.getState().updateQuantity(item.key, -1)
-                          }
-                        >
-                          -
-                        </View>
-                        <Text className='cart-popup__qty'>{item.quantity}</Text>
-                        <View
-                          className='cart-popup__qty-btn'
-                          onClick={() =>
-                            this.cartStore.getState().updateQuantity(item.key, 1)
-                          }
-                        >
-                          +
-                        </View>
-                      </View>
-                    </View>
-                  ))
-                )}
+          <View className='cart-popup' onClick={e => e.stopPropagation()}>
+            <View className='cart-popup__header'>
+              <Text className='cart-popup__title'>购物车</Text>
+              <View className='cart-popup__clear' onClick={() => cartStore.clearCart()}>
+                清空
               </View>
             </View>
+            <View className='cart-popup__body'>
+              {cartItems.length === 0 ? (
+                <View className='cart-popup__empty'><Text>购物车空空如也</Text></View>
+              ) : (
+                cartItems.map((item) => (
+                  <CartItemRow
+                    key={item.key}
+                    item={item}
+                    onUpdateQuantity={(key, delta) => cartStore.updateQuantity(key, delta)}
+                  />
+                ))
+              )}
+            </View>
           </View>
-        )}
+        </View>
+      )}
 
-        {/* 规格选择弹窗 */}
-        {specPopupVisible && selectedItem && (
+      {/* 规格选择弹窗 */}
+      {specPopupVisible && selectedItem && (
+        <View
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', zIndex: 1100,
+          }}
+          onClick={() => setSpecPopupVisible(false)}
+        >
           <View
             style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0,0,0,0.5)',
-              zIndex: 300,
+              position: 'absolute', bottom: 0, left: 0, right: 0,
+              background: '#fff', borderRadius: '16px 16px 0 0',
+              maxHeight: '70vh', overflowY: 'auto',
             }}
-            onClick={() => this.setState({ specPopupVisible: false })}
+            onClick={(e) => e.stopPropagation()}
           >
-            <View
-              style={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                background: '#fff',
-                borderRadius: '16px 16px 0 0',
-                maxHeight: '70vh',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <View className='spec-popup'>
-                <View className='spec-popup__header'>
-                  <View
-                    className={`spec-popup__image ${this.getItemBgColor(activeCategoryIndex)}`}
-                  >
-                    <Text style={{ fontSize: 36 }}>
-                      {this.getItemEmoji(selectedItem.name)}
-                    </Text>
-                  </View>
-                  <View className='spec-popup__info'>
+            <View className='spec-popup'>
+              <View className='spec-popup__handle'><View className='spec-popup__handle-bar' /></View>
+
+              <View className='spec-popup__header'>
+                <View className={`spec-popup__image ${getItemBgColor(activeCategoryIndex)}`}>
+                  <Text style={{ fontSize: 36 }}>{getItemEmoji(selectedItem.name)}</Text>
+                </View>
+                <View className='spec-popup__info'>
+                  <Text className='spec-popup__name'>{selectedItem.name}</Text>
+                  <Text className='spec-popup__desc'>{selectedItem.description || '精选食材，美味秘制'}</Text>
+                  <View className='spec-popup__price-row'>
                     <Text className='spec-popup__price'>
                       <Text className='spec-popup__price-unit'>¥</Text>
                       {formatPriceWithSymbol(selectedItem.price).replace('¥', '')}
                     </Text>
-                    <Text className='spec-popup__sales'>
-                      月售{selectedItem.salesCount}
-                    </Text>
-                    <View
-                      className='cart-popup__item-actions'
-                      style={{ marginTop: 8 }}
-                    >
-                      <View
-                        className='cart-popup__qty-btn'
-                        onClick={() =>
-                          this.setState((prev) => ({
-                            quantity: Math.max(1, prev.quantity - 1),
-                          }))
-                        }
-                      >
-                        -
-                      </View>
-                      <Text className='cart-popup__qty'>{quantity}</Text>
-                      <View
-                        className='cart-popup__qty-btn'
-                        onClick={() =>
-                          this.setState((prev) => ({
-                            quantity: prev.quantity + 1,
-                          }))
-                        }
-                      >
-                        +
-                      </View>
-                    </View>
                   </View>
                 </View>
+              </View>
 
-                <View className='spec-popup__footer'>
-                  <Text className='spec-popup__subtotal'>
-                    小计:{' '}
-                    <Text className='spec-popup__subtotal-price'>
-                      {formatPriceWithSymbol(selectedItem.price * quantity)}
-                    </Text>
-                  </Text>
-                  <View
-                    className='spec-popup__add-cart'
-                    onClick={() => this.addToCart()}
-                  >
-                    加入购物车
+              {/* 规格选项渲染 */}
+              <View className='spec-popup__content'>
+                {loadingSpecs ? (
+                  <View className='spec-popup__loading'>加载中...</View>
+                ) : itemSpecs.length > 0 ? (
+                  <View className='spec-popup__groups'>
+                    {itemSpecs.map((sg) => (
+                      <View key={sg.id} className='spec-group'>
+                        <View className='spec-group__header'>
+                          <Text className='spec-group__name'>{sg.name}</Text>
+                          {sg.isRequired && (
+                            <View className='spec-group__required-tag'>
+                              <Text className='spec-group__required-star'>*</Text>
+                              <Text className='spec-group__required-text'>必选</Text>
+                            </View>
+                          )}
+                        </View>
+                        <View className='spec-group__options'>
+                          {sg.options.map((opt) => (
+                            <View
+                              key={opt.id}
+                              className={`spec-option ${selectedSpecOptionIds[sg.id] === opt.id ? 'selected' : ''}`}
+                              onClick={() => selectSpec(sg.id, opt.id, opt.name)}
+                            >
+                              <Text className='spec-option__name'>{opt.name}</Text>
+                              {opt.priceAdjust > 0 && (
+                                <Text className='spec-option__price'>+¥{opt.priceAdjust / 100}</Text>
+                              )}
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    ))}
                   </View>
+                ) : null}
+              </View>
+
+              {/* 已选展示 */}
+              <View className='spec-popup__selected'>
+                <Text className='spec-popup__selected-label'>已选：</Text>
+                <Text className='spec-popup__selected-value'>{getSelectedSpecDesc()}</Text>
+              </View>
+
+              {/* 数量选择 */}
+              <View className='spec-popup__qty-section'>
+                <Text className='spec-popup__qty-label'>数量</Text>
+                <View className='spec-popup__qty-controls'>
+                  <View className='spec-popup__qty-btn' onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</View>
+                  <Text className='spec-popup__qty-value'>{quantity}</Text>
+                  <View className='spec-popup__qty-btn' onClick={() => setQuantity(quantity + 1)}>+</View>
+                </View>
+              </View>
+
+              <View className='spec-popup__footer'>
+                <View className='spec-popup__footer-left'>
+                  <Text className='spec-popup__subtotal-label'>合计：</Text>
+                  <Text className='spec-popup__subtotal-price'>
+                    {formatPriceWithSymbol((selectedItem.price + specExtraPrice) * quantity)}
+                  </Text>
+                </View>
+                <View className='spec-popup__add-cart-btn' onClick={addToCart}>
+                  加入购物车
                 </View>
               </View>
             </View>
           </View>
-        )}
-      </View>
-    );
-  }
+        </View>
+      )}
+
+      {/* 飞入动画 */}
+      <FlyInAnimation visible={flyInVisible} />
+      {flyInVisible && (
+        <View
+          className='fly-in-target'
+          style={{
+            position: 'fixed',
+            left: flyInPosition.x - 18,
+            top: flyInPosition.y - 18,
+            zIndex: 9999,
+            animation: 'flyIn 0.6s ease-in-out forwards',
+            pointerEvents: 'none',
+          }}
+        >
+          <Text style={{ fontSize: 36 }}>🛒</Text>
+        </View>
+      )}
+
+      {/* 底部购物车栏 */}
+      {cartCount > 0 && (
+        <View className='cart-bar' onClick={() => setCartPopupVisible(!cartPopupVisible)}>
+          <View className='cart-bar__icon-wrap'>
+            <Text className='cart-bar__icon'>🛒</Text>
+            <View className='cart-bar__badge'>
+              <Text className='cart-bar__badge-text'>
+                {cartCount}
+              </Text>
+            </View>
+          </View>
+          <View className='cart-bar__info'>
+            <View className='cart-bar__price-wrap'>
+              <Text className='cart-bar__total'>{formatPriceWithSymbol(cartTotal)}</Text>
+              <Text className='cart-bar__note'>另需配送费 ¥5.00</Text>
+            </View>
+            <View
+              className='cart-bar__btn'
+              onClick={(e) => {
+                e.stopPropagation();
+                Taro.navigateTo({ url: '/pages/order-confirm/index' });
+              }}
+            >
+              去结算
+            </View>
+          </View>
+        </View>
+      )}
+    </View>
+  );
 }

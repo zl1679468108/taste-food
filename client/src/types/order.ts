@@ -4,6 +4,7 @@ export enum OrderStatus {
   PAID = 'paid',
   ACCEPTED = 'accepted',
   PREPARING = 'preparing',
+  READY_FOR_PICKUP = 'ready_for_pickup',
   DELIVERING = 'delivering',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
@@ -45,8 +46,10 @@ export interface Order {
   id: string;
   shopId: string;
   userId: string;
+  riderId?: string;
   status: OrderStatus;
   total: number;
+  deliveryFee: number;
   deliveryType: DeliveryType;
   address?: string;
   tableNo?: string;
@@ -56,4 +59,5 @@ export interface Order {
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
+  estimatedCompletion?: string;
 }
