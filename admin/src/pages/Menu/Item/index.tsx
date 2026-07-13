@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, Image, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CoffeeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
+import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getCategories, MenuItem, Category } from '@/services/menu';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import TableCard from '@/components/TableCard';
+import PriceDisplay from '@/components/PriceDisplay';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
-const { Title } = Typography;
 const { TextArea } = Input;
-
-const DEFAULT_SHOP_ID = 'shop001';
 
 const MenuItemPage: React.FC = () => {
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [form] = Form.useForm();
 
@@ -61,6 +63,7 @@ const MenuItemPage: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      setSubmitting(true);
       if (editingItem) {
         await updateMenuItem(editingItem.id, values);
         message.success('更新成功');
@@ -71,7 +74,11 @@ const MenuItemPage: React.FC = () => {
       setModalVisible(false);
       loadData();
     } catch (error) {
+      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
       console.error('提交失败:', error);
+      message.error('操作失败');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -87,11 +94,7 @@ const MenuItemPage: React.FC = () => {
       title: '价格',
       dataIndex: 'price',
       key: 'price',
-      render: (price: number) => (
-        <span style={{ color: '#f5222d', fontWeight: 500 }}>
-          ¥{(price / 100).toFixed(2)}
-        </span>
-      ),
+      render: (price: number) => <PriceDisplay price={price} />,
     },
     {
       title: '分类',
@@ -113,7 +116,7 @@ const MenuItemPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: MenuItem) => (
+      render: (_: MenuItem, record: MenuItem) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
@@ -130,50 +133,39 @@ const MenuItemPage: React.FC = () => {
 
   return (
     <div >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <CoffeeOutlined style={{ marginRight: 8 }} />
-          菜品管理
-        </Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadData}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            新增菜品
-          </Button>
-        </Space>
-      </div>
+      <PageHeaderActions
+        icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
+        title="菜品管理"
+        addText="新增菜品"
+        onAdd={handleAdd}
+        onRefresh={loadData}
+      />
 
-      <Card
-        bordered={false}
-        style={{
-          borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        }}
-      >
+      <TableCard>
         <Table columns={columns} dataSource={items} rowKey="id" loading={loading} />
-      </Card>
+      </TableCard>
 
       <Modal
         title={editingItem ? '编辑菜品' : '新增菜品'}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        okText="保存"
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="菜品名称" rules={[{ required: true }]}>
+          <Form.Item name="name" label="菜品名称" rules={[{ required: true, message: '请输入菜品名称' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="categoryId" label="所属分类" rules={[{ required: true }]}>
+          <Form.Item name="categoryId" label="所属分类" rules={[{ required: true, message: '请选择所属分类' }]}>
             <Select>
               {categories.map(cat => (
                 <Select.Option key={cat.id} value={cat.id}>{cat.name}</Select.Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="price" label="价格（分）" rules={[{ required: true }]}>
+          <Form.Item name="price" label="价格（分）" rules={[{ required: true, message: '请输入价格' }]}>
             <InputNumber min={0} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="description" label="描述">

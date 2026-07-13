@@ -1,31 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, message, Space, Popconfirm, Typography, Card, Tag, Switch } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined, ReloadOutlined } from '@ant-design/icons';
-import request from '@/utils/request';
-import { formatTime } from '@/utils/format';
+import {
+  getShops,
+  createShop,
+  updateShop,
+  updateShopStatus,
+  deleteShop,
+  Shop as ShopModel,
+} from '@/services/shop';
+import { formatTime, formatPrice } from '@/utils/format';
 
 const { Title, Text } = Typography;
 
-interface Shop {
-  id: string;
-  name: string;
-  description: string;
-  address: string;
-  phone: string;
-  logoUrl: string;
-  status: string;
-  deliveryRange: number;
-  deliveryFee: number;
-  minOrderAmount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
 const ShopManagePage: React.FC = () => {
-  const [shops, setShops] = useState<Shop[]>([]);
+  const [shops, setShops] = useState<ShopModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
-  const [editingShop, setEditingShop] = useState<Shop | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [editingShop, setEditingShop] = useState<ShopModel | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -35,7 +28,7 @@ const ShopManagePage: React.FC = () => {
   const loadShops = async () => {
     setLoading(true);
     try {
-      const res = await request.get('/api/shops');
+      const res = await getShops();
       setShops(res || []);
     } catch (error) {
       console.error('加载店铺失败:', error);
@@ -50,7 +43,7 @@ const ShopManagePage: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleEdit = (record: Shop) => {
+  const handleEdit = (record: ShopModel) => {
     setEditingShop(record);
     form.setFieldsValue({
       ...record,
@@ -63,7 +56,7 @@ const ShopManagePage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await request.delete(`/api/shops/${id}`);
+      await deleteShop(id);
       message.success('删除成功');
       loadShops();
     } catch (error) {
@@ -71,11 +64,9 @@ const ShopManagePage: React.FC = () => {
     }
   };
 
-  const handleStatusChange = async (record: Shop, checked: boolean) => {
+  const handleStatusChange = async (record: ShopModel, checked: boolean) => {
     try {
-      await request.patch(`/api/shops/${record.id}`, {
-        status: checked ? 'open' : 'closed',
-      });
+      await updateShopStatus(record.id, checked ? 'open' : 'closed');
       message.success('状态更新成功');
       loadShops();
     } catch (error) {
@@ -86,6 +77,7 @@ const ShopManagePage: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
+      setSubmitting(true);
       const data = {
         ...values,
         deliveryRange: values.deliveryRange * 1000,
@@ -94,16 +86,19 @@ const ShopManagePage: React.FC = () => {
       };
 
       if (editingShop) {
-        await request.patch(`/api/shops/${editingShop.id}`, data);
+        await updateShop(editingShop.id, data);
         message.success('更新成功');
       } else {
-        await request.post('/api/shops', data);
+        await createShop(data);
         message.success('创建成功');
       }
       setModalVisible(false);
       loadShops();
     } catch (error) {
+      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
       message.error('操作失败');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -118,7 +113,7 @@ const ShopManagePage: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (status: string, record: Shop) => (
+      render: (status: string, record: ShopModel) => (
         <Switch
           checked={status === 'open'}
           onChange={(checked) => handleStatusChange(record, checked)}
@@ -137,13 +132,13 @@ const ShopManagePage: React.FC = () => {
       title: '配送费',
       dataIndex: 'deliveryFee',
       key: 'deliveryFee',
-      render: (fee: number) => `¥${(fee / 100).toFixed(2)}`,
+      render: (fee: number) => formatPrice(fee),
     },
     {
       title: '起送价',
       dataIndex: 'minOrderAmount',
       key: 'minOrderAmount',
-      render: (amount: number) => `¥${(amount / 100).toFixed(2)}`,
+      render: (amount: number) => formatPrice(amount),
     },
     {
       title: '创建时间',
@@ -154,7 +149,7 @@ const ShopManagePage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Shop) => (
+      render: (_: ShopModel, record: ShopModel) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
@@ -198,10 +193,12 @@ const ShopManagePage: React.FC = () => {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        okText="保存"
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="店铺名称" rules={[{ required: true }]}>
+          <Form.Item name="name" label="店铺名称" rules={[{ required: true, message: '请输入店铺名称' }]}>
             <Input />
           </Form.Item>
           <Form.Item name="description" label="店铺描述">

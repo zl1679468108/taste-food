@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Card, Tag } from 'antd';
+import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Card, Tag, Spin } from 'antd';
 import { EyeOutlined, ReloadOutlined, OrderedListOutlined } from '@ant-design/icons';
-import { getOrders, getOrder, updateOrderStatus, Order, OrderStats, getOrderStats } from '@/services/order';
+import { getOrders, getOrder, updateOrderStatus, Order } from '@/services/order';
 import OrderStatusTag from '@/components/OrderStatusTag';
+import PriceDisplay from '@/components/PriceDisplay';
 import { formatPrice, formatTime, shortOrderId } from '@/utils/format';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 const { Title, Text } = Typography;
-
-const DEFAULT_SHOP_ID = 'shop001';
 
 const OrderPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -16,6 +16,7 @@ const OrderPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   useEffect(() => {
@@ -25,7 +26,7 @@ const OrderPage: React.FC = () => {
   const loadOrders = async () => {
     setLoading(true);
     try {
-      const params: any = {
+      const params: { shop_id: string; status?: string; page: number; pageSize: number } = {
         shop_id: DEFAULT_SHOP_ID,
         page,
         pageSize: 10,
@@ -44,8 +45,19 @@ const OrderPage: React.FC = () => {
   };
 
   const handleViewDetail = async (order: Order) => {
+    // 先用列表数据快速展示，再异步加载完整详情（含 items 数组）
     setSelectedOrder(order);
     setDetailVisible(true);
+    setDetailLoading(true);
+    try {
+      const fullOrder = await getOrder(order.id);
+      setSelectedOrder(fullOrder);
+    } catch (error) {
+      // 列表数据已展示，详情加载失败不阻塞
+      console.error('加载订单详情失败:', error);
+    } finally {
+      setDetailLoading(false);
+    }
   };
 
   const handleStatusUpdate = async (orderId: string, status: string) => {
@@ -124,11 +136,7 @@ const OrderPage: React.FC = () => {
       title: '金额',
       dataIndex: 'total',
       key: 'total',
-      render: (total: number) => (
-        <Text strong style={{ color: '#f5222d' }}>
-          ¥{(total / 100).toFixed(2)}
-        </Text>
-      ),
+      render: (total: number) => <PriceDisplay price={total} />,
     },
     {
       title: '时间',
@@ -139,7 +147,7 @@ const OrderPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Order) => (
+      render: (_: Order, record: Order) => (
         <Space>
           <Button
             type="link"
@@ -165,9 +173,11 @@ const OrderPage: React.FC = () => {
 
   const tabItems = [
     { key: '', label: '全部' },
+    { key: 'pending_payment', label: '待支付' },
     { key: 'paid', label: '已支付' },
     { key: 'accepted', label: '已接单' },
     { key: 'preparing', label: '制作中' },
+    { key: 'ready_for_pickup', label: '待自取' },
     { key: 'delivering', label: '配送中' },
     { key: 'completed', label: '已完成' },
     { key: 'cancelled', label: '已取消' },
@@ -222,6 +232,7 @@ const OrderPage: React.FC = () => {
         footer={null}
         width={600}
       >
+        <Spin spinning={detailLoading}>
         {selectedOrder && (
           <Descriptions column={2} bordered size="middle">
             <Descriptions.Item label="订单号">
@@ -245,9 +256,11 @@ const OrderPage: React.FC = () => {
               </Text>
             </Descriptions.Item>
             <Descriptions.Item label="商品" span={2}>
-              {selectedOrder.items?.map(item =>
-                `${item.name} x${item.quantity}`
-              ).join('、')}
+              {selectedOrder.items?.length
+                ? selectedOrder.items.map(item =>
+                    `${item.name} x${item.quantity}`
+                  ).join('、')
+                : '-'}
             </Descriptions.Item>
             {selectedOrder.address && (
               <Descriptions.Item label="地址" span={2}>{selectedOrder.address}</Descriptions.Item>
@@ -260,11 +273,18 @@ const OrderPage: React.FC = () => {
                 <Text type="warning">{selectedOrder.remark}</Text>
               </Descriptions.Item>
             )}
+            {selectedOrder.contactName && (
+              <Descriptions.Item label="联系人">{selectedOrder.contactName}</Descriptions.Item>
+            )}
+            {selectedOrder.contactPhone && (
+              <Descriptions.Item label="联系电话">{selectedOrder.contactPhone}</Descriptions.Item>
+            )}
             <Descriptions.Item label="创建时间" span={2}>
               {formatTime(selectedOrder.createdAt)}
             </Descriptions.Item>
           </Descriptions>
         )}
+        </Spin>
       </Modal>
     </div>
   );

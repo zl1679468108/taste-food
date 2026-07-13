@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { hasSupabase, supabase } from '../../database/supabase.client';
+import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import {
   CreatePromotionDto,
   UpdatePromotionDto,
@@ -63,11 +64,13 @@ export class PromotionService {
     const now = new Date().toISOString();
 
     if (hasSupabase() && supabase) {
+      // 查询条件：status=active AND (end_date IS NULL OR end_date > now)
       const { data, error } = await supabase
         .from('tf_promotions')
         .select('*')
         .eq('shop_id', shopId)
-        .or(`status.eq.active,end_date.gt.${now}`)
+        .eq('status', 'active')
+        .or(`end_date.is.null,end_date.gt.${now}`)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -78,6 +81,7 @@ export class PromotionService {
     }
 
     // 内存模式
+    assertMemoryFallbackAllowed('PromotionService');
     return Array.from(memoryPromotions.values())
       .filter((p) => p.shop_id === shopId)
       .filter((p) => {
@@ -103,6 +107,7 @@ export class PromotionService {
       return this.toResponse(this.normalize(data));
     }
 
+    assertMemoryFallbackAllowed('PromotionService');
     const promo = memoryPromotions.get(id);
     if (!promo) {
       throw new NotFoundException(`促销 ${id} 不存在`);
@@ -140,6 +145,7 @@ export class PromotionService {
     }
 
     // 内存模式
+    assertMemoryFallbackAllowed('PromotionService');
     const record: PromotionRecord = {
       id,
       shop_id: dto.shopId,
@@ -194,6 +200,7 @@ export class PromotionService {
     }
 
     // 内存模式
+    assertMemoryFallbackAllowed('PromotionService');
     const record = memoryPromotions.get(id);
     if (!record) {
       throw new NotFoundException(`促销 ${id} 不存在`);
@@ -225,6 +232,7 @@ export class PromotionService {
     }
 
     // 内存模式
+    assertMemoryFallbackAllowed('PromotionService');
     const deleted = memoryPromotions.delete(id);
     if (!deleted) {
       throw new NotFoundException(`促销 ${id} 不存在`);

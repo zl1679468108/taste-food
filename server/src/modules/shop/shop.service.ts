@@ -1,11 +1,36 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ShopStatus } from '../../common/constants/enums';
 import { supabase, hasSupabase } from '../../database/supabase.client';
+import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import {
   CreateShopDto,
   UpdateShopDto,
   ShopResponseDto,
 } from './dto/shop.dto';
+
+const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
+
+// 内存回退数据（仅开发环境，生产环境禁用）
+const memoryShops: Map<string, ShopResponseDto> = new Map();
+
+const initMemoryShops = () => {
+  if (memoryShops.size > 0) return;
+  const now = '2025-06-01T00:00:00Z';
+  memoryShops.set(DEFAULT_SHOP_ID, {
+    id: DEFAULT_SHOP_ID,
+    name: '小买卖烧烤',
+    description: '正宗东北烧烤，炭火烤制，香飘十里！',
+    address: '北京市朝阳区美食街88号',
+    phone: '13800138000',
+    logoUrl: '',
+    status: ShopStatus.OPEN,
+    deliveryRange: 3000,
+    deliveryFee: 500,
+    minOrderAmount: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+};
 
 @Injectable()
 export class ShopService {
@@ -23,23 +48,9 @@ export class ShopService {
       return this.toResponse(data);
     }
 
-    const memoryShops: Record<string, ShopResponseDto> = {
-      '00000000-0000-0000-0000-000000000001': {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: '小买卖烧烤',
-        description: '正宗东北烧烤，炭火烤制，香飘十里！',
-        address: '北京市朝阳区美食街88号',
-        phone: '13800138000',
-        logoUrl: 'https://via.placeholder.com/200',
-        status: ShopStatus.OPEN,
-        deliveryRange: 3000,
-        deliveryFee: 500,
-        minOrderAmount: 0,
-        createdAt: '2025-06-01T00:00:00Z',
-        updatedAt: '2025-06-15T00:00:00Z',
-      },
-    };
-    const shop = memoryShops[id];
+    assertMemoryFallbackAllowed('ShopService');
+    initMemoryShops();
+    const shop = memoryShops.get(id);
     if (!shop) throw new NotFoundException(`店铺 ${id} 不存在`);
     return shop;
   }
@@ -57,22 +68,9 @@ export class ShopService {
       return (data || []).map(this.toResponse);
     }
 
-    return [
-      {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: '小买卖烧烤',
-        description: '正宗东北烧烤，炭火烤制，香飘十里！',
-        address: '北京市朝阳区美食街88号',
-        phone: '13800138000',
-        logoUrl: 'https://via.placeholder.com/200',
-        status: ShopStatus.OPEN,
-        deliveryRange: 3000,
-        deliveryFee: 500,
-        minOrderAmount: 0,
-        createdAt: '2025-06-01T00:00:00Z',
-        updatedAt: '2025-06-15T00:00:00Z',
-      },
-    ];
+    assertMemoryFallbackAllowed('ShopService');
+    initMemoryShops();
+    return Array.from(memoryShops.values());
   }
 
   async findOpenShops(): Promise<ShopResponseDto[]> {
@@ -88,22 +86,9 @@ export class ShopService {
       return (data || []).map(this.toResponse);
     }
 
-    return [
-      {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: '小买卖烧烤',
-        description: '正宗东北烧烤，炭火烤制，香飘十里！',
-        address: '北京市朝阳区美食街88号',
-        phone: '13800138000',
-        logoUrl: 'https://via.placeholder.com/200',
-        status: ShopStatus.OPEN,
-        deliveryRange: 3000,
-        deliveryFee: 500,
-        minOrderAmount: 0,
-        createdAt: '2025-06-01T00:00:00Z',
-        updatedAt: '2025-06-15T00:00:00Z',
-      },
-    ];
+    assertMemoryFallbackAllowed('ShopService');
+    initMemoryShops();
+    return Array.from(memoryShops.values()).filter((s) => s.status === ShopStatus.OPEN);
   }
 
   async toggleStatus(id: string): Promise<ShopResponseDto> {
@@ -134,13 +119,13 @@ export class ShopService {
       return this.toResponse(data);
     }
 
-    const memoryShops: Record<string, { status: ShopStatus }> = {
-      '00000000-0000-0000-0000-000000000001': { status: ShopStatus.OPEN },
-    };
-    const shop = memoryShops[id];
+    assertMemoryFallbackAllowed('ShopService');
+    initMemoryShops();
+    const shop = memoryShops.get(id);
     if (!shop) throw new NotFoundException(`店铺 ${id} 不存在`);
     shop.status = shop.status === ShopStatus.OPEN ? ShopStatus.CLOSED : ShopStatus.OPEN;
-    return this.findById(id);
+    shop.updatedAt = new Date().toISOString();
+    return shop;
   }
 
   async create(dto: CreateShopDto): Promise<ShopResponseDto> {
@@ -169,7 +154,9 @@ export class ShopService {
       return this.toResponse(data);
     }
 
-    const id = '00000000-0000-0000-0000-000000000001';
+    assertMemoryFallbackAllowed('ShopService');
+    const { v4: uuidv4 } = await import('uuid');
+    const id = uuidv4();
     const shop: ShopResponseDto = {
       id,
       name: dto.name,
@@ -184,6 +171,7 @@ export class ShopService {
       createdAt: now,
       updatedAt: now,
     };
+    memoryShops.set(id, shop);
     return shop;
   }
 
@@ -212,7 +200,20 @@ export class ShopService {
       return this.toResponse(data);
     }
 
-    return this.findById(id);
+    assertMemoryFallbackAllowed('ShopService');
+    initMemoryShops();
+    const shop = memoryShops.get(id);
+    if (!shop) throw new NotFoundException(`店铺 ${id} 不存在`);
+    if (dto.name !== undefined) shop.name = dto.name;
+    if (dto.description !== undefined) shop.description = dto.description;
+    if (dto.address !== undefined) shop.address = dto.address;
+    if (dto.phone !== undefined) shop.phone = dto.phone;
+    if (dto.logoUrl !== undefined) shop.logoUrl = dto.logoUrl;
+    if (dto.deliveryRange !== undefined) shop.deliveryRange = dto.deliveryRange;
+    if (dto.deliveryFee !== undefined) shop.deliveryFee = dto.deliveryFee;
+    if (dto.minOrderAmount !== undefined) shop.minOrderAmount = dto.minOrderAmount;
+    shop.updatedAt = new Date().toISOString();
+    return shop;
   }
 
   async delete(id: string): Promise<void> {
@@ -228,7 +229,12 @@ export class ShopService {
       return;
     }
 
-    throw new BadRequestException('内存模式不支持删除');
+    assertMemoryFallbackAllowed('ShopService');
+    initMemoryShops();
+    if (!memoryShops.has(id)) {
+      throw new NotFoundException(`店铺 ${id} 不存在`);
+    }
+    memoryShops.delete(id);
   }
 
   private toResponse(record: any): ShopResponseDto {

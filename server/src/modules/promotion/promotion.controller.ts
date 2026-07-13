@@ -15,7 +15,10 @@ import { CreatePromotionDto, UpdatePromotionDto, PromotionResponseDto } from './
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
+
+const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
 @Controller('promotions')
 export class PromotionController {
@@ -41,7 +44,12 @@ export class PromotionController {
   @Post()
   @UseGuards(AuthGuard, RolesGuard)
   @Roles('admin')
-  async create(@Body() dto: CreatePromotionDto): Promise<ApiResponse<PromotionResponseDto>> {
+  async create(
+    @Body() dto: CreatePromotionDto,
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<PromotionResponseDto>> {
+    // 多租户隔离：admin 只能为自己绑定的店铺创建促销，不信任客户端传入的 shopId
+    dto.shopId = userShopId || DEFAULT_SHOP_ID;
     const promotion = await this.promotionService.create(dto);
     return success(promotion, '促销创建成功');
   }

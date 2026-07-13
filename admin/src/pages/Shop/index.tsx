@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Switch, message, Typography, Descriptions, Tag, Space, Button, Form, InputNumber, Modal, Row, Col, Statistic } from 'antd';
 import { ShopOutlined, ReloadOutlined, CheckCircleOutlined, CloseCircleOutlined, EditOutlined, CarOutlined, DollarOutlined, ShoppingCartOutlined } from '@ant-design/icons';
-import { getShop, updateShopStatus, Shop } from '@/services/shop';
-import request from '@/utils/request';
+import { getShop, updateShopStatus, updateShop, Shop } from '@/services/shop';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { formatPrice } from '@/utils/format';
 
 const { Title, Text } = Typography;
-
-const DEFAULT_SHOP_ID = 'shop001';
 
 const ShopPage: React.FC = () => {
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [form] = Form.useForm();
 
@@ -56,7 +56,8 @@ const ShopPage: React.FC = () => {
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      await request.patch(`/api/shops/${DEFAULT_SHOP_ID}`, {
+      setEditSaving(true);
+      await updateShop(DEFAULT_SHOP_ID, {
         deliveryRange: values.deliveryRange * 1000, // 转换为米
         deliveryFee: values.deliveryFee * 100, // 转换为分
         minOrderAmount: values.minOrderAmount * 100, // 转换为分
@@ -65,7 +66,10 @@ const ShopPage: React.FC = () => {
       setEditModalVisible(false);
       loadShop();
     } catch (error) {
+      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
       message.error('保存失败');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -103,7 +107,7 @@ const ShopPage: React.FC = () => {
           >
             <Statistic
               title="配送费"
-              value={shop?.deliveryFee ? (shop.deliveryFee / 100).toFixed(2) : '5.00'}
+              value={shop?.deliveryFee ? formatPrice(shop.deliveryFee).replace('¥', '') : '5.00'}
               suffix="元"
               prefix={<DollarOutlined style={{ color: '#52c41a' }} />}
             />
@@ -116,7 +120,7 @@ const ShopPage: React.FC = () => {
           >
             <Statistic
               title="起送价"
-              value={shop?.minOrderAmount ? (shop.minOrderAmount / 100).toFixed(2) : '0.00'}
+              value={shop?.minOrderAmount ? formatPrice(shop.minOrderAmount).replace('¥', '') : '0.00'}
               suffix="元"
               prefix={<ShoppingCartOutlined style={{ color: '#faad14' }} />}
             />
@@ -175,6 +179,8 @@ const ShopPage: React.FC = () => {
         open={editModalVisible}
         onOk={handleSave}
         onCancel={() => setEditModalVisible(false)}
+        confirmLoading={editSaving}
+        okText="保存"
       >
         <Form form={form} layout="vertical">
           <Form.Item

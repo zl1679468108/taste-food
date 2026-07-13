@@ -8,12 +8,12 @@ let lastUserId: string | null = null;
 let lastUserRole: string | null = null;
 
 export interface OrderUpdatedEvent {
-  order: Record<string, any>;
+  order: Record<string, unknown>;
   previousStatus: string;
 }
 
 export interface OrderCreatedEvent {
-  order: Record<string, any>;
+  order: Record<string, unknown>;
 }
 
 export type OrderUpdatedCallback = (data: OrderUpdatedEvent) => void;
@@ -22,6 +22,8 @@ export type OrderCreatedCallback = (data: OrderCreatedEvent) => void;
 // 存储每个页面的监听器回调
 const orderUpdatedCallbacks: Map<string, OrderUpdatedCallback> = new Map();
 const orderCreatedCallbacks: Map<string, OrderCreatedCallback> = new Map();
+let isOrderUpdatedHandlerBound = false;
+let isOrderCreatedHandlerBound = false;
 
 /** 检测是否在微信小程序环境 */
 const isMiniProgram = typeof wx !== 'undefined';
@@ -47,7 +49,7 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
     (globalThis as any).__DEBUG__ = 0;
   }
   try {
-    localStorage.setItem('debug', '');
+    Taro.setStorageSync('debug', '');
   } catch {
     // storage 不可用时忽略
   }
@@ -66,14 +68,17 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
     auth: { token },
     transports,
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity, // 无限重连，避免网络波动后永久断开
     reconnectionDelay: 2000,
+    reconnectionDelayMax: 30000, // 最大退避 30 秒
     timeout: 10000,
     forceNew: true,
   });
 
   socket.on('connect', () => {
     isConnected = true;
+    // 连接/重连后绑定事件 handler，确保回调可用
+    bindOrderHandlers();
     if (lastUserId && lastUserRole) {
       joinUserRoom(lastUserId, lastUserRole);
     }
@@ -83,17 +88,51 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
     isConnected = false;
   });
 
-  socket.on('connect_error', (error: any) => {
-    console.warn('[Socket] 连接错误:', error.message || error);
+  socket.on('connect_error', (error: unknown) => {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn('[Socket] 连接错误:', msg);
     isConnected = false;
   });
 
   socket.on('reconnect', (attempt) => {
     isConnected = true;
+    bindOrderHandlers();
     if (lastUserId && lastUserRole) {
       joinUserRoom(lastUserId, lastUserRole);
     }
   });
+}
+
+/**
+ * 绑定 order:updated / order:created 事件 handler。
+ * 在 connect/reconnect 时调用，确保已注册的回调能收到推送。
+ */
+function bindOrderHandlers(): void {
+  if (!socket) return;
+  if (!isOrderUpdatedHandlerBound && orderUpdatedCallbacks.size > 0) {
+    isOrderUpdatedHandlerBound = true;
+    socket.on('order:updated', (data: OrderUpdatedEvent) => {
+      orderUpdatedCallbacks.forEach((cb) => {
+        try {
+          cb(data);
+        } catch (e) {
+          console.error('[Socket] order:updated 回调错误:', e);
+        }
+      });
+    });
+  }
+  if (!isOrderCreatedHandlerBound && orderCreatedCallbacks.size > 0) {
+    isOrderCreatedHandlerBound = true;
+    socket.on('order:created', (data: OrderCreatedEvent) => {
+      orderCreatedCallbacks.forEach((cb) => {
+        try {
+          cb(data);
+        } catch (e) {
+          console.error('[Socket] order:created 回调错误:', e);
+        }
+      });
+    });
+  }
 }
 
 export function disconnectSocket(): void {
@@ -102,6 +141,8 @@ export function disconnectSocket(): void {
     socket.disconnect();
     socket = null;
     isConnected = false;
+    isOrderUpdatedHandlerBound = false;
+    isOrderCreatedHandlerBound = false;
   }
 }
 
@@ -111,43 +152,25 @@ export function joinUserRoom(userId: string, role: string): void {
 }
 
 export function onOrderUpdated(callback: OrderUpdatedCallback, pageId?: string): void {
-  if (!socket) return;
-  
-  // 如果提供了 pageId，存储回调以便后续移除
-  if (pageId) {
-    orderUpdatedCallbacks.set(pageId, callback);
+  // 先注册回调到 Map，即使 socket 为 null 也不丢失（连接后由 bindOrderHandlers 绑定）
+  const key = pageId || `anonymous-${Date.now()}-${orderUpdatedCallbacks.size}`;
+  orderUpdatedCallbacks.set(key, callback);
+
+  // 如果 socket 已存在且 handler 未绑定，立即绑定
+  if (socket && !isOrderUpdatedHandlerBound) {
+    bindOrderHandlers();
   }
-  
-  // 移除旧的监听器并重新注册
-  socket.off('order:updated');
-  socket.on('order:updated', (data: OrderUpdatedEvent) => {
-    try {
-      // 调用所有注册的回调
-      orderUpdatedCallbacks.forEach((cb) => cb(data));
-    } catch (e) {
-      console.error('[Socket] 回调错误:', e);
-    }
-  });
 }
 
 export function onOrderCreated(callback: OrderCreatedCallback, pageId?: string): void {
-  if (!socket) return;
-  
-  // 如果提供了 pageId，存储回调以便后续移除
-  if (pageId) {
-    orderCreatedCallbacks.set(pageId, callback);
+  // 先注册回调到 Map，即使 socket 为 null 也不丢失
+  const key = pageId || `anonymous-${Date.now()}-${orderCreatedCallbacks.size}`;
+  orderCreatedCallbacks.set(key, callback);
+
+  // 如果 socket 已存在且 handler 未绑定，立即绑定
+  if (socket && !isOrderCreatedHandlerBound) {
+    bindOrderHandlers();
   }
-  
-  // 移除旧的监听器并重新注册
-  socket.off('order:created');
-  socket.on('order:created', (data: OrderCreatedEvent) => {
-    try {
-      // 调用所有注册的回调
-      orderCreatedCallbacks.forEach((cb) => cb(data));
-    } catch (e) {
-      console.error('[Socket] 回调错误:', e);
-    }
-  });
 }
 
 export function removePageListeners(pageId: string): void {
@@ -160,6 +183,8 @@ export function removeAllListeners(): void {
   orderCreatedCallbacks.clear();
   if (socket) {
     socket.off('order:updated');
-    socket.off('order:updated');
+    socket.off('order:created');
   }
+  isOrderUpdatedHandlerBound = false;
+  isOrderCreatedHandlerBound = false;
 }

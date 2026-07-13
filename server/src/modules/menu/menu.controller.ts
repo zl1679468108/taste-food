@@ -22,6 +22,14 @@ import { SpecGroupResponseDto } from './dto/spec.dto';
 
 const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
+/**
+ * 校验 admin 必须绑定店铺，返回其 shopId（多租户隔离）。
+ * 单店铺场景下若未绑定则兜底为 DEFAULT_SHOP_ID。
+ */
+function resolveAdminShopId(shopId: string | undefined): string {
+  return shopId || DEFAULT_SHOP_ID;
+}
+
 @Controller()
 export class MenuController {
   constructor(private readonly menuService: MenuService) {}
@@ -71,7 +79,12 @@ export class MenuController {
   @Post('categories')
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  async createCategory(@Body() dto: CreateCategoryDto): Promise<ApiResponse<CategoryResponseDto>> {
+  async createCategory(
+    @Body() dto: CreateCategoryDto,
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<CategoryResponseDto>> {
+    // 多租户隔离：admin 只能为自己绑定的店铺创建资源，不信任客户端传入的 shopId
+    dto.shopId = resolveAdminShopId(userShopId);
     const category = await this.menuService.createCategory(dto);
     return success(category, '分类创建成功');
   }
@@ -98,7 +111,12 @@ export class MenuController {
   @Post('menu-items')
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  async createMenuItem(@Body() dto: CreateMenuItemDto): Promise<ApiResponse<MenuItemResponseDto>> {
+  async createMenuItem(
+    @Body() dto: CreateMenuItemDto,
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<MenuItemResponseDto>> {
+    // 多租户隔离：admin 只能为自己绑定的店铺创建资源，不信任客户端传入的 shopId
+    dto.shopId = resolveAdminShopId(userShopId);
     const item = await this.menuService.createMenuItem(dto);
     return success(item, '菜品创建成功');
   }

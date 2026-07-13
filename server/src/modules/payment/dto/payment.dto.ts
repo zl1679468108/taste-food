@@ -15,4 +15,6 @@ export class PaymentResponseDto {
   amount!: number;
   status!: string;
   paidAt!: string;
+  // 标注是否为模拟支付，真实微信支付时为 false 或不存在
+  mock?: boolean;
 }

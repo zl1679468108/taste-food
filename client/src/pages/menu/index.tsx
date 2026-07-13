@@ -51,6 +51,7 @@ export default function MenuPage() {
   const [scrollIntoView, setScrollIntoView] = useState('');
   const [specExtraPrice, setSpecExtraPrice] = useState(0);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchRequestRef = useRef(0); // 搜索请求序号，防止慢响应覆盖新结果
 
   // Refs to avoid stale closures in callbacks
   const categoriesRef = useRef(categories);
@@ -119,6 +120,8 @@ export default function MenuPage() {
   }
 
   async function handleItemClick(item: MenuItem) {
+    // 重置规格加价，避免新商品残留上一商品的加价
+    setSpecExtraPrice(0);
     setLoadingSpecs(true);
     try {
       const specsRes = await get<SpecGroup[]>(`/menu-items/${item.id}/specs`);
@@ -162,8 +165,35 @@ export default function MenuPage() {
 
   function selectSpec(groupId: string, optionId: string, optionName: string) {
     const currentSpecs = itemSpecsRef.current;
+    const targetGroup = currentSpecs.find((sg) => sg.id === groupId);
+    if (!targetGroup) return;
+
+    const isMultiSelect = targetGroup.maxSelect > 1;
+    const currentSelectedIds = Object.keys(selectedSpecOptionIdsRef.current)
+      .filter((gid) => gid === groupId)
+      .map(() => selectedSpecOptionIdsRef.current[groupId])
+      .filter(Boolean);
+
     const newSpecs = currentSpecs.map((sg) => {
       if (sg.id !== groupId) return sg;
+
+      if (isMultiSelect) {
+        // 多选：toggle 选中状态，不超过 maxSelect
+        const alreadySelected = currentSelectedIds.includes(optionId);
+        const newOptions = sg.options.map((opt) => {
+          if (opt.id === optionId) {
+            return { ...opt, isSelected: !opt.isSelected };
+          }
+          return opt;
+        });
+        // 如果当前选中数已达上限且是新选，不允许再选
+        if (!alreadySelected && currentSelectedIds.length >= sg.maxSelect) {
+          return sg; // 保持不变
+        }
+        return { ...sg, selectedOptions: newOptions };
+      }
+
+      // 单选：只有选中的为 true
       const newOptions = sg.options.map((opt) => ({
         ...opt,
         isSelected: opt.id === optionId,
@@ -174,14 +204,30 @@ export default function MenuPage() {
     // 计算新的规格加价
     let newSpecExtraPrice = 0;
     newSpecs.forEach((sg) => {
-      const selOpt = sg.options.find((o) => o.id === (groupId === sg.id ? optionId : selectedSpecOptionIdsRef.current[sg.id]));
-      if (selOpt) newSpecExtraPrice += selOpt.priceAdjust || 0;
+      sg.selectedOptions.forEach((opt) => {
+        if (opt.isSelected) newSpecExtraPrice += opt.priceAdjust || 0;
+      });
     });
     setSpecExtraPrice(newSpecExtraPrice);
 
     setItemSpecs(newSpecs);
-    setSelectedSpecs({ ...selectedSpecsRef.current, [groupId]: optionName });
-    setSelectedSpecOptionIds({ ...selectedSpecOptionIdsRef.current, [groupId]: optionId });
+
+    // 更新选中的规格（多选用逗号分隔名称，单选直接用名称）
+    if (isMultiSelect) {
+      const selectedNames = newSpecs
+        .find((sg) => sg.id === groupId)?.selectedOptions
+        .filter((o) => o.isSelected)
+        .map((o) => o.name) || [];
+      setSelectedSpecs({ ...selectedSpecsRef.current, [groupId]: selectedNames.join(',') });
+      const selectedIds = newSpecs
+        .find((sg) => sg.id === groupId)?.selectedOptions
+        .filter((o) => o.isSelected)
+        .map((o) => o.id) || [];
+      setSelectedSpecOptionIds({ ...selectedSpecOptionIdsRef.current, [groupId]: selectedIds.join(',') });
+    } else {
+      setSelectedSpecs({ ...selectedSpecsRef.current, [groupId]: optionName });
+      setSelectedSpecOptionIds({ ...selectedSpecOptionIdsRef.current, [groupId]: optionId });
+    }
   }
 
   async function addToCart() {
@@ -225,7 +271,7 @@ export default function MenuPage() {
     // 触发动画 - 避免在回调中捕获 this/store 引用
     setTimeout(() => {
       const query = createSelectorQuery();
-      query.select('.spec-popup__add-cart').boundingClientRect((rect: any) => {
+      query.select('.spec-popup__add-cart-btn').boundingClientRect((rect: any) => {
         if (rect && !Array.isArray(rect)) {
           setFlyInVisible(true);
           setFlyInPosition({ x: rect.left, y: rect.top });
@@ -260,8 +306,11 @@ export default function MenuPage() {
   }
 
   async function searchItems(keyword: string) {
+    // 递增请求序号，仅处理最新请求的结果，避免慢响应覆盖新结果
+    const requestId = ++searchRequestRef.current;
     try {
       const res = await get<MenuItem[]>('/menu-items', { shop_id: DEFAULT_SHOP_ID, search: keyword });
+      if (requestId !== searchRequestRef.current) return; // 已有更新的请求，丢弃旧结果
       const menuItemsData = res.data;
       const cats = categoriesRef.current;
       const searchedCategories = cats.map((cat) => ({
@@ -270,6 +319,7 @@ export default function MenuPage() {
       }));
       setCategories(searchedCategories);
     } catch (error) {
+      if (requestId !== searchRequestRef.current) return;
       console.error('搜索失败:', error);
     }
   }
@@ -342,31 +392,12 @@ export default function MenuPage() {
     return selectedNames.join(' · ');
   }
 
-  const authState = useAuthStore.getState();
   const cartItems = cartStore.items;
   const cartTotal = cartStore.getTotalPrice();
   const cartCount = cartStore.items.reduce((s, i) => s + i.quantity, 0);
 
   return (
     <View className='page menu-page'>
-      {/* 角色切换悬浮球 */}
-      <View
-        className='role-switcher'
-        onClick={() => {
-          const roles = ['customer', 'admin', 'rider'];
-          const currentIdx = roles.indexOf(authState.user?.role || 'customer');
-          const nextRole = roles[(currentIdx + 1) % roles.length] as 'customer' | 'admin' | 'rider';
-          useAuthStore.getState().switchRole(nextRole);
-        }}
-        style={{
-          position: 'fixed', right: '20px', bottom: '150px', zIndex: 2000,
-          background: '#ff6b35', color: '#fff', padding: '8px 12px',
-          borderRadius: '20px', fontSize: '12px', boxShadow: '0 4px 8px rgba(0,0,0,0.2)'
-        }}
-      >
-        <Text>🔄 {useAuthStore.getState().getRoleLabel(authState.user?.role || 'customer')}</Text>
-      </View>
-
       {/* 顶部店铺信息 */}
       <View className='menu-header'>
         <View className='menu-header__avatar'>🏪</View>
@@ -621,7 +652,9 @@ export default function MenuPage() {
           <View className='cart-bar__info'>
             <View className='cart-bar__price-wrap'>
               <Text className='cart-bar__total'>{formatPriceWithSymbol(cartTotal)}</Text>
-              <Text className='cart-bar__note'>另需配送费 ¥5.00</Text>
+              <Text className='cart-bar__note'>
+                {shop?.deliveryFee ? `另需配送费 ${formatPriceWithSymbol(shop.deliveryFee)}` : ''}
+              </Text>
             </View>
             <View
               className='cart-bar__btn'

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrderStatus } from '../../common/constants/enums';
+import { supabase, hasSupabase } from '../../database/supabase.client';
 
 export interface SubscriptionMessagePayload {
   userId: string;
@@ -11,6 +12,28 @@ export interface SubscriptionMessagePayload {
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+
+  /**
+   * 根据 userId(uuid) 查询用户 openid
+   * 微信订阅消息的 touser 字段必须是 openid，不能用 userId
+   */
+  private async resolveOpenId(userId: string): Promise<string | null> {
+    if (!hasSupabase() || !supabase) {
+      this.logger.warn('[Notification] Supabase 不可用，无法查询 openid');
+      return null;
+    }
+    const { data, error } = await supabase
+      .from('tf_users')
+      .select('openid')
+      .eq('id', userId)
+      .single();
+    if (error || !data) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[Notification] 查询用户 openid 失败: userId=${userId} err=${errMsg}`);
+      return null;
+    }
+    return data.openid;
+  }
 
   /**
    * 发送微信订阅消息
@@ -37,10 +60,12 @@ export class NotificationService {
         return false;
       }
 
-      // 2. 获取用户 subscribe_token（需要用户授权）
-      // 实际生产中需要从前端获取用户的 subscribe_token
-      // 此处简化处理，使用 openid 直接发送
-      const openId = payload.userId; // 假设 userId 即为 openid
+      // 2. 根据 userId 查询 openid（微信订阅消息 touser 必须是 openid）
+      const openId = await this.resolveOpenId(payload.userId);
+      if (!openId) {
+        this.logger.warn(`[Notification] 无法解析 openid，跳过发送: userId=${payload.userId}`);
+        return false;
+      }
 
       // 3. 发送订阅消息
       const msgRes = await fetch(
@@ -63,7 +88,7 @@ export class NotificationService {
         return false;
       }
 
-      this.logger.log(`[Notification] 订阅消息发送成功: userId=${openId}, template=${payload.templateId}`);
+      this.logger.log(`[Notification] 订阅消息发送成功: openId=${openId}, template=${payload.templateId}`);
       return true;
     } catch (error) {
       this.logger.error('[Notification] 发送订阅消息异常:', error);

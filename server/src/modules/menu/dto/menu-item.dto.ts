@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsNumber, Min, IsInt, IsEnum } from 'class-validator';
 import { MenuItemStatus } from '../../../common/constants/enums';
 
 export class CreateMenuItemDto {
@@ -11,7 +11,8 @@ export class CreateMenuItemDto {
   @IsString()
   categoryId!: string;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   price!: number;
 
   @IsString()
@@ -22,11 +23,12 @@ export class CreateMenuItemDto {
   @IsOptional()
   description?: string;
 
-  @IsString()
+  @IsEnum(MenuItemStatus)
   @IsOptional()
   status?: MenuItemStatus;
 
-  @IsNumber()
+  @IsInt()
+  @Min(0)
   @IsOptional()
   salesCount?: number;
 

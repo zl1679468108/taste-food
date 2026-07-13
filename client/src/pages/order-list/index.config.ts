@@ -3,6 +3,7 @@ export default definePageConfig({
   navigationBarBackgroundColor: '#ffffff',
   navigationBarTextStyle: 'black',
   backgroundColor: '#f5f5f5',
+  enablePullDownRefresh: true,
 });
 
 function definePageConfig(config: {
@@ -11,6 +12,7 @@ function definePageConfig(config: {
   navigationBarTextStyle?: 'black' | 'white';
   backgroundColor?: string;
   disableScroll?: boolean;
+  enablePullDownRefresh?: boolean;
   usingComponents?: Record<string, string>;
 }) {
   return config;

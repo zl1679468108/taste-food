@@ -38,6 +38,17 @@ export interface OrderStats {
   completedCount: number;
 }
 
+export interface DailyStatsItem {
+  date: string; // YYYY-MM-DD
+  orders: number;
+  revenue: number;
+}
+
+export interface StatusDistributionItem {
+  status: string;
+  count: number;
+}
+
 export const getOrders = (params: { shop_id: string; status?: string; page: number; pageSize: number }) =>
   request.get('/api/orders', { params }) as Promise<{ items: Order[]; total: number }>;
 
@@ -47,7 +58,11 @@ export const getOrder = (id: string) =>
 export const getOrderStats = (shopId: string) =>
   request.get(`/api/orders/stats/${shopId}`) as Promise<OrderStats>;
 
-export const DEFAULT_SHOP_ID = 'shop001';
+export const getDailyStats = (shopId: string, days = 7) =>
+  request.get(`/api/orders/stats/${shopId}/daily`, { params: { days } }) as Promise<DailyStatsItem[]>;
+
+export const getStatusDistribution = (shopId: string) =>
+  request.get(`/api/orders/stats/${shopId}/status-distribution`) as Promise<StatusDistributionItem[]>;
 
 export const updateOrderStatus = (id: string, status: string) =>
   request.post(`/api/orders/${id}/status`, { status });

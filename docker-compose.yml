@@ -13,8 +13,11 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - JWT_SECRET=${JWT_SECRET}
-    depends_on:
-      - db
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - WX_APPID=${WX_APPID:-}
+      - WX_SECRET=${WX_SECRET:-}
+      - ALLOW_MEMORY_FALLBACK=false
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -25,6 +28,7 @@ services:
       - "3012:80"
     depends_on:
       - server
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -39,6 +43,7 @@ services:
     depends_on:
       - server
       - admin
+    restart: unless-stopped
     networks:
       - app-network
 

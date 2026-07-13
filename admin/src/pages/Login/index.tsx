@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Button, Typography, Space, Divider, message } from 'antd';
-import { UserOutlined, ShopOutlined, SafetyOutlined } from '@ant-design/icons';
+import { ShopOutlined, SafetyOutlined } from '@ant-design/icons';
 import { history } from '@umijs/max';
 import { loginAsAdmin } from '@/services/auth';
 
@@ -13,14 +13,16 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       const result = await loginAsAdmin();
-      console.log('登录结果:', result);
       if (result && result.token) {
         localStorage.setItem('token', result.token);
+        if (result.refreshToken) {
+          localStorage.setItem('refreshToken', result.refreshToken);
+        }
         localStorage.setItem('user', JSON.stringify(result));
         message.success('登录成功');
-        setTimeout(() => {
-          history.push('/dashboard');
-        }, 500);
+        history.push('/dashboard');
+      } else {
+        message.error('登录失败，未获取到 token');
       }
     } catch (error) {
       console.error('登录失败:', error);

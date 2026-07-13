@@ -6,7 +6,8 @@ import {
   IsArray,
   ValidateNested,
   Min,
-MinLength,
+  MinLength,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DeliveryType } from '../../../common/constants/enums';
@@ -24,14 +25,11 @@ export class CreateOrderItemDto {
   @Min(1)
   quantity!: number;
 
+  // price 由服务端从数据库查询真实售价，客户端传入仅作展示参考
   @IsNumber()
-  @Min(0)
-  price!: number;
-
-  @IsString()
-  @MinLength(1)
   @IsOptional()
-  contactNameValid?: string;
+  @Min(0)
+  price?: number;
 
   @IsString()
   @IsOptional()
@@ -77,9 +75,8 @@ export class CreateOrderDto {
 
   @IsString()
   @IsOptional()
+  @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
   contactPhone?: string;
 
-  @IsNumber()
-  @IsOptional()
-  deliveryFee?: number;
+  // deliveryFee 由服务端从店铺配置获取，不接受客户端传值
 }

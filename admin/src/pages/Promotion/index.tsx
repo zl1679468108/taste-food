@@ -3,16 +3,16 @@ import { Table, Button, Modal, Form, Input, Select, message, Space, Popconfirm, 
 import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promotion } from '@/services/promotion';
 import { formatTime } from '@/utils/format';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 const { Title } = Typography;
 const { RangePicker } = DatePicker;
-
-const DEFAULT_SHOP_ID = 'shop001';
 
 const PromotionPage: React.FC = () => {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
   const [form] = Form.useForm();
 
@@ -62,8 +62,9 @@ const PromotionPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       const { dateRange, ...rest } = values;
+      setSubmitting(true);
 
-      const data: any = {
+      const data: Partial<Promotion> = {
         ...rest,
         shopId: DEFAULT_SHOP_ID,
       };
@@ -83,7 +84,11 @@ const PromotionPage: React.FC = () => {
       setModalVisible(false);
       loadPromotions();
     } catch (error) {
+      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
       console.error('提交失败:', error);
+      message.error('操作失败');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -117,7 +122,7 @@ const PromotionPage: React.FC = () => {
     {
       title: '有效期',
       key: 'dateRange',
-      render: (_: any, record: Promotion) => {
+      render: (_: Promotion, record: Promotion) => {
         if (record.startDate && record.endDate) {
           return `${formatTime(record.startDate, 'MM-DD')} ~ ${formatTime(record.endDate, 'MM-DD')}`;
         }
@@ -127,7 +132,7 @@ const PromotionPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: Promotion) => (
+      render: (_: Promotion, record: Promotion) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
@@ -174,12 +179,14 @@ const PromotionPage: React.FC = () => {
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        okText="保存"
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="活动名称" rules={[{ required: true }]}>
+          <Form.Item name="name" label="活动名称" rules={[{ required: true, message: '请输入活动名称' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="type" label="活动类型" rules={[{ required: true }]}>
+          <Form.Item name="type" label="活动类型" rules={[{ required: true, message: '请选择活动类型' }]}>
             <Select>
               <Select.Option value="full_discount">满减</Select.Option>
               <Select.Option value="first_order">首单立减</Select.Option>

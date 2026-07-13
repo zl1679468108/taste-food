@@ -1,6 +1,6 @@
 import { Controller, Post, Get, Param, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaymentService } from './payment.service';
 import { PaymentResponseDto } from './dto/payment.dto';
@@ -23,8 +23,9 @@ export class PaymentController {
   @UseGuards(AuthGuard)
   async getPayment(
     @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<PaymentResponseDto | null>> {
-    const result = await this.paymentService.getPaymentByOrderId(id);
+    const result = await this.paymentService.getPaymentByOrderId(id, user);
     return success(result);
   }
 }

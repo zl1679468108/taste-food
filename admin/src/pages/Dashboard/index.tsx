@@ -12,14 +12,13 @@ import {
   LineChartOutlined,
 } from '@ant-design/icons';
 import { Column, Pie, Line } from '@ant-design/charts';
-import { getOrderStats, getOrders, Order, OrderStats } from '@/services/order';
-import { formatTime, shortOrderId } from '@/utils/format';
+import { getOrderStats, getOrders, getDailyStats, getStatusDistribution, Order, OrderStats, DailyStatsItem as ApiDailyStatsItem, StatusDistributionItem } from '@/services/order';
+import { formatTime, shortOrderId, formatPrice } from '@/utils/format';
 import OrderStatusTag from '@/components/OrderStatusTag';
-import request from '@/utils/request';
+import PriceDisplay from '@/components/PriceDisplay';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 const { Title, Text } = Typography;
-
-const DEFAULT_SHOP_ID = 'shop001';
 
 interface DailyStats {
   date: string;
@@ -48,58 +47,39 @@ const DashboardPage: React.FC = () => {
     setLoading(true);
     setChartLoading(true);
     try {
-      const [statsResult, ordersResult] = await Promise.all([
+      // 并行加载：今日统计、最近订单、近7天日趋势、状态分布
+      const [statsResult, ordersResult, dailyResult, distResult] = await Promise.all([
         getOrderStats(DEFAULT_SHOP_ID),
         getOrders({ shop_id: DEFAULT_SHOP_ID, page: 1, pageSize: 10 }),
+        getDailyStats(DEFAULT_SHOP_ID, 7),
+        getStatusDistribution(DEFAULT_SHOP_ID),
       ]);
       setStats(statsResult);
       setOrders(ordersResult?.items || []);
 
-      // 从订单数据生成统计
-      generateChartStats(ordersResult?.items || []);
+      // 日趋势：后端按天聚合，前端仅做格式转换（取 MM-DD 作为图表 x 轴）
+      const dailyData = (dailyResult || []).map((d: ApiDailyStatsItem) => {
+        const parts = d.date.split('-');
+        return {
+          date: `${parts[1]}-${parts[2]}`,
+          orders: d.orders,
+          revenue: Math.round(d.revenue / 100), // 分转元
+        };
+      });
+      setDailyStats(dailyData);
+
+      // 状态分布：后端全量聚合，前端转中文文案
+      const distData = (distResult || []).map((item: StatusDistributionItem) => ({
+        type: getStatusText(item.status),
+        value: item.count,
+      }));
+      setStatusStats(distData.length > 0 ? distData : [{ type: '暂无数据', value: 1 }]);
     } catch (error) {
       console.error('加载数据失败:', error);
     } finally {
       setLoading(false);
       setChartLoading(false);
     }
-  };
-
-  const generateChartStats = (orderList: Order[]) => {
-    // 生成状态分布
-    const statusMap: Record<string, number> = {};
-    orderList.forEach(order => {
-      const statusText = getStatusText(order.status);
-      statusMap[statusText] = (statusMap[statusText] || 0) + 1;
-    });
-    const statusData = Object.entries(statusMap).map(([type, value]) => ({ type, value }));
-    setStatusStats(statusData.length > 0 ? statusData : [{ type: '暂无数据', value: 1 }]);
-
-    // 生成近7天数据（从订单中提取）
-    const dailyMap: Record<string, { orders: number; revenue: number }> = {};
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const dateStr = `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      dailyMap[dateStr] = { orders: 0, revenue: 0 };
-    }
-
-    orderList.forEach(order => {
-      const orderDate = new Date(order.createdAt);
-      const dateStr = `${String(orderDate.getMonth() + 1).padStart(2, '0')}-${String(orderDate.getDate()).padStart(2, '0')}`;
-      if (dailyMap[dateStr]) {
-        dailyMap[dateStr].orders += 1;
-        dailyMap[dateStr].revenue += order.total;
-      }
-    });
-
-    const weeklyData = Object.entries(dailyMap).map(([date, data]) => ({
-      date,
-      orders: data.orders,
-      revenue: Math.round(data.revenue / 100),
-    }));
-    setDailyStats(weeklyData);
   };
 
   const getStatusText = (status: string): string => {
@@ -112,6 +92,7 @@ const DashboardPage: React.FC = () => {
       pending_payment: '待支付',
       cancelled: '已取消',
       rejected: '已拒绝',
+      ready_for_pickup: '待自取',
     };
     return map[status] || status;
   };
@@ -151,11 +132,7 @@ const DashboardPage: React.FC = () => {
       title: '金额',
       dataIndex: 'total',
       key: 'total',
-      render: (total: number) => (
-        <Text strong style={{ color: '#f5222d' }}>
-          ¥{(total / 100).toFixed(2)}
-        </Text>
-      ),
+      render: (total: number) => <PriceDisplay price={total} />,
     },
     {
       title: '时间',
@@ -175,7 +152,7 @@ const DashboardPage: React.FC = () => {
     },
     {
       title: '今日营收',
-      value: stats?.totalRevenue ? (stats.totalRevenue / 100).toFixed(2) : '0.00',
+      value: stats?.totalRevenue ? formatPrice(stats.totalRevenue).replace('¥', '') : '0.00',
       suffix: '元',
       icon: <MoneyCollectOutlined />,
       color: '#52c41a',

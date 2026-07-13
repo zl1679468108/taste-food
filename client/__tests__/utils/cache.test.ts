@@ -8,7 +8,15 @@ jest.mock('@tarojs/taro', () => ({
 }));
 
 import Taro from '@tarojs/taro';
-import { getCache, setCache, clearCache, getStorageCache, setStorageCache } from '../../src/utils/cache';
+import {
+  getCache,
+  setCache,
+  clearCache,
+  getStorageCache,
+  setStorageCache,
+  getCacheResourceKey,
+  clearResourceCache,
+} from '../../src/utils/cache';
 
 const mockTaro = Taro as any;
 
@@ -44,6 +52,22 @@ describe('cache utils', () => {
     expect(getCache('api/categories')).toBeNull();
     expect(getCache('api/menu-items')).not.toBeNull();
     expect(getCache('other-key')).not.toBeNull();
+  });
+
+  test('getCacheResourceKey should normalize api urls', () => {
+    expect(getCacheResourceKey('/menu-items/1')).toBe('menu-items');
+    expect(getCacheResourceKey('/api/orders/1/status')).toBe('orders');
+    expect(getCacheResourceKey('http://127.0.0.1:3010/api/categories?shop_id=1')).toBe('categories');
+  });
+
+  test('clearResourceCache should clear resource-related keys', () => {
+    setCache('GET:http://127.0.0.1:3010/api/menu-items:{}', { data: 'items' });
+    setCache('GET:http://127.0.0.1:3010/api/categories:{}', { data: 'categories' });
+
+    clearResourceCache('/menu-items/1');
+
+    expect(getCache('GET:http://127.0.0.1:3010/api/menu-items:{}')).toBeNull();
+    expect(getCache('GET:http://127.0.0.1:3010/api/categories:{}')).not.toBeNull();
   });
 
   test('setStorageCache and getStorageCache should work correctly', () => {

@@ -169,8 +169,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
     } catch (e) {
       console.warn('[Auth] Token 刷新失败:', e instanceof Error ? e.message : e);
-      // 刷新失败，可能 refresh_token 已过期，需要重新登录
-      get().logout();
+      // 区分网络错误与 refreshToken 过期
+      const err = e as { code?: number };
+      if (err.code === -1) {
+        // 网络错误（请求未到达服务器），保留登录状态，下次定时器会重试
+        console.warn('[Auth] 网络错误，保留登录状态等待重试');
+      } else {
+        // refreshToken 过期或无效，需要重新登录
+        get().logout();
+      }
     }
   },
 

@@ -1,52 +1,320 @@
 openapi: 3.0.0
 info:
   title: 小买卖点餐系统 API
-  version: 1.0.0
-  description: 面向线下小餐饮店的扫码点餐系统 API
+  version: 2.0.0
+  description: |
+    面向线下小餐饮店的扫码点餐系统 API。
+
+    ## 通用约定
+    - 统一前缀 `/api/`
+    - 统一响应格式：`{ code: number, data: T, message: string }`，code=0 表示成功
+    - 金额单位：分（整数），如 500 = 5.00 元
+    - 鉴权：Bearer Token（JWT），部分接口需 admin/rider 角色
+    - HTTP 状态码：200 成功, 201 创建, 400 参数错误, 401 未认证, 403 无权限, 404 不存在, 500 服务器错误
 
 servers:
   - url: http://localhost:3010/api
     description: 开发环境
 
+# ============================================================
+# 安全方案
+# ============================================================
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ============================================================
+  # 可复用 Schema
+  # ============================================================
+  schemas:
+    # --- 通用响应信封 ---
+    ApiResponse:
+      type: object
+      properties:
+        code:
+          type: number
+          description: 业务状态码，0 表示成功
+        data:
+          description: 响应数据，类型随接口而异
+        message:
+          type: string
+          description: 提示信息
+
+    # --- 店铺 ---
+    Shop:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        address: { type: string }
+        phone: { type: string }
+        logoUrl: { type: string }
+        status: { type: string, enum: [open, closed] }
+        deliveryRange: { type: integer, description: 配送范围（米） }
+        deliveryFee: { type: integer, description: 配送费（分） }
+        minOrderAmount: { type: integer, description: 起送价（分） }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    # --- 分类 ---
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        name: { type: string }
+        sortOrder: { type: integer }
+        iconKey: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    # --- 菜品 ---
+    MenuItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        name: { type: string }
+        price: { type: integer, description: 单位：分 }
+        imageUrl: { type: string }
+        description: { type: string }
+        status: { type: string, enum: [active, inactive] }
+        monthlySales: { type: integer }
+        specGroupIds: { type: array, items: { type: string, format: uuid } }
+        isFavorite: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    # --- 规格组 ---
+    SpecGroup:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        name: { type: string }
+        isRequired: { type: boolean }
+        maxSelect: { type: integer }
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/SpecOption' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    SpecOption:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        specGroupId: { type: string, format: uuid }
+        name: { type: string }
+        priceAdjust: { type: integer, description: 价格修正（分） }
+        isDefault: { type: boolean }
+
+    # --- 订单 ---
+    OrderItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        menuItemId: { type: string, format: uuid }
+        name: { type: string }
+        quantity: { type: integer }
+        price: { type: integer, description: 单位：分 }
+        specDesc: { type: string }
+        imageUrl: { type: string }
+
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        userId: { type: string }
+        riderId: { type: string }
+        status:
+          type: string
+          enum: [pending_payment, paid, accepted, preparing, delivering, ready_for_pickup, completed, cancelled, rejected]
+        total: { type: integer, description: 总金额（分） }
+        deliveryFee: { type: integer, description: 配送费（分） }
+        deliveryType:
+          type: string
+          enum: [delivery, pickup, dine_in]
+        address: { type: string }
+        tableNo: { type: string }
+        remark: { type: string }
+        contactName: { type: string }
+        contactPhone: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderItem' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    # --- 促销 ---
+    Promotion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        name: { type: string }
+        type:
+          type: string
+          enum: [full_discount, first_order, coupon]
+        description: { type: string }
+        rule:
+          type: object
+          description: 规则 JSON，如 { threshold: 3000, discount: 500 }
+        status:
+          type: string
+          enum: [active, inactive, expired]
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    # --- 用户 ---
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        openid: { type: string }
+        role:
+          type: string
+          enum: [customer, admin, rider]
+        shopId: { type: string, format: uuid }
+        nickName: { type: string }
+        avatarUrl: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    # --- 支付 ---
+    Payment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        userId: { type: string }
+        transactionId: { type: string }
+        amount: { type: integer, description: 单位：分 }
+        method: { type: string, enum: [wechat, alipay, balance] }
+        status: { type: string, enum: [pending, paid, refunded, failed] }
+        paidAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    # --- 收藏 ---
+    Favorite:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string }
+        menuItemId: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+
+    # --- 统计 ---
+    OrderStats:
+      type: object
+      properties:
+        total: { type: integer }
+        pending: { type: integer }
+        processing: { type: integer }
+        completed: { type: integer }
+        cancelled: { type: integer }
+        todayRevenue: { type: integer, description: 今日营收（分） }
+
+    DailyStatsItem:
+      type: object
+      properties:
+        date: { type: string, description: YYYY-MM-DD }
+        orders: { type: integer }
+        revenue: { type: integer, description: 营收（分） }
+
+    StatusDistributionItem:
+      type: object
+      properties:
+        status: { type: string }
+        count: { type: integer }
+
+# ============================================================
+# 路径定义
+# ============================================================
 paths:
+  # ==================== 认证 ====================
   /auth/wechat-login:
     post:
       summary: 微信登录
+      description: 通过微信 code 登录，返回 JWT token 和 refreshToken
       tags: [认证]
+      security: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [code]
               properties:
-                code:
-                  type: string
-                  description: 微信登录 code
-                nickName:
-                  type: string
-                  description: 用户昵称
+                code: { type: string, description: 微信登录 code }
+                nickName: { type: string, description: 用户昵称 }
+                avatarUrl: { type: string, description: 用户头像 URL }
       responses:
         '200':
           description: 登录成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  code:
-                    type: number
-                  data:
-                    type: object
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
                     properties:
-                      token:
-                        type: string
-                      refreshToken:
-                        type: string
-                      userId:
-                        type: string
-                      role:
-                        type: string
+                      data:
+                        type: object
+                        properties:
+                          token: { type: string }
+                          refreshToken: { type: string }
+                          userId: { type: string }
+                          openid: { type: string }
+                          role: { type: string, enum: [customer, admin, rider] }
 
+  /auth/refresh:
+    post:
+      summary: 刷新 Token
+      description: 使用 refreshToken 获取新的 accessToken 和 refreshToken（Token 轮换）
+      tags: [认证]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token: { type: string }
+                          refreshToken: { type: string }
+        '401':
+          description: refreshToken 无效或已过期
+
+  # ==================== 店铺 ====================
   /shops:
     get:
       summary: 获取店铺列表
@@ -54,107 +322,868 @@ paths:
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Shop' }
+    post:
+      summary: 创建店铺
+      tags: [店铺]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                address: { type: string }
+                phone: { type: string }
+                logoUrl: { type: string }
+                status: { type: string, enum: [open, closed] }
+                deliveryRange: { type: integer, description: 配送范围（米） }
+                deliveryFee: { type: integer, description: 配送费（分） }
+                minOrderAmount: { type: integer, description: 起送价（分） }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shop' }
 
   /shops/{id}:
     get:
       summary: 获取店铺详情
       tags: [店铺]
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shop' }
+    patch:
+      summary: 更新店铺信息
+      tags: [店铺]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                address: { type: string }
+                phone: { type: string }
+                logoUrl: { type: string }
+                deliveryRange: { type: integer }
+                deliveryFee: { type: integer }
+                minOrderAmount: { type: integer }
+      responses:
+        '200':
+          description: 更新成功
+    delete:
+      summary: 删除店铺
+      tags: [店铺]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 删除成功
 
+  /shops/{id}/status:
+    patch:
+      summary: 更新店铺营业状态
+      tags: [店铺]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [open, closed] }
+      responses:
+        '200':
+          description: 更新成功
+
+  # ==================== 分类 ====================
+  /categories:
+    get:
+      summary: 获取分类列表
+      tags: [分类]
+      parameters:
+        - { name: shop_id, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Category' }
+    post:
+      summary: 创建分类
+      tags: [分类]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, shopId]
+              properties:
+                name: { type: string }
+                shopId: { type: string, format: uuid }
+                sortOrder: { type: integer }
+                iconKey: { type: string }
+      responses:
+        '201':
+          description: 创建成功
+
+  /categories/{id}:
+    patch:
+      summary: 更新分类
+      tags: [分类]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                sortOrder: { type: integer }
+                iconKey: { type: string }
+      responses:
+        '200':
+          description: 更新成功
+    delete:
+      summary: 删除分类（事务删除关联菜品）
+      tags: [分类]
+      description: 调用 atomic_delete_category RPC，事务内删除分类及其下所有菜品
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 删除成功
+
+  # ==================== 菜品 ====================
   /menu-items:
     get:
       summary: 获取菜品列表
       tags: [菜品]
       parameters:
-        - name: shop_id
-          in: query
-          schema:
-            type: string
-        - name: category_id
-          in: query
-          schema:
-            type: string
-        - name: search
-          in: query
-          schema:
-            type: string
+        - { name: shop_id, in: query, schema: { type: string, format: uuid } }
+        - { name: category_id, in: query, schema: { type: string, format: uuid } }
+        - { name: search, in: query, schema: { type: string } }
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/MenuItem' }
+    post:
+      summary: 创建菜品
+      tags: [菜品]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, shopId, categoryId, price]
+              properties:
+                name: { type: string }
+                shopId: { type: string, format: uuid }
+                categoryId: { type: string, format: uuid }
+                price: { type: integer, description: 单位：分, minimum: 0 }
+                imageUrl: { type: string }
+                description: { type: string }
+                status: { type: string, enum: [active, inactive] }
+                specGroupIds:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: 创建成功
 
+  /menu-items/popular:
+    get:
+      summary: 获取热门菜品
+      tags: [菜品]
+      parameters:
+        - { name: shop_id, in: query, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, default: 10 } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/MenuItem' }
+
+  /menu-items/{id}:
+    get:
+      summary: 获取菜品详情
+      tags: [菜品]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/MenuItem' }
+    patch:
+      summary: 更新菜品
+      tags: [菜品]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                categoryId: { type: string, format: uuid }
+                price: { type: integer, minimum: 0 }
+                imageUrl: { type: string }
+                description: { type: string }
+                status: { type: string, enum: [active, inactive] }
+                specGroupIds:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 更新成功
+    delete:
+      summary: 删除菜品
+      tags: [菜品]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 删除成功
+
+  /menu-items/{id}/specs:
+    get:
+      summary: 获取菜品规格信息
+      tags: [菜品]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/SpecGroup' }
+
+  /menu-items/{id}/favorite:
+    post:
+      summary: 切换菜品收藏状态
+      tags: [菜品]
+      description: 已收藏则取消，未收藏则添加（原子化 upsert）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          isFavorite: { type: boolean }
+
+  # ==================== 订单 ====================
   /orders:
     get:
       summary: 获取订单列表
       tags: [订单]
       parameters:
-        - name: shop_id
-          in: query
-          schema:
-            type: string
-        - name: status
-          in: query
-          schema:
-            type: string
-        - name: page
-          in: query
-          schema:
-            type: integer
-        - name: pageSize
-          in: query
-          schema:
-            type: integer
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: shop_id, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: rider_id, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          list:
+                            type: array
+                            items: { $ref: '#/components/schemas/Order' }
+                          total: { type: integer }
+                          page: { type: integer }
+                          pageSize: { type: integer }
+    post:
+      summary: 创建订单
+      tags: [订单]
+      description: |
+        服务端校验金额：从数据库查询真实菜品价格，从店铺配置获取配送费并校验起送价。
+        使用 atomic_create_order RPC 事务化创建订单+订单项+更新销量。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shopId, items, deliveryType]
+              properties:
+                shopId: { type: string, format: uuid }
+                userId: { type: string, description: 可选，通常从 JWT 获取 }
+                deliveryType:
+                  type: string
+                  enum: [delivery, pickup, dine_in]
+                address: { type: string, description: delivery 类型必填 }
+                tableNo: { type: string, description: dine_in 类型必填 }
+                remark: { type: string }
+                contactName: { type: string }
+                contactPhone: { type: string }
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [menuItemId, name, quantity]
+                    properties:
+                      menuItemId: { type: string, format: uuid }
+                      name: { type: string }
+                      quantity: { type: integer, minimum: 1 }
+                      price: { type: integer, description: 仅参考，服务端以数据库为准 }
+                      specDesc: { type: string }
+                      imageUrl: { type: string }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Order' }
+
+  /orders/{id}:
+    get:
+      summary: 获取订单详情（含订单项）
+      tags: [订单]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Order' }
+
+  /orders/{id}/status:
+    post:
+      summary: 更新订单状态
+      tags: [订单]
+      description: 状态机校验，仅允许合法流转（见 prd.md §5.2）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [pending_payment, paid, accepted, preparing, delivering, ready_for_pickup, completed, cancelled, rejected]
+                remark: { type: string }
+      responses:
+        '200':
+          description: 更新成功
+
+  /orders/{id}/cancel:
+    post:
+      summary: 取消订单
+      tags: [订单]
+      description: 仅 pending_payment/paid 状态可取消；已支付订单取消时自动退款（tf_payments 状态置为 refunded）
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 取消成功
+
+  /orders/{id}/reorder:
+    post:
+      summary: 再来一单
+      tags: [订单]
+      description: 基于历史订单创建新订单
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: 创建成功
+
+  /orders/{id}/grab:
+    post:
+      summary: 骑手抢单
+      tags: [订单]
+      description: 仅 accepted/preparing 状态可抢单，delivered 状态已有骑手
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 抢单成功
+
+  /orders/{id}/deliver:
+    post:
+      summary: 骑手确认送达
+      tags: [订单]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 确认送达成功
 
   /orders/stats/{shopId}:
     get:
-      summary: 获取订单统计
+      summary: 获取订单统计概览
       tags: [订单]
       parameters:
-        - name: shopId
-          in: path
-          required: true
-          schema:
-            type: string
+        - { name: shopId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/OrderStats' }
 
-  /users:
+  /orders/stats/{shopId}/daily:
     get:
-      summary: 获取用户列表
-      tags: [用户]
+      summary: 获取每日订单统计（图表数据）
+      tags: [订单]
+      description: 按天聚合，初始化日期桶保证连续日期。多租户隔离校验。
       parameters:
-        - name: page
-          in: query
-          schema:
-            type: integer
-        - name: pageSize
-          in: query
-          schema:
-            type: integer
+        - { name: shopId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: days, in: query, schema: { type: integer, default: 7, minimum: 1, maximum: 90 } }
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DailyStatsItem' }
 
+  /orders/stats/{shopId}/status-distribution:
+    get:
+      summary: 获取订单状态分布
+      tags: [订单]
+      parameters:
+        - { name: shopId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/StatusDistributionItem' }
+
+  # ==================== 支付 ====================
+  /orders/{id}/pay:
+    post:
+      summary: 支付订单
+      tags: [支付]
+      description: |
+        生产环境调用微信支付；开发环境支持模拟支付。
+        响应包含 mock:true 标识模拟支付。生产环境禁用模拟支付。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 支付成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          success: { type: boolean }
+                          mock: { type: boolean, description: 是否模拟支付 }
+                          paymentId: { type: string }
+
+  /orders/{id}/payment:
+    get:
+      summary: 获取订单支付信息
+      tags: [支付]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Payment' }
+
+  # ==================== 收藏 ====================
+  /favorites:
+    get:
+      summary: 获取当前用户收藏列表
+      tags: [收藏]
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          allOf:
+                            - $ref: '#/components/schemas/Favorite'
+                            - type: object
+                              properties:
+                                menuItem: { $ref: '#/components/schemas/MenuItem' }
+
+  /favorites/check/{menuItemId}:
+    get:
+      summary: 检查菜品是否已收藏
+      tags: [收藏]
+      parameters:
+        - { name: menuItemId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          isFavorite: { type: boolean }
+
+  /favorites/toggle:
+    post:
+      summary: 切换收藏状态
+      tags: [收藏]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [menuItemId]
+              properties:
+                menuItemId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          isFavorite: { type: boolean }
+
+  /favorites/{menuItemId}:
+    delete:
+      summary: 取消收藏
+      tags: [收藏]
+      parameters:
+        - { name: menuItemId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 取消成功
+
+  # ==================== 促销 ====================
   /promotions:
     get:
       summary: 获取促销列表
       tags: [促销]
       parameters:
-        - name: shopId
-          in: query
-          schema:
-            type: string
+        - { name: shopId, in: query, schema: { type: string, format: uuid } }
       responses:
         '200':
           description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Promotion' }
+    post:
+      summary: 创建促销活动
+      tags: [促销]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [shopId, type, name, rule]
+              properties:
+                shopId: { type: string, format: uuid }
+                type: { type: string, enum: [full_discount, first_order, coupon] }
+                name: { type: string }
+                description: { type: string }
+                rule:
+                  type: object
+                  description: 如 { threshold: 3000, discount: 500 }
+                startDate: { type: string, format: date-time }
+                endDate: { type: string, format: date-time }
+                status: { type: string, enum: [active, inactive, expired] }
+      responses:
+        '201':
+          description: 创建成功
+
+  /promotions/{id}:
+    patch:
+      summary: 更新促销活动
+      tags: [促销]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                rule: { type: object }
+                startDate: { type: string, format: date-time }
+                endDate: { type: string, format: date-time }
+                status: { type: string, enum: [active, inactive, expired] }
+      responses:
+        '200':
+          description: 更新成功
+    delete:
+      summary: 删除促销活动
+      tags: [促销]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 删除成功
+
+  # ==================== 用户 ====================
+  /users:
+    get:
+      summary: 获取用户列表
+      tags: [用户]
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          list:
+                            type: array
+                            items: { $ref: '#/components/schemas/User' }
+                          total: { type: integer }
+
+  /users/{id}:
+    get:
+      summary: 获取用户详情
+      tags: [用户]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/User' }
+
+  # ==================== 文件存储 ====================
+  /storage/images/menu:
+    post:
+      summary: 上传菜品图片
+      tags: [存储]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          url: { type: string }
+
+  /storage/images/{path}:
+    delete:
+      summary: 删除图片
+      tags: [存储]
+      parameters:
+        - { name: path, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 删除成功
+
+  # ==================== 健康检查 ====================
+  /health:
+    get:
+      summary: 健康检查
+      tags: [系统]
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  supabase: { type: boolean }
+                  uptime: { type: number }

@@ -1,11 +1,14 @@
 import { getCategories, createCategory, updateCategory, deleteCategory, getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem } from '../services/menu';
 
-// Mock request
+// Mock request —— 与 auth.test.ts 保持一致：default export 形式
 jest.mock('../utils/request', () => ({
-  get: jest.fn(),
-  post: jest.fn(),
-  patch: jest.fn(),
-  delete: jest.fn(),
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+    patch: jest.fn(),
+    delete: jest.fn(),
+  },
 }));
 
 describe('Menu API 服务', () => {
@@ -16,7 +19,7 @@ describe('Menu API 服务', () => {
   describe('getCategories', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse: unknown[] = [];
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.get.mockResolvedValue(mockResponse);
 
       await getCategories('shop001');
@@ -28,7 +31,7 @@ describe('Menu API 服务', () => {
   describe('createCategory', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { id: 'cat123', name: '测试分类' };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.post.mockResolvedValue(mockResponse);
 
       const data = { name: '测试分类', shopId: 'shop001' };
@@ -41,7 +44,7 @@ describe('Menu API 服务', () => {
   describe('updateCategory', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { id: 'cat123', name: '更新分类' };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.patch.mockResolvedValue(mockResponse);
 
       const data = { name: '更新分类' };
@@ -54,7 +57,7 @@ describe('Menu API 服务', () => {
   describe('deleteCategory', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { success: true };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.delete.mockResolvedValue(mockResponse);
 
       await deleteCategory('cat123');
@@ -66,7 +69,7 @@ describe('Menu API 服务', () => {
   describe('getMenuItems', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse: unknown[] = [];
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.get.mockResolvedValue(mockResponse);
 
       const params = { shop_id: 'shop001' };
@@ -79,7 +82,7 @@ describe('Menu API 服务', () => {
   describe('createMenuItem', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { id: 'item123', name: '测试菜品' };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.post.mockResolvedValue(mockResponse);
 
       const data = { name: '测试菜品', price: 1000 };
@@ -92,7 +95,7 @@ describe('Menu API 服务', () => {
   describe('updateMenuItem', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { id: 'item123', name: '更新菜品' };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.patch.mockResolvedValue(mockResponse);
 
       const data = { name: '更新菜品' };
@@ -105,7 +108,7 @@ describe('Menu API 服务', () => {
   describe('deleteMenuItem', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { success: true };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.delete.mockResolvedValue(mockResponse);
 
       await deleteMenuItem('item123');

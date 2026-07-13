@@ -4,6 +4,7 @@ import { success, ApiResponse } from '../../common/interfaces/api-response.inter
 import { FavoritesService, FavoriteWithMenuItem } from './favorites.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+import { ToggleFavoriteDto } from './dto/toggle-favorite.dto';
 
 @Controller('favorites')
 @UseGuards(AuthGuard)
@@ -30,7 +31,7 @@ export class FavoritesController {
   @Post('toggle')
   async toggleFavorite(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { menuItemId: string; shopId: string },
+    @Body() body: ToggleFavoriteDto,
   ): Promise<ApiResponse<{ isFavorite: boolean }>> {
     const result = await this.favoritesService.toggleFavorite(
       user.userId,

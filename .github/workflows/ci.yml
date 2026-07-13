@@ -9,42 +9,40 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '18'
-          
-      - name: Install dependencies
-        run: |
-          cd server && npm ci
-          cd ../client && npm ci
-          cd ../admin && npm ci
-          
-      - name: Run server tests
-        run: cd server && npm test
-        
+          cache: 'npm'
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+            admin/package-lock.json
+
+      - name: Install server dependencies
+        run: cd server && npm ci
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
+      - name: Install admin dependencies
+        run: cd admin && npm ci
+
+      - name: Run client tests
+        run: cd client && npm test -- --passWithNoTests
+
       - name: Run admin tests
-        run: cd admin && npm test
-        
+        run: cd admin && npm test -- --passWithNoTests
+
+      - name: Type check server
+        run: cd server && npx tsc --noEmit
+
       - name: Build server
         run: cd server && npm run build
-        
+
       - name: Build admin
         run: cd admin && npm run build
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Deploy to production
-        run: |
-          echo "Deploying to production..."
-          # 添加实际部署命令

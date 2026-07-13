@@ -1,9 +1,17 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: v9.0 (与代码实现同步)
--- 更新日期: 2026-06-24
+-- 版本: v10.0 (与代码实现同步)
+-- 更新日期: 2026-07-12
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
+-- v10.0 变更：
+--   1. 补充高频查询字段索引（tf_order_items.order_id 等）
+--   2. 为 text 枚举字段补充 CHECK 约束防止非法值
+--   3. 外键补充 ON DELETE 行为（CASCADE/RESTRICT/SET NULL）
+--   4. 补充缺失的 updated_at 时间戳
+--   5. 多租户表补充 shop_id（tf_order_items/tf_delivery_info/tf_payments）
+--   6. tf_users.userId 重命名为 user_id 符合 snake_case 规范
+--   7. atomic_create_order p_user_id 类型从 uuid 改为 text 匹配 user_id 列
 -- ============================================================
 
 -- 1. 店铺表
@@ -15,7 +23,7 @@ CREATE TABLE IF NOT EXISTS "tf_shops" (
   "logo_url" text,
   "address" text,
   "phone" text,
-  "status" text DEFAULT 'open',
+  "status" text DEFAULT 'open' CHECK (status IN ('open', 'closed')),
   "delivery_range" integer DEFAULT 3000, -- 配送范围（米），默认3km
   "delivery_fee" integer DEFAULT 500, -- 配送费（分），默认5元
   "min_order_amount" integer DEFAULT 0, -- 起送价（分）
@@ -27,7 +35,7 @@ ALTER TABLE "tf_shops" DISABLE ROW LEVEL SECURITY;
 -- 2. 菜品分类表
 CREATE TABLE IF NOT EXISTS "tf_categories" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
   "name" text NOT NULL,
   "icon_key" text,
   "sort_order" integer DEFAULT 0,
@@ -41,13 +49,13 @@ ALTER TABLE "tf_categories" DISABLE ROW LEVEL SECURITY;
 -- 注意：spec_group_ids 存储关联的规格组 ID 数组
 CREATE TABLE IF NOT EXISTS "tf_menu_items" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "category_id" uuid REFERENCES tf_categories(id),
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "category_id" uuid REFERENCES tf_categories(id) ON DELETE CASCADE,
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
   "name" text NOT NULL,
   "description" text,
   "price" integer NOT NULL, -- 单位：分
   "image_url" text,
-  "status" text DEFAULT 'active', -- active | inactive
+  "status" text DEFAULT 'active' CHECK (status IN ('active', 'inactive')), -- active | inactive
   "monthly_sales" integer DEFAULT 0,
   "spec_group_ids" uuid[] DEFAULT '{}', -- 关联的规格组 ID 数组
   "created_at" timestamptz DEFAULT now(),
@@ -60,7 +68,7 @@ ALTER TABLE "tf_menu_items" DISABLE ROW LEVEL SECURITY;
 -- 注意：字段名与代码严格对应（shop_id, max_select, is_required）
 CREATE TABLE IF NOT EXISTS "tf_spec_groups" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
   "name" text NOT NULL,
   "is_required" boolean DEFAULT false,
   "max_select" integer DEFAULT 1,
@@ -73,7 +81,7 @@ ALTER TABLE "tf_spec_groups" DISABLE ROW LEVEL SECURITY;
 -- 注意：group_id 在代码中对应 spec_group_id
 CREATE TABLE IF NOT EXISTS "tf_spec_options" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "spec_group_id" uuid REFERENCES tf_spec_groups(id),
+  "spec_group_id" uuid REFERENCES tf_spec_groups(id) ON DELETE CASCADE,
   "name" text NOT NULL,
   "price_adjust" integer DEFAULT 0, -- 价格修正（分）
   "is_default" boolean DEFAULT false,
@@ -84,14 +92,15 @@ ALTER TABLE "tf_spec_options" DISABLE ROW LEVEL SECURITY;
 
 -- 6. 订单主表
 -- 注意：代码中使用 rider_id 字段用于骑手配送
+-- shop_id 使用 ON DELETE RESTRICT 防止误删有订单的店铺（订单为财务记录）
 CREATE TABLE IF NOT EXISTS "tf_orders" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "user_id" text NOT NULL, -- 存储微信 OpenID 或 Auth UID
   "rider_id" text, -- 骑手 ID（外送订单使用）
-  "status" text NOT NULL DEFAULT 'pending_payment',
+  "status" text NOT NULL DEFAULT 'pending_payment' CHECK (status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'ready_for_pickup', 'completed', 'cancelled', 'rejected')),
   "total" integer NOT NULL,
-  "delivery_type" text NOT NULL, -- delivery, pickup, dine_in
+  "delivery_type" text NOT NULL CHECK (delivery_type IN ('delivery', 'pickup', 'dine_in')),
   "address" text,
   "table_no" text,
   "remark" text,
@@ -104,27 +113,34 @@ CREATE TABLE IF NOT EXISTS "tf_orders" (
 ALTER TABLE "tf_orders" DISABLE ROW LEVEL SECURITY;
 
 -- 7. 订单明细表
+-- shop_id 多租户字段，便于按店铺维度统计订单明细
+-- menu_item_id 不设外键（历史快照，菜品删除后订单记录保留）
 CREATE TABLE IF NOT EXISTS "tf_order_items" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "order_id" uuid REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "menu_item_id" uuid NOT NULL,
   "name" text NOT NULL,
   "quantity" integer NOT NULL,
   "price" integer NOT NULL,
   "spec_desc" text,
   "image_url" text,
-  "created_at" timestamptz DEFAULT now()
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_order_items" DISABLE ROW LEVEL SECURITY;
 
 -- 8. 配送信息表（预留，目前未在代码中主动使用）
 CREATE TABLE IF NOT EXISTS "tf_delivery_info" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "order_id" uuid REFERENCES tf_orders(id),
+  "order_id" uuid REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "courier_name" text,
   "courier_phone" text,
   "estimated_delivery_at" timestamptz,
-  "delivered_at" timestamptz
+  "delivered_at" timestamptz,
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_delivery_info" DISABLE ROW LEVEL SECURITY;
 
@@ -133,12 +149,12 @@ ALTER TABLE "tf_delivery_info" DISABLE ROW LEVEL SECURITY;
 -- 与早期版本的 title/threshold/discount/is_active/start_at/end_at 已不兼容
 CREATE TABLE IF NOT EXISTS "tf_promotions" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
   "name" text NOT NULL,
-  "type" text NOT NULL, -- full_discount, first_order, coupon
+  "type" text NOT NULL CHECK (type IN ('full_discount', 'first_order', 'coupon')),
   "description" text,
   "rule" jsonb DEFAULT '{}', -- { threshold: number, discount: number }
-  "status" text DEFAULT 'inactive', -- active | inactive | expired
+  "status" text DEFAULT 'inactive' CHECK (status IN ('active', 'inactive', 'expired')),
   "start_date" timestamptz,
   "end_date" timestamptz,
   "created_at" timestamptz DEFAULT now(),
@@ -147,12 +163,13 @@ CREATE TABLE IF NOT EXISTS "tf_promotions" (
 ALTER TABLE "tf_promotions" DISABLE ROW LEVEL SECURITY;
 
 -- 10. 用户扩展表
--- 注意：openid 为唯一标识，代码中未使用 userId 字段（可保留兼容）
+-- 注意：openid 为唯一标识；user_id（原 userId）为预留字段，符合 snake_case 规范
 CREATE TABLE IF NOT EXISTS "tf_users" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "openid" text UNIQUE NOT NULL,
-  "userId" text, -- 对应 Auth 系统的标识（预留）
-  "role" text DEFAULT 'customer', -- customer | admin | rider
+  "user_id" text, -- 对应 Auth 系统的标识（预留，符合 snake_case 规范）
+  "role" text DEFAULT 'customer' CHECK (role IN ('customer', 'admin', 'rider')),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE SET NULL, -- 多租户：admin 必填，绑定管理的店铺；customer/rider 可空
   "nick_name" text,
   "avatar_url" text,
   "created_at" timestamptz DEFAULT now(),
@@ -160,17 +177,35 @@ CREATE TABLE IF NOT EXISTS "tf_users" (
 );
 ALTER TABLE "tf_users" DISABLE ROW LEVEL SECURITY;
 
+-- 10.1 Refresh Token 持久化表
+-- 替代内存 Map，支持多实例部署与重启不失效
+CREATE TABLE IF NOT EXISTS "tf_refresh_tokens" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "token_hash" text NOT NULL, -- refresh_token 的哈希值（不存明文）
+  "user_id" text NOT NULL, -- 对应 tf_users.id
+  "expires_at" timestamptz NOT NULL,
+  "revoked" boolean DEFAULT false,
+  "created_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_refresh_tokens" DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON tf_refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON tf_refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON tf_refresh_tokens(expires_at);
+
 -- 11. 支付记录表
 CREATE TABLE IF NOT EXISTS "tf_payments" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "order_id" uuid REFERENCES tf_orders(id),
+  "order_id" uuid REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "user_id" text,
   "transaction_id" text,
   "amount" integer NOT NULL,
-  "method" text DEFAULT 'wechat',
-  "status" text DEFAULT 'pending',
+  "method" text DEFAULT 'wechat' CHECK (method IN ('wechat', 'alipay', 'balance')),
+  "status" text DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'refunded', 'failed')),
   "paid_at" timestamptz,
-  "created_at" timestamptz DEFAULT now()
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_payments" DISABLE ROW LEVEL SECURITY;
 
@@ -179,7 +214,7 @@ CREATE TABLE IF NOT EXISTS "tf_favorites" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "user_id" text NOT NULL,
   "menu_item_id" uuid REFERENCES tf_menu_items(id) ON DELETE CASCADE,
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
   "created_at" timestamptz DEFAULT now(),
   UNIQUE("user_id", "menu_item_id")
 );
@@ -190,7 +225,7 @@ CREATE INDEX IF NOT EXISTS idx_favorites_user_id ON tf_favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_favorites_menu_item_id ON tf_favorites(menu_item_id);
 
 -- ============================================================
--- 以下为可选的索引优化（提升查询性能）
+-- 以下为索引优化（提升查询性能）
 -- ============================================================
 
 -- 订单查询常用索引
@@ -200,24 +235,47 @@ CREATE INDEX IF NOT EXISTS idx_orders_status ON tf_orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON tf_orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_rider_id ON tf_orders(rider_id);
 
+-- 订单明细查询索引（order_id 高频关联查询，原缺失致全表扫描）
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON tf_order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_shop_id ON tf_order_items(shop_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_menu_item_id ON tf_order_items(menu_item_id);
+
 -- 菜品查询常用索引
 CREATE INDEX IF NOT EXISTS idx_menu_items_shop_id ON tf_menu_items(shop_id);
 CREATE INDEX IF NOT EXISTS idx_menu_items_category_id ON tf_menu_items(category_id);
 CREATE INDEX IF NOT EXISTS idx_menu_items_status ON tf_menu_items(status);
 
+-- 分类与规格索引
+CREATE INDEX IF NOT EXISTS idx_categories_shop_id ON tf_categories(shop_id);
+CREATE INDEX IF NOT EXISTS idx_spec_groups_shop_id ON tf_spec_groups(shop_id);
+CREATE INDEX IF NOT EXISTS idx_spec_options_spec_group_id ON tf_spec_options(spec_group_id);
+
 -- 用户查询常用索引
 CREATE INDEX IF NOT EXISTS idx_users_openid ON tf_users(openid);
 CREATE INDEX IF NOT EXISTS idx_users_role ON tf_users(role);
+
+-- 支付记录索引（order_id 关联查询，原缺失）
+CREATE INDEX IF NOT EXISTS idx_payments_order_id ON tf_payments(order_id);
+CREATE INDEX IF NOT EXISTS idx_payments_shop_id ON tf_payments(shop_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON tf_payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON tf_payments(user_id);
+
+-- 促销索引（shop_id 多租户查询，原缺失）
+CREATE INDEX IF NOT EXISTS idx_promotions_shop_id ON tf_promotions(shop_id);
+CREATE INDEX IF NOT EXISTS idx_promotions_status ON tf_promotions(status);
+
+-- 配送信息索引
+CREATE INDEX IF NOT EXISTS idx_delivery_info_order_id ON tf_delivery_info(order_id);
 
 -- ============================================================
 -- 数据一致性优化（v9.2）
 -- 新增：tf_daily_stats 聚合表 + 原子更新 RPC 函数
 -- ============================================================
 
--- 12. 每日销售统计表
+-- 14. 每日销售统计表
 CREATE TABLE IF NOT EXISTS "tf_daily_stats" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid REFERENCES tf_shops(id),
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
   "stat_date" date NOT NULL,
   "total_orders" integer DEFAULT 0,
   "total_revenue" integer DEFAULT 0,
@@ -232,21 +290,24 @@ ALTER TABLE "tf_daily_stats" DISABLE ROW LEVEL SECURITY;
 -- 每日统计索引
 CREATE INDEX IF NOT EXISTS idx_daily_stats_shop_date ON tf_daily_stats(shop_id, stat_date);
 
--- 13. 菜品销售明细表（用于精确统计和历史追溯）
+-- 15. 菜品销售明细表（用于精确统计和历史追溯）
+-- menu_item_id/order_id 使用 ON DELETE SET NULL 保留历史销量记录
 CREATE TABLE IF NOT EXISTS "tf_item_sales" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "menu_item_id" uuid REFERENCES tf_menu_items(id),
-  "shop_id" uuid REFERENCES tf_shops(id),
-  "order_id" uuid REFERENCES tf_orders(id),
+  "menu_item_id" uuid REFERENCES tf_menu_items(id) ON DELETE SET NULL,
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "order_id" uuid REFERENCES tf_orders(id) ON DELETE SET NULL,
   "order_date" date NOT NULL,
   "quantity" integer NOT NULL DEFAULT 0,
   "revenue" integer NOT NULL DEFAULT 0,
-  "created_at" timestamptz DEFAULT now()
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_item_sales" DISABLE ROW LEVEL SECURITY;
 
 CREATE INDEX IF NOT EXISTS idx_item_sales_menu_item ON tf_item_sales(menu_item_id);
 CREATE INDEX IF NOT EXISTS idx_item_sales_shop_date ON tf_item_sales(shop_id, order_date);
+CREATE INDEX IF NOT EXISTS idx_item_sales_order_id ON tf_item_sales(order_id);
 
 -- 原子更新菜品销量的 RPC 函数（防止并发竞态）
 CREATE OR REPLACE FUNCTION atomic_increment_menu_sales(
@@ -294,10 +355,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 原子创建订单：在一个事务内插入订单、订单项、更新销量
+-- p_user_id 类型为 text 与 tf_orders.user_id 列类型一致（存储 OpenID 或 Auth UID）
 CREATE OR REPLACE FUNCTION atomic_create_order(
   p_order_id uuid,
   p_shop_id uuid,
-  p_user_id uuid,
+  p_user_id text,
   p_total integer,
   p_delivery_fee integer,
   p_delivery_type text,
@@ -321,10 +383,11 @@ BEGIN
   -- Step 2: Insert order items and increment sales atomically
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
   LOOP
-    -- Insert order item
-    INSERT INTO tf_order_items (order_id, menu_item_id, name, quantity, price, spec_desc, image_url)
+    -- Insert order item (含 shop_id 多租户字段)
+    INSERT INTO tf_order_items (order_id, shop_id, menu_item_id, name, quantity, price, spec_desc, image_url)
     VALUES (
       v_order_id,
+      p_shop_id,
       (v_item->>'menuItemId')::uuid,
       v_item->>'name',
       (v_item->>'quantity')::integer,
@@ -347,5 +410,18 @@ BEGIN
 
   -- Return created order ID
   RETURN jsonb_build_object('orderId', v_order_id::text, 'success', true);
+END;
+$$ LANGUAGE plpgsql;
+
+-- 原子删除分类：在一个事务内删除关联菜品和分类，避免中间失败导致数据不一致
+CREATE OR REPLACE FUNCTION atomic_delete_category(
+  p_category_id uuid
+) RETURNS void AS $$
+BEGIN
+  -- Step 1: 删除该分类下的所有菜品
+  DELETE FROM tf_menu_items WHERE category_id = p_category_id;
+
+  -- Step 2: 删除分类本身
+  DELETE FROM tf_categories WHERE id = p_category_id;
 END;
 $$ LANGUAGE plpgsql;

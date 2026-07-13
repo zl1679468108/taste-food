@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { MenuItemStatus } from '../../common/constants/enums';
 import {
@@ -86,8 +86,8 @@ interface SpecGroupRow {
   updated_at: string;
 }
 
-// Memory fallback
-const DEFAULT_SHOP_ID = 'shop001';
+// Memory fallback（仅开发环境使用，生产环境禁用）
+const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
 const memoryCategories: Map<string, CategoryRecord> = new Map();
 const memoryMenuItems: Map<string, MenuItemRecord> = new Map();
@@ -96,6 +96,8 @@ const memoryFavorites: Set<string> = new Set(); // 模拟收藏关系 "userId:me
 
 @Injectable()
 export class MenuService {
+  private readonly logger = new Logger(MenuService.name);
+
   constructor(
     @Inject(forwardRef(() => FavoritesService))
     private readonly favoritesService: FavoritesService,
@@ -252,7 +254,12 @@ export class MenuService {
       if (shopId) query = query.eq('shop_id', shopId);
       const { data, error } = await query;
       if (error) throw new BadRequestException(`获取热门菜品失败: ${error.message}`);
-      return await Promise.all((data || []).map(async (row) => this.toMenuItemResponse(this.toMenuItem(row), userId)));
+      const items = (data || []).map((row) => this.toMenuItem(row));
+      // 批量查询收藏状态，避免逐菜品 N+1 查询
+      const favoriteSet = userId
+        ? await this.favoritesService.batchCheckFavorites(userId, items.map((i) => i.id))
+        : undefined;
+      return await Promise.all(items.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
     }
 
     // Memory fallback
@@ -262,7 +269,12 @@ export class MenuService {
     );
     if (shopId) items = items.filter((i) => i.shopId === shopId);
     items.sort((a, b) => b.salesCount - a.salesCount);
-    return await Promise.all(items.slice(0, limit).map(async (i) => this.toMenuItemResponse(i, userId)));
+    const sliced = items.slice(0, limit);
+    // 内存模式：直接用本地 Set 批量判断
+    const favoriteSet = userId
+      ? new Set(sliced.filter((i) => memoryFavorites.has(`${userId}:${i.id}`)).map((i) => i.id))
+      : undefined;
+    return await Promise.all(sliced.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
   }
 
   async getAllCategories(shopId?: string): Promise<CategoryResponseDto[]> {
@@ -291,14 +303,23 @@ export class MenuService {
       if (search) query = query.ilike('name', `%${search}%`);
       const { data, error } = await query;
       if (error) throw new BadRequestException(`获取菜品失败: ${error.message}`);
-      return await Promise.all((data || []).map(async (row) => this.toMenuItemResponse(this.toMenuItem(row), userId)));
+      const items = (data || []).map((row) => this.toMenuItem(row));
+      // 批量查询收藏状态，避免逐菜品 N+1 查询
+      const favoriteSet = userId
+        ? await this.favoritesService.batchCheckFavorites(userId, items.map((i) => i.id))
+        : undefined;
+      return await Promise.all(items.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
     }
 
     await this.seedIfEmpty();
     let items = Array.from(memoryMenuItems.values()).filter((i) => i.shopId === sid);
     if (categoryId) items = items.filter((i) => i.categoryId === categoryId);
     if (search) items = items.filter((i) => i.name.toLowerCase().includes(search.toLowerCase()));
-    return await Promise.all(items.map(async (i) => this.toMenuItemResponse(i, userId)));
+    // 内存模式：直接用本地 Set 批量判断
+    const favoriteSet = userId
+      ? new Set(items.filter((i) => memoryFavorites.has(`${userId}:${i.id}`)).map((i) => i.id))
+      : undefined;
+    return await Promise.all(items.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
   }
 
   async getMenuItemById(id: string, userId?: string): Promise<MenuItemResponseDto> {
@@ -422,12 +443,10 @@ export class MenuService {
 
   async deleteCategory(id: string): Promise<void> {
     if (hasSupabase() && supabase) {
-      // 先删除关联的菜单项，再删除分类
-      await supabase.from('tf_menu_items').delete().eq('category_id', id);
-      const { error } = await supabase
-        .from('tf_categories')
-        .delete()
-        .eq('id', id);
+      // 使用 RPC 事务：在一个原子操作内删除关联菜品和分类，避免中间失败导致数据不一致
+      const { error } = await supabase.rpc('atomic_delete_category', {
+        p_category_id: id,
+      });
       if (error) throw new BadRequestException(`删除分类失败: ${error.message}`);
       return;
     }
@@ -510,7 +529,7 @@ export class MenuService {
         const result = await this.favoritesService.toggleFavorite(userId, menuItemId, item.shopId);
         return result.isFavorite;
       } catch (e) {
-        console.warn('[Menu] 收藏操作失败:', e instanceof Error ? e.message : e);
+        this.logger.warn('[Menu] 收藏操作失败:', e instanceof Error ? e.message : e);
         return false;
       }
     }
@@ -532,7 +551,7 @@ export class MenuService {
       try {
         return await this.favoritesService.checkFavorite(userId, menuItemId);
       } catch (e) {
-        console.warn('[Menu] 检查收藏失败:', e instanceof Error ? e.message : e);
+        this.logger.warn('[Menu] 检查收藏失败:', e instanceof Error ? e.message : e);
         return false;
       }
     }
@@ -547,14 +566,21 @@ export class MenuService {
     };
   }
 
-  private async toMenuItemResponse(record: MenuItemRecord, userId?: string): Promise<MenuItemResponseDto> {
+  private async toMenuItemResponse(
+    record: MenuItemRecord,
+    userId?: string,
+    favoriteSet?: Set<string>,
+  ): Promise<MenuItemResponseDto> {
     return {
       id: record.id, shopId: record.shopId, categoryId: record.categoryId,
       name: record.name, price: record.price,
       imageUrl: record.imageUrl, description: record.description,
       status: record.status, salesCount: record.salesCount,
       specGroupIds: record.specGroupIds.length > 0 ? record.specGroupIds : undefined,
-      isFavorite: userId ? await this.isItemFavorite(record.id, userId) : false,
+      // 传入 favoriteSet 时直接内存判断，避免逐菜品 N+1 查询
+      isFavorite: userId
+        ? (favoriteSet ? favoriteSet.has(record.id) : await this.isItemFavorite(record.id, userId))
+        : false,
       createdAt: record.createdAt, updatedAt: record.updatedAt,
     };
   }

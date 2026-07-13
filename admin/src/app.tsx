@@ -1,7 +1,7 @@
-import type { RequestConfig, RunTimeLayoutConfig } from '@umijs/max';
+import type { RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
-import { message, Dropdown, Avatar, Space, Typography } from 'antd';
-import { LogoutOutlined, UserOutlined, SettingOutlined } from '@ant-design/icons';
+import { message, Dropdown, Space } from 'antd';
+import { LogoutOutlined } from '@ant-design/icons';
 import { getCurrentUser } from './services/auth';
 
 const loginPath = '/login';
@@ -12,20 +12,22 @@ export async function getInitialState(): Promise<{
 }> {
   const token = localStorage.getItem('token');
   const pathname = window.location.pathname;
-  
+
   // 未登录且不在登录页，跳转到登录页
   if (!token && pathname !== '/login') {
     history.push(loginPath);
-    return { currentUser: null, admin: { canAdmin: false } };
+    return { currentUser: undefined, admin: { canAdmin: false } };
   }
-  
+
   // 已登录但在登录页，跳转到首页
   if (token && pathname === '/login') {
     history.push('/dashboard');
   }
-  
+
   const currentUser = await getCurrentUser();
-  return { currentUser, admin: { canAdmin: true } };
+  // 权限根据用户角色决定，未登录或角色非 admin 时禁止访问
+  const canAdmin = !!currentUser && currentUser.role === 'admin';
+  return { currentUser, admin: { canAdmin } };
 }
 
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
@@ -64,6 +66,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
                   label: '退出登录',
                   onClick: () => {
                     localStorage.removeItem('token');
+                    localStorage.removeItem('refreshToken');
                     localStorage.removeItem('user');
                     setInitialState({ currentUser: null, admin: { canAdmin: false } });
                     message.success('已退出登录');
@@ -81,7 +84,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
         );
       },
     },
-    onPageNotFound: () => history.push('/'),
+    onPageNotFound: () => { history.push('/'); },
     footerRender: () => (
       <div style={{ textAlign: 'center', padding: '16px 0', color: '#999' }}>
         小买卖点餐系统 ©2026
@@ -99,36 +102,4 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     colorWeak: false,
     contentStyle: { margin: 0 },
   };
-};
-
-export const request: RequestConfig = {
-  baseURL: '/api',
-  requestInterceptors: [
-    (config: any) => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        config.headers = {
-          ...config.headers,
-          Authorization: `Bearer ${token}`,
-        };
-      }
-      return config;
-    },
-  ],
-  responseInterceptors: [
-    (response: any) => {
-      return response;
-    },
-  ],
-  errorConfig: {
-    errorHandler: (error: any) => {
-      if (error.response?.status === 401) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        history.push(loginPath);
-      }
-      message.error(error.message || '请求失败');
-    },
-    errorThrower: () => {},
-  },
 };

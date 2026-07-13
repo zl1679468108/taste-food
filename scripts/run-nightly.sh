@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # 夜间自动化迭代 - 启动脚本
 # 用法: ./scripts/run-nightly.sh
 
@@ -20,12 +21,6 @@ cd "$REPO_DIR"
 echo "自动化已启动。"
 echo "日志文件: $LOG_FILE"
 echo ""
-echo "请在 Codex 桌面应用中继续这个任务。"
-echo "脚本会持续迭代直到所有 PRD/Bug 待办完成且没有新发现问题。"
-echo ""
-echo "按 Ctrl+C 可随时停止。"
 
-# 保持运行，等待 Codex 会话接管
-while true; do
-  sleep 60
-done
+# 执行夜间自动化迭代脚本
+bash "$REPO_DIR/scripts/nightly-automation.sh"

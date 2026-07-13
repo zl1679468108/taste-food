@@ -1,12 +1,13 @@
 import * as TaroImport from '@tarojs/taro';
 import { API_BASE_URL } from '../env';
 import { ApiResponse } from '../types/api';
-import { getCache, setCache, clearCache } from './cache';
+import { getCache, setCache, clearResourceCache } from './cache';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
 /** 请求方法类型 */
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+type RequestData = Record<string, unknown>;
 
 /** 请求选项 */
 interface RequestOptions {
@@ -36,12 +37,16 @@ function getToken(): string | null {
 /**
  * 构建缓存 key
  */
-function buildCacheKey(method: string, url: string, data?: Record<string, any>): string {
+function buildCacheKey(method: string, url: string, data?: RequestData): string {
   const sortedParams = data ? JSON.stringify(Object.keys(data).sort().reduce((acc, key) => {
     acc[key] = data[key];
     return acc;
-  }, {} as Record<string, any>)) : '';
+  }, {} as RequestData)) : '';
   return `${method}:${url}:${sortedParams}`;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || '未知错误');
 }
 
 /**
@@ -50,7 +55,7 @@ function buildCacheKey(method: string, url: string, data?: Record<string, any>):
 async function request<T>(
   method: HttpMethod,
   url: string,
-  data?: Record<string, any>,
+  data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
   const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
@@ -108,8 +113,9 @@ async function request<T>(
     }
 
     return responseData;
-  } catch (error: any) {
-    if (error.errno || error.message === 'Network request failed') {
+  } catch (error: unknown) {
+    const err = error as { errno?: number; message?: string };
+    if (err.errno || err.message === 'Network request failed') {
       const errMsg = '网络连接失败，请检查网络';
       if (options?.showError !== false) {
         Taro.showToast({ title: errMsg, icon: 'none' });
@@ -121,7 +127,7 @@ async function request<T>(
       throw error;
     }
 
-    throw new RequestError(error.message || '未知错误', -2);
+    throw new RequestError(getErrorMessage(error), -2);
   }
 }
 
@@ -139,7 +145,7 @@ export class RequestError extends Error {
 /** GET 请求 */
 export function get<T>(
   url: string,
-  params?: Record<string, any>,
+  params?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
   return request<T>('GET', url, params, options);
@@ -148,22 +154,22 @@ export function get<T>(
 /** POST 请求 */
 export async function post<T>(
   url: string,
-  data?: Record<string, any>,
+  data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
   const result = await request<T>('POST', url, data, options);
-  clearCache(url.split('/')[1] || url);
+  clearResourceCache(url);
   return result;
 }
 
 /** PUT 请求 */
 export async function put<T>(
   url: string,
-  data?: Record<string, any>,
+  data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
   const result = await request<T>('PUT', url, data, options);
-  clearCache(url.split('/')[1] || url);
+  clearResourceCache(url);
   return result;
 }
 
@@ -173,17 +179,17 @@ export async function del<T>(
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
   const result = await request<T>('DELETE', url, undefined, options);
-  clearCache(url.split('/')[1] || url);
+  clearResourceCache(url);
   return result;
 }
 
 /** PATCH 请求 */
 export async function patch<T>(
   url: string,
-  data?: Record<string, any>,
+  data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
   const result = await request<T>('PATCH', url, data, options);
-  clearCache(url.split('/')[1] || url);
+  clearResourceCache(url);
   return result;
 }

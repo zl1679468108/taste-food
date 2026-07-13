@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { OrderStatus, DeliveryType, PromotionType } from '../../common/constants/enums';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
@@ -6,7 +6,10 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderGateway } from './order.gateway';
 import { PromotionService } from '../promotion/promotion.service';
+import { ShopService } from '../shop/shop.service';
+import { MenuService } from '../menu/menu.service';
 import { supabase, hasSupabase } from '../../database/supabase.client';
+import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 
 export interface OrderItemRecord {
   id: string;
@@ -76,15 +79,30 @@ export interface OrderStats {
   completedCount: number;
 }
 
+export interface DailyStatsItem {
+  date: string; // YYYY-MM-DD
+  orders: number;
+  revenue: number;
+}
+
+export interface StatusDistributionItem {
+  status: string;
+  count: number;
+}
+
 // Memory fallback storage
 const memoryOrders: Map<string, OrderRecord> = new Map();
 
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(
     @Inject(forwardRef(() => OrderGateway))
     private readonly orderGateway: OrderGateway,
     private readonly promotionService: PromotionService,
+    private readonly shopService: ShopService,
+    private readonly menuService: MenuService,
   ) {}
 
   private toRecord(row: any): OrderRecord {
@@ -109,7 +127,10 @@ export class OrderService {
   }
 
   private async fetchItems(orderId: string): Promise<OrderItemRecord[]> {
-    if (!hasSupabase() || !supabase) return [];
+    if (!hasSupabase() || !supabase) {
+      assertMemoryFallbackAllowed('OrderService');
+      return [];
+    }
     const { data, error } = await supabase
       .from('tf_order_items')
       .select('id, order_id, menu_item_id, name, quantity, price, spec_desc, image_url')
@@ -129,7 +150,11 @@ export class OrderService {
   }
 
   private async fetchItemsForOrders(orderIds: string[]): Promise<Map<string, OrderItemRecord[]>> {
-    if (!hasSupabase() || !supabase || orderIds.length === 0) return new Map();
+    if (!hasSupabase() || !supabase) {
+      assertMemoryFallbackAllowed('OrderService');
+      return new Map();
+    }
+    if (orderIds.length === 0) return new Map();
     
     const { data, error } = await supabase
       .from('tf_order_items')
@@ -176,8 +201,45 @@ export class OrderService {
 
     const now = new Date().toISOString();
     const orderId = uuidv4();
-    const deliveryFee = dto.deliveryFee || 0;
-    const itemsTotal = dto.items.reduce(
+
+    // 服务端校验菜品价格：从数据库查询真实售价，不信任客户端传入的 price
+    const verifiedItems: { menuItemId: string; name: string; quantity: number; price: number; specDesc: string; imageUrl: string }[] = [];
+    for (const item of dto.items) {
+      try {
+        const menuItem = await this.menuService.getMenuItemById(item.menuItemId);
+        verifiedItems.push({
+          menuItemId: item.menuItemId,
+          name: menuItem.name,
+          quantity: item.quantity,
+          price: menuItem.price, // 使用服务端查询的真实价格
+          specDesc: item.specDesc || '',
+          imageUrl: menuItem.imageUrl || item.imageUrl || '',
+        });
+      } catch (e) {
+        throw new BadRequestException(`菜品 ${item.name}(${item.menuItemId}) 不存在或已下架`);
+      }
+    }
+
+    // 配送费从店铺配置获取，不信任客户端传值
+    let deliveryFee = 0;
+    if (dto.deliveryType === DeliveryType.DELIVERY) {
+      try {
+        const shop = await this.shopService.findById(dto.shopId);
+        deliveryFee = shop.deliveryFee || 0;
+        // 校验起送价
+        const itemsTotal = verifiedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        if (shop.minOrderAmount && itemsTotal < shop.minOrderAmount) {
+          throw new BadRequestException(
+            `订单金额 ${itemsTotal} 分未达到起送价 ${shop.minOrderAmount} 分`,
+          );
+        }
+      } catch (e) {
+        if (e instanceof BadRequestException) throw e;
+        throw new BadRequestException(`店铺 ${dto.shopId} 不存在或查询失败`);
+      }
+    }
+
+    const itemsTotal = verifiedItems.reduce(
       (sum, item) => sum + item.price * item.quantity,
       0,
     );
@@ -201,20 +263,20 @@ export class OrderService {
         }
       }
     } catch (e) {
-      console.warn('优惠计算失败:', e instanceof Error ? e.message : e);
+      this.logger.warn(`优惠计算失败: ${e instanceof Error ? e.message : e}`);
     }
 
     const total = Math.max(0, itemsTotal + deliveryFee - discountAmount);
 
-    const items: OrderItemRecord[] = dto.items.map((item) => ({
+    const items: OrderItemRecord[] = verifiedItems.map((item) => ({
       id: uuidv4(),
       orderId,
       menuItemId: item.menuItemId,
       name: item.name,
       quantity: item.quantity,
       price: item.price,
-      specDesc: item.specDesc || '',
-      imageUrl: item.imageUrl || '',
+      specDesc: item.specDesc,
+      imageUrl: item.imageUrl,
     }));
 
     const order: OrderRecord = {
@@ -266,6 +328,7 @@ export class OrderService {
         throw new BadRequestException(`创建订单失败: ${rpcErr.message}`);
       }
     } else {
+      assertMemoryFallbackAllowed('OrderService');
       memoryOrders.set(orderId, order);
     }
 
@@ -292,6 +355,7 @@ export class OrderService {
       return order;
     }
 
+    assertMemoryFallbackAllowed('OrderService');
     const order = memoryOrders.get(id);
     if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
     return order;
@@ -333,6 +397,7 @@ export class OrderService {
       };
     }
 
+    assertMemoryFallbackAllowed('OrderService');
     const userOrders = Array.from(memoryOrders.values())
       .filter((o) => o.userId === userId)
       .sort(
@@ -391,6 +456,7 @@ export class OrderService {
       };
     }
 
+    assertMemoryFallbackAllowed('OrderService');
     let filtered = Array.from(memoryOrders.values())
       .filter((o) => o.shopId === shopId)
       .sort(
@@ -442,6 +508,7 @@ export class OrderService {
       return { items: orders, total: count || 0, page, pageSize };
     }
 
+    assertMemoryFallbackAllowed('OrderService');
     const filtered = Array.from(memoryOrders.values())
       .filter((o) => o.riderId === riderId)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -477,7 +544,7 @@ export class OrderService {
 
         try {
           this.orderGateway.emitOrderUpdated(order, previousStatus);
-        } catch (e) { console.warn(e instanceof Error ? e.message : String(e)); }
+        } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
 
         order.status = dto.status;
         order.updatedAt = new Date().toISOString();
@@ -494,6 +561,7 @@ export class OrderService {
         return order;
       }
     } else {
+      assertMemoryFallbackAllowed('OrderService');
       const order = memoryOrders.get(id);
       if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
 
@@ -506,7 +574,7 @@ export class OrderService {
 
         try {
           this.orderGateway.emitOrderUpdated(order, previousStatus);
-        } catch (e) { console.warn(e instanceof Error ? e.message : String(e)); }
+        } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
         return order;
       }
 
@@ -530,6 +598,7 @@ export class OrderService {
       order.items = await this.fetchItems(id);
       return order;
     }
+    assertMemoryFallbackAllowed('OrderService');
     const order = memoryOrders.get(id);
     if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
     return order;
@@ -543,12 +612,29 @@ export class OrderService {
     if (![OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status)) {
       throw new BadRequestException(`订单状态为 ${order.status}，不允许取消`);
     }
+
+    // 已支付订单取消时需触发退款：更新支付记录状态为 refunded
+    if (order.status === OrderStatus.PAID && hasSupabase() && supabase) {
+      try {
+        await supabase
+          .from('tf_payments')
+          .update({ status: 'refunded', updated_at: new Date().toISOString() })
+          .eq('order_id', id)
+          .eq('status', 'success');
+      } catch (e) {
+        this.logger.warn(
+          `订单 ${id} 取消时退款记录更新失败: ${e instanceof Error ? e.message : e}`,
+        );
+        // 退款记录更新失败不阻止取消，但需记录日志供后续对账
+      }
+    }
+
     return this.updateStatus(id, {
       status: OrderStatus.CANCELLED,
     });
   }
 
-  async reorder(userId: string, dto: { shopId: string; items: CreateOrderDto['items']; deliveryType: DeliveryType; address?: string; tableNo?: string; remark?: string }): Promise<OrderRecord> {
+  async reorder(userId: string, dto: { shopId: string; items: CreateOrderDto['items']; deliveryType: DeliveryType; address?: string; tableNo?: string; remark?: string; contactName?: string; contactPhone?: string }): Promise<OrderRecord> {
     const newDto: CreateOrderDto = {
       shopId: dto.shopId,
       userId,
@@ -556,7 +642,6 @@ export class OrderService {
         menuItemId: item.menuItemId,
         name: item.name,
         quantity: item.quantity,
-        price: item.price,
         specDesc: item.specDesc,
         imageUrl: item.imageUrl,
       })),
@@ -564,8 +649,9 @@ export class OrderService {
       address: dto.address,
       tableNo: dto.tableNo,
       remark: dto.remark,
-      contactName: '',
-      contactPhone: '',
+      // 从参数复制联系人信息，避免外送订单因无联系方式无法配送
+      contactName: dto.contactName || '',
+      contactPhone: dto.contactPhone || '',
     };
     return this.create(newDto);
   }
@@ -575,8 +661,9 @@ export class OrderService {
     if (order.deliveryType !== DeliveryType.DELIVERY) {
       throw new BadRequestException('该订单不是外送订单，无需配送');
     }
-    // 支持从 ACCEPTED, PREPARING, DELIVERING 状态抢单
-    const grabbableStatuses = [OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.DELIVERING];
+    // 支持从 ACCEPTED, PREPARING 状态抢单（已接单/制作中且无骑手）
+    // DELIVERING 状态已有骑手配送，不应再抢单
+    const grabbableStatuses = [OrderStatus.ACCEPTED, OrderStatus.PREPARING];
     if (!grabbableStatuses.includes(order.status)) {
       throw new BadRequestException('当前订单状态不可抢单');
     }
@@ -603,6 +690,7 @@ export class OrderService {
       if (error) throw new BadRequestException(`抢单失败: ${error.message}`);
       if (!data) throw new BadRequestException('订单已被抢走');
     } else {
+      assertMemoryFallbackAllowed('OrderService');
       order.riderId = riderId;
       order.status = OrderStatus.DELIVERING;
       order.updatedAt = new Date().toISOString();
@@ -612,7 +700,7 @@ export class OrderService {
     const updatedOrder = await this.findById(id);
     try {
       this.orderGateway.emitOrderUpdated(updatedOrder, previousStatus);
-    } catch (e) { console.warn(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
 
     return updatedOrder;
   }
@@ -673,7 +761,7 @@ export class OrderService {
         if (orderData) {
           revenueDelta = orderData.total;
         }
-      } catch (e) { console.warn(e instanceof Error ? e.message : String(e)); }
+      } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
     }
 
     // Count cancelled: PENDING_PAYMENT -> CANCELLED or PAID -> CANCELLED
@@ -690,7 +778,7 @@ export class OrderService {
           if (orderData) {
             revenueDelta = -(orderData.total || 0);
           }
-        } catch (e) { console.warn(e instanceof Error ? e.message : String(e)); }
+        } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
       }
     }
 
@@ -704,7 +792,7 @@ export class OrderService {
         p_cancelled_delta: cancelledDelta,
       });
       if (statsErr) {
-        console.warn('日统计原子更新失败:', statsErr.message);
+        this.logger.warn('日统计原子更新失败:', statsErr.message);
       }
     }
   }
@@ -713,38 +801,55 @@ export class OrderService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStart = today.toISOString();
+    const todayDate = todayStart.split('T')[0];
 
     if (hasSupabase() && supabase) {
+      // 优先查询 tf_daily_stats 预聚合表（单行索引查询），避免全量订单加载到内存计算
+      const { data: statsRow, error: statsErr } = await supabase
+        .from('tf_daily_stats')
+        .select('total_orders, completed_orders')
+        .eq('shop_id', shopId)
+        .eq('stat_date', todayDate)
+        .maybeSingle();
+      const hasDailyStats = !statsErr && statsRow;
+
+      // 轻量查询：仅选取 status/total 列计算 revenue/pending/preparing
+      // （口径与 daily_stats 不同：revenue 含 DELIVERING/PREPARING，daily_stats 仅含 COMPLETED）
       const { data, error } = await supabase
         .from('tf_orders')
-        .select('status, total, created_at')
+        .select('status, total')
         .eq('shop_id', shopId)
         .gte('created_at', todayStart);
       if (error) {
-        console.error('[OrderService] getTodayStats error:', error.message);
+        this.logger.error('[OrderService] getTodayStats error:', error.message);
         return { totalOrders: 0, totalRevenue: 0, pendingCount: 0, preparingCount: 0, completedCount: 0 };
       }
-      const todayOrders = (data || []) as OrderRow[];
-      const stats: OrderStats = {
-        totalOrders: todayOrders.length,
+      const todayOrders = (data || []) as Pick<OrderRow, 'status' | 'total'>[];
+      const revenueStatuses: OrderStatus[] = [
+        OrderStatus.COMPLETED,
+        OrderStatus.DELIVERING,
+        OrderStatus.PREPARING,
+      ];
+
+      return {
+        // daily_stats 有今日数据时使用预聚合值，否则回退到内存计数
+        totalOrders: hasDailyStats ? (statsRow!.total_orders || 0) : todayOrders.length,
         totalRevenue: todayOrders
-          .filter((o) =>
-            [OrderStatus.COMPLETED, OrderStatus.DELIVERING, OrderStatus.PREPARING].includes(o.status as OrderStatus),
-          )
-          .reduce((sum: number, o) => sum + o.total, 0),
+          .filter((o) => revenueStatuses.includes(o.status as OrderStatus))
+          .reduce((sum, o) => sum + o.total, 0),
         pendingCount: todayOrders.filter(
           (o) => o.status === OrderStatus.PAID || o.status === OrderStatus.ACCEPTED,
         ).length,
         preparingCount: todayOrders.filter(
           (o) => o.status === OrderStatus.PREPARING,
         ).length,
-        completedCount: todayOrders.filter(
-          (o) => o.status === OrderStatus.COMPLETED,
-        ).length,
+        completedCount: hasDailyStats
+          ? (statsRow!.completed_orders || 0)
+          : todayOrders.filter((o) => o.status === OrderStatus.COMPLETED).length,
       };
-      return stats;
     }
 
+    assertMemoryFallbackAllowed('OrderService');
     const todayOrders = Array.from(memoryOrders.values()).filter(
       (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= today.getTime(),
     );
@@ -768,11 +873,115 @@ export class OrderService {
     };
   }
 
+  /**
+   * 按天聚合订单统计（用于 Dashboard 近 N 天趋势图）
+   * 收入按 [completed, delivering, preparing] 状态计算（与 getTodayStats 口径一致）
+   */
+  async getDailyStats(shopId: string, days = 7): Promise<DailyStatsItem[]> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(today);
+    start.setDate(start.getDate() - (days - 1));
+    const startIso = start.toISOString();
+
+    // 初始化日期桶（保证连续日期，无订单的日期为 0）
+    const buckets: DailyStatsItem[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      buckets.push({
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        orders: 0,
+        revenue: 0,
+      });
+    }
+    const bucketMap = new Map(buckets.map((b) => [b.date, b]));
+
+    const revenueStatuses: OrderStatus[] = [
+      OrderStatus.COMPLETED,
+      OrderStatus.DELIVERING,
+      OrderStatus.PREPARING,
+    ];
+
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_orders')
+        .select('status, total, created_at')
+        .eq('shop_id', shopId)
+        .gte('created_at', startIso);
+      if (error) {
+        this.logger.warn(`[OrderService] getDailyStats error: ${error.message}`);
+        return buckets;
+      }
+      for (const row of (data || []) as OrderRow[]) {
+        const d = new Date(row.created_at);
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const bucket = bucketMap.get(dateStr);
+        if (!bucket) continue; // 超出窗口的订单忽略
+        bucket.orders += 1;
+        if (revenueStatuses.includes(row.status as OrderStatus)) {
+          bucket.revenue += row.total || 0;
+        }
+      }
+      return buckets;
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    const filtered = Array.from(memoryOrders.values()).filter(
+      (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= start.getTime(),
+    );
+    for (const o of filtered) {
+      const d = new Date(o.createdAt);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const bucket = bucketMap.get(dateStr);
+      if (!bucket) continue;
+      bucket.orders += 1;
+      if (revenueStatuses.includes(o.status)) {
+        bucket.revenue += o.total;
+      }
+    }
+    return buckets;
+  }
+
+  /**
+   * 全店铺订单状态分布（用于 Dashboard 饼图）
+   */
+  async getStatusDistribution(shopId: string): Promise<StatusDistributionItem[]> {
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_orders')
+        .select('status')
+        .eq('shop_id', shopId);
+      if (error) {
+        this.logger.warn(`[OrderService] getStatusDistribution error: ${error.message}`);
+        return [];
+      }
+      const map: Record<string, number> = {};
+      for (const row of (data || []) as OrderRow[]) {
+        map[row.status] = (map[row.status] || 0) + 1;
+      }
+      return Object.entries(map).map(([status, count]) => ({ status, count }));
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    const filtered = Array.from(memoryOrders.values()).filter((o) => o.shopId === shopId);
+    const map: Record<string, number> = {};
+    for (const o of filtered) {
+      map[o.status] = (map[o.status] || 0) + 1;
+    }
+    return Object.entries(map).map(([status, count]) => ({ status, count }));
+  }
+
   private validateStatusTransition(current: OrderStatus, next: OrderStatus): void {
+    // 状态流转规范：
+    // 外送: pending_payment → paid → accepted → preparing → delivering → completed
+    // 自取: pending_payment → paid → accepted → preparing → ready_for_pickup → completed
+    // 堂食: pending_payment → paid → accepted → preparing → completed
+    // 分支: → cancelled（pending_payment/paid 时）、→ rejected（paid 时）
     const validTransitions: Record<OrderStatus, OrderStatus[]> = {
       [OrderStatus.PENDING_PAYMENT]: [OrderStatus.PAID, OrderStatus.CANCELLED],
       [OrderStatus.PAID]: [OrderStatus.ACCEPTED, OrderStatus.REJECTED, OrderStatus.CANCELLED],
-      [OrderStatus.ACCEPTED]: [OrderStatus.PREPARING, OrderStatus.DELIVERING],
+      [OrderStatus.ACCEPTED]: [OrderStatus.PREPARING],
       [OrderStatus.PREPARING]: [OrderStatus.DELIVERING, OrderStatus.READY_FOR_PICKUP, OrderStatus.COMPLETED],
       [OrderStatus.READY_FOR_PICKUP]: [OrderStatus.COMPLETED],
       [OrderStatus.DELIVERING]: [OrderStatus.COMPLETED],

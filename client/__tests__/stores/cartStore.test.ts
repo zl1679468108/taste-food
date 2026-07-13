@@ -77,4 +77,58 @@ describe('cartStore persist debounce', () => {
       remarks: '',
     });
   });
+
+  test('updates, removes, totals and clears cart by shop switch', () => {
+    const { useCartStore } = require('../../src/stores/cartStore');
+    const store = useCartStore.getState();
+
+    store.setShopId('shop-a');
+    store.addItem({
+      menuItemId: '1',
+      name: 'Burger',
+      price: 1200,
+      quantity: 1,
+      imageUrl: '',
+      specDesc: 'large',
+    });
+    store.addItem({
+      menuItemId: '1',
+      name: 'Burger',
+      price: 1200,
+      quantity: 2,
+      imageUrl: '',
+      specDesc: 'large',
+    });
+
+    jest.advanceTimersByTime(1000);
+    const key = useCartStore.getState().items[0].key;
+
+    expect(useCartStore.getState().getTotalCount()).toBe(3);
+    expect(useCartStore.getState().getTotalPrice()).toBe(3600);
+
+    store.updateQuantity(key, -2);
+    jest.advanceTimersByTime(1000);
+    expect(useCartStore.getState().items[0].quantity).toBe(1);
+
+    store.setQuantity(key, 0);
+    jest.advanceTimersByTime(1000);
+    expect(useCartStore.getState().items).toEqual([]);
+
+    store.addItem({
+      menuItemId: '2',
+      name: 'Tea',
+      price: 500,
+      quantity: 1,
+      imageUrl: '',
+      specDesc: '',
+    });
+    jest.advanceTimersByTime(1000);
+
+    store.setShopId('shop-b');
+    expect(useCartStore.getState()).toMatchObject({
+      items: [],
+      shopId: 'shop-b',
+      remarks: '',
+    });
+  });
 });

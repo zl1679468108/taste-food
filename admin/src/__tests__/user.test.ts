@@ -1,11 +1,14 @@
 import { getUsers, getUser } from '../services/user';
 
-// Mock request
+// Mock request —— 与 auth.test.ts 保持一致：default export 形式
 jest.mock('../utils/request', () => ({
-  get: jest.fn(),
-  post: jest.fn(),
-  patch: jest.fn(),
-  delete: jest.fn(),
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+    patch: jest.fn(),
+    delete: jest.fn(),
+  },
 }));
 
 describe('User API 服务', () => {
@@ -16,7 +19,7 @@ describe('User API 服务', () => {
   describe('getUsers', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { items: [], total: 0 };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.get.mockResolvedValue(mockResponse);
 
       const params = { page: 1, pageSize: 10 };
@@ -29,7 +32,7 @@ describe('User API 服务', () => {
   describe('getUser', () => {
     it('应该调用正确的 API 路径', async () => {
       const mockResponse = { id: 'user123', nickName: '测试用户' };
-      const request = require('../utils/request');
+      const request = require('../utils/request').default;
       request.get.mockResolvedValue(mockResponse);
 
       await getUser('user123');

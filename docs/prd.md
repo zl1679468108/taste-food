@@ -201,24 +201,35 @@
 
 | 表名 | 说明 | 关键字段 |
 |------|------|---------|
-| `tf_shops` | 店铺 | id, name, status, description, address, phone, logo_url |
+| `tf_shops` | 店铺 | id, name, status, description, address, phone, logo_url, delivery_fee, min_order_amount, delivery_range |
 | `tf_categories` | 分类 | id, shop_id, name, sort_order, icon_key |
 | `tf_menu_items` | 菜品 | id, shop_id, category_id, name, price, monthly_sales, spec_group_ids, status, image_url, description |
 | `tf_spec_groups` | 规格组 | id, shop_id, name, is_required, max_select |
 | `tf_spec_options` | 规格选项 | id, spec_group_id, name, price_adjust |
 | `tf_orders` | 订单 | id, shop_id, user_id, rider_id, status, total, delivery_fee, delivery_type, address, table_no, contact_name, contact_phone |
-| `tf_order_items` | 订单项 | id, order_id, menu_item_id, name, quantity, price, spec_desc, image_url |
-| `tf_delivery_info` | 配送信息 | id, order_id, courier_name, courier_phone |
+| `tf_order_items` | 订单项 | id, order_id, shop_id, menu_item_id, name, quantity, price, spec_desc, image_url |
+| `tf_delivery_info` | 配送信息 | id, order_id, shop_id, courier_name, courier_phone, estimated_delivery_at, delivered_at |
 | `tf_promotions` | 优惠活动 | id, shop_id, name, type, rule, status, start_date, end_date |
-| `tf_users` | 用户 | id, openid, role, nick_name, avatar_url |
-| `tf_payments` | 支付记录 | id, order_id, user_id, amount, status, paid_at |
+| `tf_users` | 用户 | id, openid, user_id, role, shop_id, nick_name, avatar_url |
+| `tf_payments` | 支付记录 | id, order_id, shop_id, user_id, amount, method, status, paid_at |
+| `tf_favorites` | 菜品收藏 | id, user_id, menu_item_id, shop_id, created_at（UNIQUE(user_id, menu_item_id)） |
+| `tf_daily_stats` | 每日销售统计 | id, shop_id, stat_date, total_orders, total_revenue, completed_orders, cancelled_orders（UNIQUE(shop_id, stat_date)） |
+| `tf_item_sales` | 菜品销售明细 | id, menu_item_id, shop_id, order_id, order_date, quantity, revenue |
+
+> 多租户规范：所有业务表均含 `shop_id` 字段用于店铺隔离。
+> 数据库约束：text 枚举字段（status/delivery_type/role/type/method）均含 CHECK 约束防止非法值；外键含 ON DELETE 行为（CASCADE/RESTRICT/SET NULL）。
 
 ### 5.2 订单状态流转
 
 ```
 pending_payment → paid → accepted → preparing → delivering → completed
+                                       ↘ ready_for_pickup → completed
                    ↘ cancelled                  ↘ rejected
 ```
+
+- `delivering` — 外卖配送（delivery 类型订单）
+- `ready_for_pickup` — 待取餐（pickup/dine_in 类型订单，备餐完成）
+- `cancelled` — 仅 `pending_payment`/`paid` 状态可取消（已支付触发退款）
 
 ### 5.3 配送类型
 

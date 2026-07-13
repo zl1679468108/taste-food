@@ -10,12 +10,12 @@ export default defineConfig({
   reporter: 'list',
   use: {
     baseURL: 'http://localhost:3012',
-    headless: false,
+    headless: process.env.CI ? true : false,
     viewport: { width: 1280, height: 720 },
     actionTimeout: 10000,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
-    channel: 'chrome',
+    channel: process.env.CI ? undefined : 'chrome',
   },
   projects: [
     { name: 'chromium', use: { browserName: 'chromium' } },

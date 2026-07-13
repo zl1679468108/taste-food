@@ -1,4 +1,4 @@
-import { get, post, RequestError } from '../../src/utils/request';
+import { get, post, patch, RequestError } from '../../src/utils/request';
 
 jest.mock('@tarojs/taro', () => ({
   __esModule: true,
@@ -47,6 +47,23 @@ describe('request utils', () => {
       header: { 'Content-Type': 'application/json' },
       timeout: 10000,
     });
+  });
+
+  test('get should reuse cached data before ttl expires', async () => {
+    await get('/cached', { page: 1 });
+    await get('/cached', { page: 1 });
+
+    expect(mockTaro.request).toHaveBeenCalledTimes(1);
+  });
+
+  test('mutation should invalidate matching resource cache', async () => {
+    await get('/menu-items', { shop_id: 'shop001' });
+    mockTaro.request.mockClear();
+
+    await patch('/menu-items/item-1', { name: 'new name' });
+    await get('/menu-items', { shop_id: 'shop001' });
+
+    expect(mockTaro.request).toHaveBeenCalledTimes(2);
   });
 
   test('RequestError should be created with correct properties', () => {

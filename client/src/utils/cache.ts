@@ -7,7 +7,7 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
-const cache = new Map<string, CacheEntry<any>>();
+const cache = new Map<string, CacheEntry<unknown>>();
 const DEFAULT_TTL = 5 * 60 * 1000;
 
 export function getCache<T>(key: string): T | null {
@@ -34,6 +34,20 @@ export function clearCache(pattern?: string): void {
       cache.delete(key);
     }
   }
+}
+
+export function getCacheResourceKey(url: string): string {
+  const path = url
+    .replace(/^https?:\/\/[^/]+/i, '')
+    .replace(/^\/api\/?/, '/')
+    .split('?')[0]
+    .replace(/^\/+/, '');
+  return path.split('/')[0] || path || url;
+}
+
+export function clearResourceCache(url: string): void {
+  const resourceKey = getCacheResourceKey(url);
+  clearCache(resourceKey);
 }
 
 export function getStorageCache<T>(key: string): T | null {

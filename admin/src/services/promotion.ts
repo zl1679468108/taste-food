@@ -6,7 +6,7 @@ export interface Promotion {
   type: string;
   name: string;
   description: string;
-  rule: any;
+  rule: Record<string, unknown>;
   startDate: string;
   endDate: string;
   status: string;

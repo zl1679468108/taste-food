@@ -1,4 +1,4 @@
-import { Component } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, post } from '../../utils/request';
@@ -11,150 +11,149 @@ import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
 import './index.scss';
 
-interface RiderState {
-  orders: Order[];
-  loading: boolean;
-  activeTab: 'pool' | 'mine';
-  shopId: string;
-}
+const RiderPage = () => {
+  // Store 订阅（函数组件中正确订阅变化）
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const user = useAuthStore((s) => s.user);
 
-export default class RiderPage extends Component<{}, RiderState> {
-  private authStore = useAuthStore;
+  // 本地状态
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'pool' | 'mine'>('pool');
+  const shopId = DEFAULT_SHOP_ID;
 
-  constructor(props: {}) {
-    super(props);
-    this.state = {
-      orders: [],
-      loading: true,
-      activeTab: 'pool',
-      shopId: DEFAULT_SHOP_ID,
-    };
-  }
+  /** 加载数据 */
+  const loadData = async (tab?: 'pool' | 'mine') => {
+    const currentTab = tab !== undefined ? tab : activeTab;
+    setLoading(true);
 
-  componentDidMount() {
-    this.checkAuth();
-    onOrderUpdated(() => {
-      this.loadData();
-    }, 'rider');
-  }
+    try {
+      const params: Record<string, string | number> = { page: 1, pageSize: 50 };
+      if (currentTab === 'pool') {
+        params.shop_id = shopId;
+        params.is_pool = 'true';
+      } else {
+        params.rider_id = user?.userId || '';
+      }
 
-  componentWillUnmount() {
-    removePageListeners('rider');
-  }
+      const res = await get<PaginatedData<Order>>('/orders', params);
+      setOrders(res.data.items);
+      setLoading(false);
+    } catch (e) {
+      setLoading(false);
+    }
+  };
 
-  checkAuth() {
-    const authState = this.authStore.getState();
-    if (!authState.isLoggedIn || authState.user?.role !== 'rider') {
+  // 保持 loadData 的最新引用，供 socket 回调调用（避免闭包过期）
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
+  /** 检查登录状态 */
+  const checkAuth = () => {
+    if (!isLoggedIn || user?.role !== 'rider') {
       Taro.showToast({ title: '请先以骑手身份登录', icon: 'none' });
       Taro.navigateTo({ url: '/pages/auth/login' });
       return;
     }
-    this.loadData();
-  }
+    loadData();
+  };
 
-  async loadData() {
-    const { activeTab, shopId } = this.state;
-    const authState = this.authStore.getState();
-    this.setState({ loading: true });
+  useEffect(() => {
+    checkAuth();
+    onOrderUpdated(() => {
+      loadDataRef.current();
+    }, 'rider');
 
-    try {
-      const params: Record<string, string | number> = { page: 1, pageSize: 50 };
-      if (activeTab === 'pool') {
-        params.shop_id = shopId;
-        params.is_pool = 'true';
-      } else {
-        params.rider_id = authState.user?.userId || '';
-      }
+    return () => {
+      removePageListeners('rider');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-      const res = await get<PaginatedData<Order>>('/orders', params);
-      this.setState({ orders: res.data.items, loading: false });
-    } catch (e) {
-      this.setState({ loading: false });
-    }
-  }
+  /** 切换 Tab */
+  const switchTab = (tab: 'pool' | 'mine') => {
+    setActiveTab(tab);
+    loadData(tab);
+  };
 
-  switchTab(tab: 'pool' | 'mine') {
-    this.setState({ activeTab: tab }, () => this.loadData());
-  }
-
-  async handleGrab(orderId: string) {
+  /** 抢单 */
+  const handleGrab = async (orderId: string) => {
     try {
       await post(`/orders/${orderId}/grab`);
       Taro.showToast({ title: '抢单成功', icon: 'success' });
-      this.loadData();
+      loadData();
     } catch (e) {
       console.error('抢单失败:', e);
       Taro.showToast({ title: '抢单失败', icon: 'none' });
     }
-  }
+  };
 
-  async handleDeliver(orderId: string) {
+  /** 确认送达 */
+  const handleDeliver = async (orderId: string) => {
     try {
       await post(`/orders/${orderId}/deliver`);
       Taro.showToast({ title: '确认送达成功', icon: 'success' });
-      this.loadData();
+      loadData();
     } catch (e) {
       console.error('确认送达失败:', e);
       Taro.showToast({ title: '确认送达失败', icon: 'none' });
     }
-  }
+  };
 
-  render() {
-    const { orders, loading, activeTab } = this.state;
+  return (
+    <View className='rider-page'>
+      <View className='tab-bar'>
+        <View
+          className={`tab-item ${activeTab === 'pool' ? 'active' : ''}`}
+          onClick={() => switchTab('pool')}
+        >待抢单</View>
+        <View
+          className={`tab-item ${activeTab === 'mine' ? 'active' : ''}`}
+          onClick={() => switchTab('mine')}
+        >我的配送</View>
+      </View>
 
-    return (
-      <View className='rider-page'>
-        <View className='tab-bar'>
-          <View 
-            className={`tab-item ${activeTab === 'pool' ? 'active' : ''}`}
-            onClick={() => this.switchTab('pool')}
-          >待抢单</View>
-          <View 
-            className={`tab-item ${activeTab === 'mine' ? 'active' : ''}`}
-            onClick={() => this.switchTab('mine')}
-          >我的配送</View>
-        </View>
-
-        <ScrollView scrollY className='order-list'>
-          {loading ? (
-            <View className='loading'>加载中...</View>
-          ) : orders.length === 0 ? (
-            <View className='empty'>暂无订单</View>
-          ) : (
-            orders.map(order => (
-              <View key={order.id} className='order-card'>
-                <View className='card-header'>
-                  <Text className='order-no'>#{shortOrderId(order.id)}</Text>
-                  <Text className='status' style={{ color: ORDER_STATUS_COLOR_MAP[order.status] }}>
-                    {ORDER_STATUS_MAP[order.status]}
-                  </Text>
+      <ScrollView scrollY className='order-list'>
+        {loading ? (
+          <View className='loading'>加载中...</View>
+        ) : orders.length === 0 ? (
+          <View className='empty'>暂无订单</View>
+        ) : (
+          orders.map(order => (
+            <View key={order.id} className='order-card'>
+              <View className='card-header'>
+                <Text className='order-no'>{shortOrderId(order.id)}</Text>
+                <Text className='status' style={{ color: ORDER_STATUS_COLOR_MAP[order.status] }}>
+                  {ORDER_STATUS_MAP[order.status]}
+                </Text>
+              </View>
+              <View className='card-body'>
+                <View className='info-item'>
+                  <Text className='label'>地址：</Text>
+                  <Text className='value'>{order.address || '到店自取'}</Text>
                 </View>
-                <View className='card-body'>
-                  <View className='info-item'>
-                    <Text className='label'>地址：</Text>
-                    <Text className='value'>{order.address || '到店自取'}</Text>
-                  </View>
-                  <View className='info-item'>
-                    <Text className='label'>联系人：</Text>
-                    <Text className='value'>{order.contactName || '匿名'} {order.contactPhone}</Text>
-                  </View>
-                  <View className='info-item'>
-                    <Text className='label'>金额：</Text>
-                    <Text className='price'>{formatPriceWithSymbol(order.total)}</Text>
-                  </View>
+                <View className='info-item'>
+                  <Text className='label'>联系人：</Text>
+                  <Text className='value'>{order.contactName || '匿名'} {order.contactPhone}</Text>
                 </View>
-                <View className='card-footer'>
-                  {activeTab === 'pool' ? (
-                    <View className='btn grab-btn' onClick={() => this.handleGrab(order.id)}>抢单</View>
-                  ) : order.status === OrderStatus.DELIVERING ? (
-                    <View className='btn deliver-btn' onClick={() => this.handleDeliver(order.id)}>确认送达</View>
-                  ) : null}
+                <View className='info-item'>
+                  <Text className='label'>金额：</Text>
+                  <Text className='price'>{formatPriceWithSymbol(order.total)}</Text>
                 </View>
               </View>
-            ))
-          )}
-        </ScrollView>
-      </View>
-    );
-  }
-}
+              <View className='card-footer'>
+                {activeTab === 'pool' ? (
+                  <View className='btn grab-btn' onClick={() => handleGrab(order.id)}>抢单</View>
+                ) : order.status === OrderStatus.DELIVERING ? (
+                  <View className='btn deliver-btn' onClick={() => handleDeliver(order.id)}>确认送达</View>
+                ) : null}
+              </View>
+            </View>
+          ))
+        )}
+      </ScrollView>
+    </View>
+  );
+};
+
+export default RiderPage;

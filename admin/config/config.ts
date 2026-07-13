@@ -8,10 +8,12 @@ export default defineConfig({
   model: {},
   initialState: {},
   request: {},
+  locale: false,
   layout: {
     title: '小买卖管理后台',
   },
   routes,
   proxy,
+  esbuildMinifyIIFE: true,
   npmClient: 'npm',
 });

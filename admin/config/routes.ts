@@ -13,11 +13,13 @@ export default [
     path: '/dashboard',
     component: './Dashboard',
     icon: 'DashboardOutlined',
+    access: 'canAdmin',
   },
   {
     name: '店铺管理',
     path: '/shop',
     icon: 'ShopOutlined',
+    access: 'canAdmin',
     routes: [
       {
         name: '店铺信息',
@@ -35,6 +37,7 @@ export default [
     name: '菜品管理',
     path: '/menu',
     icon: 'CoffeeOutlined',
+    access: 'canAdmin',
     routes: [
       {
         name: '分类管理',
@@ -53,17 +56,20 @@ export default [
     path: '/order',
     component: './Order',
     icon: 'OrderedListOutlined',
+    access: 'canAdmin',
   },
   {
     name: '用户管理',
     path: '/user',
     component: './User',
     icon: 'TeamOutlined',
+    access: 'canAdmin',
   },
   {
     name: '促销管理',
     path: '/promotion',
     component: './Promotion',
     icon: 'GiftOutlined',
+    access: 'canAdmin',
   },
 ];

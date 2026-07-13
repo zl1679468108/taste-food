@@ -1,4 +1,4 @@
-import { Component } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, post } from '../../utils/request';
@@ -20,23 +20,6 @@ interface OrderStats {
   completedCount: number;
 }
 
-interface AdminState {
-  stats: OrderStats | null;
-  allOrders: Order[];
-  loadingStats: boolean;
-  loadingOrders: boolean;
-  loadingMore: boolean;
-  activeTab: string;
-  page: number;
-  pageSize: number;
-  hasMore: boolean;
-  selectedOrder: Order | null;
-  modalVisible: boolean;
-  categories: Category[];
-  shopId: string;
-  newOrderBanner: { visible: boolean; order: Order | Record<string, unknown> } | null;
-}
-
 const TABS = [
   { key: '', label: '全部' },
   { key: OrderStatus.PENDING_PAYMENT, label: '待支付' },
@@ -47,101 +30,41 @@ const TABS = [
   { key: OrderStatus.CANCELLED, label: '已取消' },
 ];
 
-export default class AdminPage extends Component<{}, AdminState> {
-  private authStore = useAuthStore;
+const AdminPage = () => {
+  // Store 订阅（函数组件中正确订阅变化）
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const user = useAuthStore((s) => s.user);
 
-  constructor(props: {}) {
-    super(props);
+  // 本地状态
+  const [stats, setStats] = useState<OrderStats | null>(null);
+  const [allOrders, setAllOrders] = useState<Order[]>([]);
+  const [loadingStats, setLoadingStats] = useState(true);
+  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [activeTab, setActiveTab] = useState('');
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const [hasMore, setHasMore] = useState(true);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const shopId = DEFAULT_SHOP_ID;
+  const [newOrderBanner, setNewOrderBanner] = useState<{ visible: boolean; order: Order | Record<string, unknown> } | null>(null);
 
-    this.state = {
-      stats: null,
-      allOrders: [],
-      loadingStats: true,
-      loadingOrders: true,
-      loadingMore: false,
-      activeTab: '',
-      page: 1,
-      pageSize: 20,
-      hasMore: true,
-      selectedOrder: null,
-      categories: [],
-      modalVisible: false,
-      shopId: DEFAULT_SHOP_ID,
-      newOrderBanner: null,
-    };
-  }
-
-  componentDidMount() {
-    this.checkAuth();
-    this.setupSocketListeners();
-  }
-
-  componentDidShow() {
-    this.checkAuth();
-  }
-
-  componentWillUnmount() {
-    removePageListeners('admin');
-  }
-
-  /** 设置 WebSocket 监听 */
-  setupSocketListeners() {
-    // 监听新订单
-    onOrderCreated((data) => {
-      this.setState({
-        newOrderBanner: { visible: true, order: data.order },
-      });
-      this.loadData();
-    }, 'admin');
-
-    // 监听订单更新
-    onOrderUpdated((data) => {
-      this.loadData();
-    }, 'admin');
-  }
-
-  closeNewOrderBanner() {
-    this.setState({ newOrderBanner: null });
-  }
-
-  handleBannerViewOrder() {
-    const order = this.state.newOrderBanner?.order;
-    if (order) {
-      this.setState({ newOrderBanner: null }, () => {
-        Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${order.id}` });
-      });
-    }
-  }
-
-  checkAuth() {
-    const authState = this.authStore.getState();
-    if (!authState.isLoggedIn || authState.user?.role !== 'admin') {
-      Taro.showToast({ title: '请先以管理员身份登录', icon: 'none' });
-      Taro.navigateTo({ url: '/pages/auth/login' });
-      return;
-    }
-    this.loadData();
-  }
-
-  async loadData() {
-    this.loadStats();
-    this.loadOrders(1);
-    this.loadCategories();
-  }
-
-  async loadCategories() {
+  /** 加载分类 */
+  const loadCategories = async () => {
     try {
       const res = await get<any[]>('/categories');
-      this.setState({ categories: res.data || [] });
+      setCategories(res.data || []);
     } catch (e) {
       console.error('加载分类失败:', e);
     }
-  }
+  };
 
-  async loadStats() {
-    this.setState({ loadingStats: true });
+  /** 加载统计数据 */
+  const loadStats = async () => {
+    setLoadingStats(true);
     try {
-      const { shopId } = this.state;
       const response = await get<OrderStats>(`/orders/stats/${shopId}`);
 
       // 从订单列表获取其他统计数据
@@ -153,90 +76,153 @@ export default class AdminPage extends Component<{}, AdminState> {
 
       const allOrders = allOrdersRes.data.items;
 
-      this.setState({
-        stats: {
-          ...response.data,
-          totalOrders: allOrders.length,
-        },
-        loadingStats: false,
+      setStats({
+        ...response.data,
+        totalOrders: allOrders.length,
       });
+      setLoadingStats(false);
     } catch (error: any) {
-      this.setState({ loadingStats: false });
+      setLoadingStats(false);
       console.error('加载统计数据失败:', error);
     }
-  }
+  };
 
-  async loadOrders(page: number) {
-    const { shopId, activeTab, pageSize } = this.state;
+  /** 加载订单列表 */
+  const loadOrders = async (pageNum: number, tabKey?: string) => {
+    const currentTab = tabKey !== undefined ? tabKey : activeTab;
 
-    if (page === 1) {
-      this.setState({ loadingOrders: true });
+    if (pageNum === 1) {
+      setLoadingOrders(true);
     } else {
-      this.setState({ loadingMore: true });
+      setLoadingMore(true);
     }
 
     try {
       const params: Record<string, any> = {
         shop_id: shopId,
-        page,
+        page: pageNum,
         pageSize,
       };
-      if (activeTab) {
-        params.status = activeTab;
+      if (currentTab) {
+        params.status = currentTab;
       }
 
       const response = await get<PaginatedData<Order>>('/orders', params);
       const { items, total } = response.data;
       const maxPage = Math.ceil(total / pageSize);
 
-      this.setState((prev) => ({
-        allOrders: page === 1 ? items : [...prev.allOrders, ...items],
-        loadingOrders: false,
-        loadingMore: false,
-        page,
-        hasMore: page < maxPage,
-      }));
+      setAllOrders((prev) => (pageNum === 1 ? items : [...prev, ...items]));
+      setLoadingOrders(false);
+      setLoadingMore(false);
+      setPage(pageNum);
+      setHasMore(pageNum < maxPage);
     } catch (error: any) {
-      this.setState({ loadingOrders: false, loadingMore: false });
+      setLoadingOrders(false);
+      setLoadingMore(false);
       console.error('加载订单失败:', error);
     }
-  }
+  };
 
-  switchTab(tabKey: string) {
-    this.setState({ activeTab: tabKey }, () => {
-      this.loadOrders(1);
-    });
-  }
+  /** 加载所有数据 */
+  const loadData = () => {
+    loadStats();
+    loadOrders(1);
+    loadCategories();
+  };
 
-  loadMore() {
-    const { hasMore, loadingMore } = this.state;
-    if (hasMore && !loadingMore) {
-      this.loadOrders(this.state.page + 1);
+  // 保持 loadData 的最新引用，供 socket 回调调用（避免闭包过期）
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
+  /** 设置 WebSocket 监听 */
+  const setupSocketListeners = () => {
+    // 监听新订单
+    onOrderCreated((data) => {
+      setNewOrderBanner({ visible: true, order: data.order });
+      loadDataRef.current();
+    }, 'admin');
+
+    // 监听订单更新
+    onOrderUpdated(() => {
+      loadDataRef.current();
+    }, 'admin');
+  };
+
+  /** 关闭新订单横幅 */
+  const closeNewOrderBanner = () => {
+    setNewOrderBanner(null);
+  };
+
+  /** 查看横幅订单 */
+  const handleBannerViewOrder = () => {
+    const order = newOrderBanner?.order;
+    if (order) {
+      setNewOrderBanner(null);
+      Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${order.id}` });
     }
-  }
+  };
+
+  /** 检查登录状态 */
+  const checkAuth = () => {
+    if (!isLoggedIn || user?.role !== 'admin') {
+      Taro.showToast({ title: '请先以管理员身份登录', icon: 'none' });
+      Taro.navigateTo({ url: '/pages/auth/login' });
+      return;
+    }
+    loadData();
+  };
+
+  useEffect(() => {
+    checkAuth();
+    setupSocketListeners();
+
+    return () => {
+      removePageListeners('admin');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  Taro.useDidShow(() => {
+    checkAuth();
+  });
+
+  /** 切换 Tab */
+  const switchTab = (tabKey: string) => {
+    setActiveTab(tabKey);
+    loadOrders(1, tabKey);
+  };
+
+  /** 加载更多 */
+  const loadMore = () => {
+    if (hasMore && !loadingMore) {
+      loadOrders(page + 1);
+    }
+  };
 
   /** 更新订单状态 */
-  async updateOrderStatus(orderId: string, status: OrderStatus) {
+  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     try {
       await post(`/orders/${orderId}/status`, { status });
       Taro.showToast({ title: '操作成功', icon: 'success' });
 
       // 关闭弹窗并刷新
-      this.setState({ modalVisible: false, selectedOrder: null });
-      this.loadOrders(1);
-      this.loadStats();
+      setModalVisible(false);
+      setSelectedOrder(null);
+      loadOrders(1);
+      loadStats();
     } catch (error: any) {
       console.error('操作失败:', error);
     }
-  }
+  };
 
   /** 打开操作弹窗 */
-  openActionModal(order: Order) {
-    this.setState({ selectedOrder: order, modalVisible: true });
-  }
+  const openActionModal = (order: Order) => {
+    setSelectedOrder(order);
+    setModalVisible(true);
+  };
 
   /** 获取状态可进行的操作 */
-  getAvailableActions(order: Order): { label: string; nextStatus: OrderStatus; type: string }[] {
+  const getAvailableActions = (order: Order): { label: string; nextStatus: OrderStatus; type: string }[] => {
     const actions: { label: string; nextStatus: OrderStatus; type: string }[] = [];
 
     switch (order.status) {
@@ -265,271 +251,258 @@ export default class AdminPage extends Component<{}, AdminState> {
     }
 
     return actions;
-  }
+  };
 
   /** 获取状态标签样式 */
-  getStatusTagStyle(status: string): { color: string; background: string } {
+  const getStatusTagStyle = (status: string): { color: string; background: string } => {
     const color = ORDER_STATUS_COLOR_MAP[status] || '#999';
     return { color, background: `${color}15` };
-  }
+  };
 
-  render() {
-    const {
-      stats,
-      allOrders,
-      loadingStats,
-      loadingOrders,
-      loadingMore,
-      activeTab,
-      hasMore,
-      selectedOrder,
-      modalVisible,
-      newOrderBanner,
-    } = this.state;
-
-    return (
-      <View className='admin-page'>
-        {/* 新订单横幅通知 */}
-        {newOrderBanner && newOrderBanner.visible && (
-          <View className='new-order-banner'>
-            <View className='new-order-banner__content' onClick={() => this.handleBannerViewOrder()}>
-              <Text className='new-order-banner__icon'>🔔</Text>
-              <Text className='new-order-banner__text'>新订单</Text>
-              <Text className='new-order-banner__amount'>
-                ¥{((newOrderBanner.order.total as number) / 100).toFixed(2)}
-              </Text>
-            </View>
-            <Text
-              className='new-order-banner__close'
-              onClick={(e) => {
-                e.stopPropagation();
-                this.closeNewOrderBanner();
-              }}
-            >
-              ✕
+  return (
+    <View className='admin-page'>
+      {/* 新订单横幅通知 */}
+      {newOrderBanner && newOrderBanner.visible && (
+        <View className='new-order-banner'>
+          <View className='new-order-banner__content' onClick={() => handleBannerViewOrder()}>
+            <Text className='new-order-banner__icon'>🔔</Text>
+            <Text className='new-order-banner__text'>新订单</Text>
+            <Text className='new-order-banner__amount'>
+              ¥{((newOrderBanner.order.total as number) / 100).toFixed(2)}
             </Text>
           </View>
-        )}
-        {/* 统计卡片 */}
-        <View className='stats-section'>
-          <View className='stat-card'>
-            <Text className='stat-card__value'>{stats?.totalOrders || 0}</Text>
-            <Text className='stat-card__label'>今日订单</Text>
-          </View>
-          <View className='stat-card stat-card--revenue'>
-            <Text className='stat-card__value'>
-              ¥{formatPriceWithSymbol(stats?.totalRevenue || 0).replace('¥', '')}
-            </Text>
-            <Text className='stat-card__label'>今日营收</Text>
-          </View>
-          <View className='stat-card'>
-            <Text className='stat-card__value'>{stats?.pendingCount || 0}</Text>
-            <Text className='stat-card__label'>待处理</Text>
-          </View>
-          <View className='stat-card'>
-            <Text className='stat-card__value'>{stats?.preparingCount || 0}</Text>
-            <Text className='stat-card__label'>制作中</Text>
-          </View>
-          <View className='stat-card'>
-            <Text className='stat-card__value'>{stats?.completedCount || 0}</Text>
-            <Text className='stat-card__label'>已完成</Text>
-          </View>
-        </View>
-
-        <View className='admin-actions'>
-          <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/menu-manage' })}>
-            <Text className='action-btn__icon'>🍴</Text>
-            <Text>菜品管理</Text>
-          </View>
-          <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/user-manage' })}>
-            <Text className='action-btn__icon'>👥</Text>
-            <Text>会员管理</Text>
-          </View>
-        </View>
-
-        {/* Tab 切换 */}
-        <ScrollView className='tab-bar' scrollX enhanced showScrollbar={false}>
-          {TABS.map((tab) => (
-            <View
-              key={tab.key}
-              className={`tab-item ${activeTab === tab.key ? 'tab-item--active' : ''}`}
-              onClick={() => this.switchTab(tab.key)}
-            >
-              <Text>{tab.label}</Text>
-            </View>
-          ))}
-        </ScrollView>
-
-        {/* 订单列表 */}
-        <ScrollView
-          scrollY
-          style={{ height: `calc(100vh - 250px)` }}
-          onScrollToLower={() => this.loadMore()}
-          enhanced
-          showScrollbar={false}
-        >
-          {loadingOrders ? (
-            <View className='list-loading'>
-              <Text>加载中...</Text>
-            </View>
-          ) : allOrders.length === 0 ? (
-            <View className='empty-state'>
-              <Text className='empty-state__icon'>📋</Text>
-              <Text className='empty-state__text'>暂无订单</Text>
-            </View>
-          ) : (
-            <View className='order-list'>
-              {allOrders.map((order) => {
-                const statusStyle = this.getStatusTagStyle(order.status);
-                return (
-                  <View
-                    key={order.id}
-                    className='order-card'
-                    onClick={() => this.openActionModal(order)}
-                  >
-                    <View className='order-card__header'>
-                      <Text className='order-card__id'>
-                        {shortOrderId(order.id)}
-                      </Text>
-                      <Text
-                        className='order-card__status-tag'
-                        style={{
-                          color: statusStyle.color,
-                          background: statusStyle.background,
-                        }}
-                      >
-                        {ORDER_STATUS_MAP[order.status] || order.status}
-                      </Text>
-                    </View>
-                    <View className='order-card__items'>
-                      {order.items.slice(0, 3).map((item) => (
-                        <Text key={item.id} className='order-card__item'>
-                          {item.name} x{item.quantity}
-                        </Text>
-                      ))}
-                      {order.items.length > 3 && (
-                        <Text className='order-card__item' style={{ color: '#ccc' }}>
-                          等 {order.items.length} 件商品
-                        </Text>
-                      )}
-                    </View>
-                    <View className='order-card__footer'>
-                      <Text className='order-card__time'>
-                        {formatTime(order.createdAt, 'HH:mm')}
-                      </Text>
-                      <Text className='order-card__total'>
-                        合计{' '}
-                        <Text className='order-card__total-price'>
-                          {formatPriceWithSymbol(order.total)}
-                        </Text>
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {loadingMore && (
-            <View className='load-more'>
-              <Text>加载中...</Text>
-            </View>
-          )}
-
-          {!hasMore && allOrders.length > 0 && (
-            <View className='load-more'>
-              <Text>—— 没有更多了 ——</Text>
-            </View>
-          )}
-        </ScrollView>
-
-        {/* 操作弹窗 */}
-        {modalVisible && selectedOrder && (
-          <View
-            className='action-modal'
-            onClick={() => this.setState({ modalVisible: false })}
+          <Text
+            className='new-order-banner__close'
+            onClick={(e) => {
+              e.stopPropagation();
+              closeNewOrderBanner();
+            }}
           >
-            <View
-              className='action-modal__content'
-              onClick={(e) => e.stopPropagation()}
-            >
-              <View className='action-modal__header'>
-                <Text className='action-modal__title'>
-                  订单 {shortOrderId(selectedOrder.id)}
-                </Text>
-                <View
-                  className='action-modal__close'
-                  onClick={() => this.setState({ modalVisible: false })}
-                >
-                  ✕
-                </View>
-              </View>
-              <View className='action-modal__body'>
-                <View className='action-modal__info-row'>
-                  <Text className='action-modal__info-label'>状态</Text>
-                  <Text
-                    className='action-modal__info-value'
-                    style={{
-                      color: ORDER_STATUS_COLOR_MAP[selectedOrder.status] || '#333',
-                    }}
-                  >
-                    {ORDER_STATUS_MAP[selectedOrder.status] || selectedOrder.status}
-                  </Text>
-                </View>
-                <View className='action-modal__info-row'>
-                  <Text className='action-modal__info-label'>用户</Text>
-                  <Text className='action-modal__info-value'>{selectedOrder.userId.substring(0, 12)}...</Text>
-                </View>
-                <View className='action-modal__info-row'>
-                  <Text className='action-modal__info-label'>商品</Text>
-                  <Text className='action-modal__info-value'>
-                    {selectedOrder.items.map((i) => `${i.name}x${i.quantity}`).join('、')}
-                  </Text>
-                </View>
-                <View className='action-modal__info-row'>
-                  <Text className='action-modal__info-label'>金额</Text>
-                  <Text className='action-modal__info-value' style={{ color: '#e74c3c' }}>
-                    {formatPriceWithSymbol(selectedOrder.total)}
-                  </Text>
-                </View>
-                {selectedOrder.remark && (
-                  <View className='action-modal__info-row'>
-                    <Text className='action-modal__info-label'>备注</Text>
-                    <Text className='action-modal__info-value'>{selectedOrder.remark}</Text>
-                  </View>
-                )}
-                <View className='action-modal__info-row'>
-                  <Text className='action-modal__info-label'>时间</Text>
-                  <Text className='action-modal__info-value'>
-                    {formatTime(selectedOrder.createdAt, 'MM-DD HH:mm')}
-                  </Text>
-                </View>
+            ✕
+          </Text>
+        </View>
+      )}
+      {/* 统计卡片 */}
+      <View className='stats-section'>
+        <View className='stat-card'>
+          <Text className='stat-card__value'>{stats?.totalOrders || 0}</Text>
+          <Text className='stat-card__label'>今日订单</Text>
+        </View>
+        <View className='stat-card stat-card--revenue'>
+          <Text className='stat-card__value'>
+            ¥{formatPriceWithSymbol(stats?.totalRevenue || 0).replace('¥', '')}
+          </Text>
+          <Text className='stat-card__label'>今日营收</Text>
+        </View>
+        <View className='stat-card'>
+          <Text className='stat-card__value'>{stats?.pendingCount || 0}</Text>
+          <Text className='stat-card__label'>待处理</Text>
+        </View>
+        <View className='stat-card'>
+          <Text className='stat-card__value'>{stats?.preparingCount || 0}</Text>
+          <Text className='stat-card__label'>制作中</Text>
+        </View>
+        <View className='stat-card'>
+          <Text className='stat-card__value'>{stats?.completedCount || 0}</Text>
+          <Text className='stat-card__label'>已完成</Text>
+        </View>
+      </View>
 
-                {/* 操作按钮 */}
-                <View className='action-modal__actions'>
-                  {this.getAvailableActions(selectedOrder).map((action) => (
-                    <View
-                      key={action.nextStatus}
-                      className={`action-modal__btn action-modal__btn--${action.type}`}
-                      onClick={() =>
-                        this.updateOrderStatus(selectedOrder.id, action.nextStatus as OrderStatus)
-                      }
+      <View className='admin-actions'>
+        <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/menu-manage' })}>
+          <Text className='action-btn__icon'>🍴</Text>
+          <Text>菜品管理</Text>
+        </View>
+        <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/user-manage' })}>
+          <Text className='action-btn__icon'>👥</Text>
+          <Text>会员管理</Text>
+        </View>
+      </View>
+
+      {/* Tab 切换 */}
+      <ScrollView className='tab-bar' scrollX enhanced showScrollbar={false}>
+        {TABS.map((tab) => (
+          <View
+            key={tab.key}
+            className={`tab-item ${activeTab === tab.key ? 'tab-item--active' : ''}`}
+            onClick={() => switchTab(tab.key)}
+          >
+            <Text>{tab.label}</Text>
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* 订单列表 */}
+      <ScrollView
+        scrollY
+        style={{ height: `calc(100vh - 250px)` }}
+        onScrollToLower={() => loadMore()}
+        enhanced
+        showScrollbar={false}
+      >
+        {loadingOrders ? (
+          <View className='list-loading'>
+            <Text>加载中...</Text>
+          </View>
+        ) : allOrders.length === 0 ? (
+          <View className='empty-state'>
+            <Text className='empty-state__icon'>📋</Text>
+            <Text className='empty-state__text'>暂无订单</Text>
+          </View>
+        ) : (
+          <View className='order-list'>
+            {allOrders.map((order) => {
+              const statusStyle = getStatusTagStyle(order.status);
+              return (
+                <View
+                  key={order.id}
+                  className='order-card'
+                  onClick={() => openActionModal(order)}
+                >
+                  <View className='order-card__header'>
+                    <Text className='order-card__id'>
+                      {shortOrderId(order.id)}
+                    </Text>
+                    <Text
+                      className='order-card__status-tag'
+                      style={{
+                        color: statusStyle.color,
+                        background: statusStyle.background,
+                      }}
                     >
-                      {action.label}
-                    </View>
-                  ))}
-                  <View
-                    className='action-modal__btn action-modal__btn--secondary'
-                    onClick={() => this.setState({ modalVisible: false })}
-                  >
-                    关闭
+                      {ORDER_STATUS_MAP[order.status] || order.status}
+                    </Text>
                   </View>
+                  <View className='order-card__items'>
+                    {order.items.slice(0, 3).map((item) => (
+                      <Text key={item.id} className='order-card__item'>
+                        {item.name} x{item.quantity}
+                      </Text>
+                    ))}
+                    {order.items.length > 3 && (
+                      <Text className='order-card__item' style={{ color: '#ccc' }}>
+                        等 {order.items.length} 件商品
+                      </Text>
+                    )}
+                  </View>
+                  <View className='order-card__footer'>
+                    <Text className='order-card__time'>
+                      {formatTime(order.createdAt, 'HH:mm')}
+                    </Text>
+                    <Text className='order-card__total'>
+                      合计{' '}
+                      <Text className='order-card__total-price'>
+                        {formatPriceWithSymbol(order.total)}
+                      </Text>
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {loadingMore && (
+          <View className='load-more'>
+            <Text>加载中...</Text>
+          </View>
+        )}
+
+        {!hasMore && allOrders.length > 0 && (
+          <View className='load-more'>
+            <Text>—— 没有更多了 ——</Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* 操作弹窗 */}
+      {modalVisible && selectedOrder && (
+        <View
+          className='action-modal'
+          onClick={() => setModalVisible(false)}
+        >
+          <View
+            className='action-modal__content'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <View className='action-modal__header'>
+              <Text className='action-modal__title'>
+                订单 {shortOrderId(selectedOrder.id)}
+              </Text>
+              <View
+                className='action-modal__close'
+                onClick={() => setModalVisible(false)}
+              >
+                ✕
+              </View>
+            </View>
+            <View className='action-modal__body'>
+              <View className='action-modal__info-row'>
+                <Text className='action-modal__info-label'>状态</Text>
+                <Text
+                  className='action-modal__info-value'
+                  style={{
+                    color: ORDER_STATUS_COLOR_MAP[selectedOrder.status] || '#333',
+                  }}
+                >
+                  {ORDER_STATUS_MAP[selectedOrder.status] || selectedOrder.status}
+                </Text>
+              </View>
+              <View className='action-modal__info-row'>
+                <Text className='action-modal__info-label'>用户</Text>
+                <Text className='action-modal__info-value'>{selectedOrder.userId.substring(0, 12)}...</Text>
+              </View>
+              <View className='action-modal__info-row'>
+                <Text className='action-modal__info-label'>商品</Text>
+                <Text className='action-modal__info-value'>
+                  {selectedOrder.items.map((i) => `${i.name}x${i.quantity}`).join('、')}
+                </Text>
+              </View>
+              <View className='action-modal__info-row'>
+                <Text className='action-modal__info-label'>金额</Text>
+                <Text className='action-modal__info-value' style={{ color: '#e74c3c' }}>
+                  {formatPriceWithSymbol(selectedOrder.total)}
+                </Text>
+              </View>
+              {selectedOrder.remark && (
+                <View className='action-modal__info-row'>
+                  <Text className='action-modal__info-label'>备注</Text>
+                  <Text className='action-modal__info-value'>{selectedOrder.remark}</Text>
+                </View>
+              )}
+              <View className='action-modal__info-row'>
+                <Text className='action-modal__info-label'>时间</Text>
+                <Text className='action-modal__info-value'>
+                  {formatTime(selectedOrder.createdAt, 'MM-DD HH:mm')}
+                </Text>
+              </View>
+
+              {/* 操作按钮 */}
+              <View className='action-modal__actions'>
+                {getAvailableActions(selectedOrder).map((action) => (
+                  <View
+                    key={action.nextStatus}
+                    className={`action-modal__btn action-modal__btn--${action.type}`}
+                    onClick={() =>
+                      updateOrderStatus(selectedOrder.id, action.nextStatus as OrderStatus)
+                    }
+                  >
+                    {action.label}
+                  </View>
+                ))}
+                <View
+                  className='action-modal__btn action-modal__btn--secondary'
+                  onClick={() => setModalVisible(false)}
+                >
+                  关闭
                 </View>
               </View>
             </View>
           </View>
-        )}
-      </View>
-    );
-  }
-}
+        </View>
+      )}
+    </View>
+  );
+};
+
+export default AdminPage;

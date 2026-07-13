@@ -20,9 +20,9 @@ export class OrderQueryDto {
   @IsOptional()
   shop_id?: string;
 
-  @IsString()
+  @IsEnum(OrderStatus)
   @IsOptional()
-  status?: string;
+  status?: OrderStatus;
 
   @IsString()
   @IsOptional()
