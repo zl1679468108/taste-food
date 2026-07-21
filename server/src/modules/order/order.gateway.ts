@@ -12,6 +12,7 @@ import { Logger } from '@nestjs/common';
 import { OrderRecord } from './order.service';
 import { AuthService } from '../auth/auth.service';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+import { UserRole } from '../../common/constants/enums';
 
 interface JoinRoomPayload {
   userId?: string;
@@ -25,6 +26,9 @@ interface JoinRoomPayload {
     methods: ['GET', 'POST'],
     credentials: true,
   },
+  // 心跳配置：避免长时间空闲连接占用资源
+  pingInterval: 25_000,
+  pingTimeout: 10_000,
 })
 export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -36,13 +40,11 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /**
    * 从客户端连接中提取并校验 JWT token。
-   * token 可通过 handshake.auth.token 或 handshake.query.token 传入。
+   * 仅支持 handshake.auth.token 传递，禁止通过 URL query 传递（避免 token 泄漏到日志/反代）。
    * 校验失败返回 null，调用方应断开连接。
    */
   private async verifyClient(client: Socket): Promise<CurrentUserPayload | null> {
-    const token =
-      (client.handshake.auth as { token?: string })?.token ||
-      (client.handshake.query as { token?: string })?.token;
+    const token = (client.handshake.auth as { token?: string })?.token;
 
     if (!token) {
       this.logger.warn(`客户端 ${client.id} 未提供 token，拒绝连接`);
@@ -58,6 +60,14 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /**
+   * 多租户房间名：shop:${shopId}
+   * admin/rider/顾客均按 shopId 隔离，避免跨店铺数据泄露。
+   */
+  private shopRoom(shopId: string): string {
+    return `shop:${shopId}`;
+  }
+
   async handleConnection(client: Socket): Promise<void> {
     const payload = await this.verifyClient(client);
     if (!payload) {
@@ -69,19 +79,28 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // 将认证信息存储到 client.data 供后续使用
     client.data.user = payload;
     this.logger.log(
-      `客户端连接: client=${client.id}, userId=${payload.userId}, role=${payload.role}`,
+      `客户端连接: client=${client.id}, userId=${payload.userId}, role=${payload.role}, shopId=${payload.shopId || '-'}`,
     );
 
-    // 根据认证身份自动加入对应房间，不信任客户端自报身份
-    if (payload.role === 'admin') {
-      client.join('admin');
-      this.logger.log(`管理员加入 admin 房间: ${client.id}`);
-    } else if (payload.role === 'rider') {
-      client.join('rider');
-      this.logger.log(`骑手加入 rider 房间: ${client.id}`);
+    // 多租户隔离：按 shopId 加入 shop:${shopId} 房间
+    // admin 必须有 shopId 才能加入对应店铺房间；rider/顾客同理
+    // 不信任客户端自报身份，房间归属完全由 JWT 决定
+    if (payload.shopId) {
+      const room = this.shopRoom(payload.shopId);
+      client.join(room);
+      this.logger.log(`客户端加入 ${room} 房间: ${client.id} (role=${payload.role})`);
+    } else if (payload.role === UserRole.ADMIN) {
+      // admin 缺失 shopId 视为配置异常，拒绝连接避免越权
+      this.logger.warn(`管理员 ${payload.userId} 缺失 shopId，拒绝连接`);
+      client.emit('error', { message: '管理员账号未绑定店铺' });
+      client.disconnect();
+      return;
     }
-    // 顾客加入自己的个人房间
-    client.join(`user:${payload.userId}`);
+
+    // 顾客额外加入个人房间（用于跨设备推送）
+    if (payload.role === UserRole.CUSTOMER) {
+      client.join(`user:${payload.userId}`);
+    }
   }
 
   handleDisconnect(client: Socket): void {
@@ -145,35 +164,39 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   emitOrderCreated(order: OrderRecord): void {
+    if (!this.server) {
+      this.logger.warn('[WS] server 未初始化，跳过 order:created 推送');
+      return;
+    }
     const serialized = this.serializeOrder(order);
-    this.server.to('admin').emit('order:created', {
+    // 仅推送给该店铺房间，避免跨店铺数据泄露
+    this.server.to(this.shopRoom(order.shopId)).emit('order:created', {
       order: serialized,
     });
-    this.logger.log(`[WS] 新订单推送: orderId=${order.id}, total=${order.total}`);
+    this.logger.log(`[WS] 新订单推送: orderId=${order.id}, shopId=${order.shopId}, total=${order.total}`);
   }
 
   emitOrderUpdated(order: OrderRecord, previousStatus: string): void {
+    if (!this.server) {
+      this.logger.warn('[WS] server 未初始化，跳过 order:updated 推送');
+      return;
+    }
     const serialized = this.serializeOrder(order);
 
-    this.server.to('admin').emit('order:updated', {
+    // 推送给店铺房间（包含 admin/rider/该店铺内顾客）
+    this.server.to(this.shopRoom(order.shopId)).emit('order:updated', {
       order: serialized,
       previousStatus,
     });
 
-    const userRoom = `user:${order.userId}`;
-    this.server.to(userRoom).emit('order:updated', {
-      order: serialized,
-      previousStatus,
-    });
-
-    // 推送给骑手房间
-    this.server.to('rider').emit('order:updated', {
+    // 同时推送给订单所属顾客的个人房间（跨设备同步）
+    this.server.to(`user:${order.userId}`).emit('order:updated', {
       order: serialized,
       previousStatus,
     });
 
     this.logger.log(
-      `[WS] 订单状态推送: orderId=${order.id}, ${previousStatus} -> ${order.status}`,
+      `[WS] 订单状态推送: orderId=${order.id}, shopId=${order.shopId}, ${previousStatus} -> ${order.status}`,
     );
   }
 }

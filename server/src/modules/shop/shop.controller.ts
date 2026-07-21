@@ -1,7 +1,17 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, ForbiddenException } from '@nestjs/common';
-import { AuthGuard } from '../../common/guards/auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  HttpCode,
+  HttpStatus,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
@@ -12,28 +22,33 @@ import { CreateShopDto, UpdateShopDto, ShopResponseDto } from './dto/shop.dto';
 export class ShopController {
   constructor(private readonly shopService: ShopService) {}
 
+  // ===== 公开接口（顾客浏览店铺无需登录）=====
+
   @Get()
+  @Public()
   async getAllShops(): Promise<ApiResponse<ShopResponseDto[]>> {
     const shops = await this.shopService.findAll();
     return success(shops);
   }
 
   @Get(':id')
+  @Public()
   async getShop(@Param('id') id: string): Promise<ApiResponse<ShopResponseDto>> {
     const shop = await this.shopService.findById(id);
     return success(shop);
   }
 
+  // ===== 受保护接口（Admin 角色）=====
+
   @Post()
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
   async createShop(@Body() dto: CreateShopDto): Promise<ApiResponse<ShopResponseDto>> {
     const shop = await this.shopService.create(dto);
     return success(shop, '店铺创建成功');
   }
 
   @Patch(':id')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   async updateShop(
     @Param('id') id: string,
@@ -49,7 +64,6 @@ export class ShopController {
   }
 
   @Patch(':id/status')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   async toggleShopStatus(
     @Param('id') id: string,
@@ -63,7 +77,6 @@ export class ShopController {
   }
 
   @Delete(':id')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   async deleteShop(
     @Param('id') id: string,

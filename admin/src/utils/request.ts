@@ -17,6 +17,14 @@ function getCache<T>(key: string): T | null {
     cache.delete(key);
     return null;
   }
+  // 返回深拷贝避免调用方修改污染缓存
+  if (entry.data && typeof entry.data === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(entry.data)) as T;
+    } catch {
+      return entry.data as T;
+    }
+  }
   return entry.data as T;
 }
 
@@ -161,13 +169,16 @@ request.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const originalRequest = error.config as (AxiosRequestConfig & { _isRefreshRetry?: boolean }) | undefined;
+    const isAuthEndpoint =
+      originalRequest?.url?.includes('/api/auth/refresh') ||
+      originalRequest?.url?.includes('/api/auth/wechat-login');
+
     // 401：尝试 refresh 后重试一次，失败再清除登录态
     if (
       error.response?.status === 401 &&
       originalRequest &&
       !originalRequest._isRefreshRetry &&
-      !originalRequest.url?.includes('/api/auth/refresh') &&
-      !originalRequest.url?.includes('/api/auth/wechat-login')
+      !isAuthEndpoint
     ) {
       try {
         const newToken = await doRefresh();
@@ -176,14 +187,20 @@ request.interceptors.response.use(
         (originalRequest.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;
         return request(originalRequest);
       } catch (e) {
+        // refresh 失败：清登录态 + 弹一次提示即可，避免下方分支再次 message
         clearAuthAndRedirect();
         message.error('登录已过期，请重新登录');
         return Promise.reject(e);
       }
     }
-    if (error.response?.status === 401) {
+
+    // refresh 后重试仍 401，或 auth 接口 401：清登录态（不再弹 message，避免与 refresh catch 重复）
+    if (error.response?.status === 401 && (originalRequest?._isRefreshRetry || isAuthEndpoint)) {
       clearAuthAndRedirect();
+      return Promise.reject(error);
     }
+
+    // 其他非 401 错误，按响应 message 提示
     const respData = error.response?.data as { message?: string } | undefined;
     message.error(respData?.message || getErrorMessage(error));
     return Promise.reject(error);

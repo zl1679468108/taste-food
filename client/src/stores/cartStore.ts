@@ -9,8 +9,19 @@ const CART_PERSIST_DEBOUNCE_MS = 1000;
 
 /**
  * 生成购物车商品唯一标识
+ *
+ * 优先使用 specOptionIds（排序后拼接）作为规格区分键：
+ * - 比 specDesc 更稳定，避免"加辣、加葱"和"加葱、加辣"产生相同 key
+ * - 不受规格描述文本顺序影响
+ *
+ * 回退到 specDesc 以兼容旧数据
  */
-function generateItemKey(menuItemId: string, specDesc?: string): string {
+function generateItemKey(menuItemId: string, specDesc?: string, specOptionIds?: string[]): string {
+  if (specOptionIds && specOptionIds.length > 0) {
+    // 排序后拼接，确保不同选择顺序产生相同 key
+    const sortedIds = [...specOptionIds].sort().join(',');
+    return `${menuItemId}_${sortedIds}`;
+  }
   return `${menuItemId}_${specDesc || 'default'}`;
 }
 
@@ -120,7 +131,7 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   addItem: (item) => {
     const { items } = get();
-    const key = generateItemKey(item.menuItemId, item.specDesc);
+    const key = generateItemKey(item.menuItemId, item.specDesc, item.specOptionIds);
     const existingIndex = items.findIndex((i) => i.key === key);
 
     let newItems: CartItem[];
@@ -191,9 +202,21 @@ export const useCartStore = create<CartState>((set, get) => ({
   setShopId: (shopId) => {
     const currentShopId = get().shopId;
     if (currentShopId && currentShopId !== shopId) {
+      // 切换店铺时清空购物车（不同店铺的菜品不互通）
+      // 异步提示用户，不阻塞 store 更新
+      const hadItems = get().items.length > 0;
       set({ items: [], shopId, remarks: '' });
-      // 切换店铺是关键操作，立即持久化
       persistCartImmediate({ items: [], shopId, remarks: '' });
+      if (hadItems) {
+        // 延迟提示，避免在 store action 中直接调用 Taro API 导致渲染冲突
+        setTimeout(() => {
+          try {
+            Taro.showToast({ title: '已切换店铺，购物车已清空', icon: 'none' });
+          } catch {
+            // ignore
+          }
+        }, 0);
+      }
     } else {
       set({ shopId });
       persistCart({ items: get().items, shopId, remarks: get().remarks });

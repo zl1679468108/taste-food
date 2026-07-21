@@ -300,7 +300,11 @@ export class MenuService {
     if (hasSupabase() && supabase) {
       let query = supabase.from('tf_menu_items').select('id, category_id, shop_id, name, description, price, image_url, status, monthly_sales, spec_group_ids, created_at, updated_at').eq('shop_id', sid).order('id');
       if (categoryId) query = query.eq('category_id', categoryId);
-      if (search) query = query.ilike('name', `%${search}%`);
+      // 转义 PostgreSQL LIKE/ILIKE 通配符（%、_、\），避免用户输入破坏查询模式
+      if (search) {
+        const escaped = search.replace(/[%_\\]/g, '\\$&');
+        query = query.ilike('name', `%${escaped}%`);
+      }
       const { data, error } = await query;
       if (error) throw new BadRequestException(`获取菜品失败: ${error.message}`);
       const items = (data || []).map((row) => this.toMenuItem(row));

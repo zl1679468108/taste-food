@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient, PostgrestError } from '@supabase/supabase-js';
+import { assertMemoryFallbackAllowed } from '../common/utils/memory-guard';
 
 let supabaseInstance: SupabaseClient | null = null;
 let supabaseHealthy = false;
@@ -11,12 +12,6 @@ let healthCheckTimer: NodeJS.Timeout | null = null;
 
 function shouldAllowMemoryFallback(): boolean {
   return process.env.NODE_ENV !== 'production' || process.env.ALLOW_MEMORY_FALLBACK === 'true';
-}
-
-function assertMemoryFallbackAllowed(reason: string): void {
-  if (!shouldAllowMemoryFallback()) {
-    throw new Error(`[Supabase] ${reason}，生产环境禁止回退到内存模式。`);
-  }
 }
 
 /**

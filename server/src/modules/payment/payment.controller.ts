@@ -1,16 +1,18 @@
-import { Controller, Post, Get, Param, UseGuards } from '@nestjs/common';
-import { AuthGuard } from '../../common/guards/auth.guard';
+import { Controller, Post, Get, Param } from '@nestjs/common';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaymentService } from './payment.service';
 import { PaymentResponseDto } from './dto/payment.dto';
 
+/**
+ * 支付控制器。
+ * 路由前缀使用 `orders/:id/...`，与 OrderController 共享前缀但路径不冲突。
+ */
 @Controller('orders')
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
   @Post(':id/pay')
-  @UseGuards(AuthGuard)
   async payOrder(
     @Param('id') id: string,
     @CurrentUser('userId') userId: string,
@@ -20,7 +22,6 @@ export class PaymentController {
   }
 
   @Get(':id/payment')
-  @UseGuards(AuthGuard)
   async getPayment(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,

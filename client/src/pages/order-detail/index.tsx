@@ -98,12 +98,42 @@ const OrderDetailPage = () => {
 
     setPaying(true);
     try {
-      await post(`/orders/${order.id}/pay`);
+      // 后端返回 PaymentResponseDto：
+      // - 开发环境 mock: true → 直接显示支付成功
+      // - 生产环境 wxPayParams → 调起 Taro.requestPayment 完成真实微信支付
+      const res = await post<{
+        transactionId: string;
+        mock?: boolean;
+        wxPayParams?: {
+          timeStamp: string;
+          nonceStr: string;
+          package: string;
+          signType: 'MD5' | 'HMAC-SHA256' | 'RSA';
+          paySign: string;
+        };
+      }>(`/orders/${order.id}/pay`);
+
+      // 真实微信支付参数存在时，调起微信支付
+      if (res.data.wxPayParams) {
+        await Taro.requestPayment({
+          timeStamp: res.data.wxPayParams.timeStamp,
+          nonceStr: res.data.wxPayParams.nonceStr,
+          package: res.data.wxPayParams.package,
+          signType: res.data.wxPayParams.signType,
+          paySign: res.data.wxPayParams.paySign,
+        });
+      }
+      // mock 模式或真实支付成功后，刷新订单
       Taro.showToast({ title: '支付成功', icon: 'success' });
-      // 重新加载订单
       loadOrder(order.id);
     } catch (error: any) {
-      console.error('支付失败:', error);
+      // 用户取消支付（errMsg 含 cancel）不当作错误
+      const errMsg = error?.errMsg || error?.message || '';
+      if (errMsg.includes('cancel')) {
+        Taro.showToast({ title: '已取消支付', icon: 'none' });
+      } else {
+        console.error('支付失败:', error);
+      }
     } finally {
       setPaying(false);
     }
@@ -309,7 +339,8 @@ const OrderDetailPage = () => {
             <View
               className='order-actions__btn order-actions__btn--primary'
               onClick={() => {
-                Taro.navigateTo({ url: '/pages/menu/index' });
+                // menu 是 tabbar 页面，必须用 switchTab 跳转
+                Taro.switchTab({ url: '/pages/menu/index' });
               }}
             >
               继续点餐

@@ -10,10 +10,12 @@ interface StatusTimelineProps {
 
 function StatusTimelineInner({ currentStatus, statusHistory }: StatusTimelineProps) {
   const steps = useMemo(() => {
-    const allStatuses = [
-      'pending_payment', 'paid', 'accepted', 'preparing',
-      'delivering', 'completed', 'cancelled', 'rejected',
-    ];
+    // 已取消/已拒单的订单：只显示已发生的状态 + 终态，避免显示完整 8 步流程的 "--:--"
+    const isTerminalAbnormal = currentStatus === 'cancelled' || currentStatus === 'rejected';
+    const normalFlow = ['pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'completed'];
+    const allStatuses = isTerminalAbnormal
+      ? [...normalFlow.filter(s => statusHistory.some(h => h.status === s)), currentStatus]
+      : ['pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'completed', 'cancelled', 'rejected'];
 
     const historyMap: Record<string, string> = {};
     for (const h of statusHistory) {

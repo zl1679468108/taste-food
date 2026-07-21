@@ -6,7 +6,6 @@ const envFile = resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'developm
 dotenv.config({ path: envFile });
 
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { getSupabaseClientAsync } from './database/supabase.client';
 
@@ -34,14 +33,7 @@ async function bootstrap() {
     credentials: false,
   });
 
-  // 全局 ValidationPipe（自动校验 DTO）
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  // 全局 ValidationPipe / AuthGuard / RolesGuard / HttpExceptionFilter 已在 AppModule 中通过 APP_* provider 注册
 
   const port = process.env.SERVER_PORT || 3010;
   await app.listen(port);

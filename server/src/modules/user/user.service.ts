@@ -18,17 +18,21 @@ export interface PaginatedUsers {
 
 @Injectable()
 export class UserService {
-  async getUsers(page = 1, pageSize = 20): Promise<PaginatedUsers> {
+  async getUsers(page = 1, pageSize = 20, role?: string): Promise<PaginatedUsers> {
     if (!hasSupabase() || !supabase) {
       return { items: [], total: 0, page, pageSize };
     }
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
-    const { data, error, count } = await supabase
+    let query = supabase
       .from('tf_users')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(from, to);
+    if (role) {
+      query = query.eq('role', role);
+    }
+    const { data, error, count } = await query;
     if (error) throw new BadRequestException(`获取用户列表失败: ${error.message}`);
     return {
       items: (data || []).map((u: any) => ({

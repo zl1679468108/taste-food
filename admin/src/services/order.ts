@@ -4,16 +4,16 @@ export interface Order {
   id: string;
   shopId: string;
   userId: string;
-  riderId: string;
+  riderId?: string;
   status: string;
   total: number;
   deliveryFee: number;
   deliveryType: string;
-  address: string;
-  tableNo: string;
-  remark: string;
-  contactName: string;
-  contactPhone: string;
+  address?: string;
+  tableNo?: string;
+  remark?: string;
+  contactName?: string;
+  contactPhone?: string;
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
@@ -66,3 +66,7 @@ export const getStatusDistribution = (shopId: string) =>
 
 export const updateOrderStatus = (id: string, status: string) =>
   request.post(`/api/orders/${id}/status`, { status });
+
+// 取消订单：调用专用 /cancel 接口（后端原子处理状态校验 + 退款记录 + daily_stats 联动）
+export const cancelOrder = (id: string) =>
+  request.post(`/api/orders/${id}/cancel`);

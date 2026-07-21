@@ -8,16 +8,31 @@ export interface Category {
   iconKey: string;
 }
 
+export interface SpecOption {
+  id: string;
+  name: string;
+  price: number; // 单位：分
+}
+
+export interface SpecGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  multiple: boolean;
+  options: SpecOption[];
+}
+
 export interface MenuItem {
   id: string;
   shopId: string;
   categoryId: string;
   name: string;
-  price: number;
+  price: number; // 单位：分
   imageUrl: string;
   description: string;
   status: string;
   salesCount: number;
+  specGroups?: SpecGroup[];
 }
 
 export const getCategories = (shopId: string) =>

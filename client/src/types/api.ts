@@ -1,20 +1,11 @@
-/** 统一 API 响应格式 */
-export interface ApiResponse<T = unknown> {
-  code: number;
-  data: T;
-  message: string;
-}
-
-/** 分页数据 */
-export interface PaginatedData<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-}
-
-/** 分页查询参数 */
-export interface PaginationParams {
-  page?: number;
-  pageSize?: number;
-}
+/**
+ * API 响应相关类型
+ *
+ * 实际定义已抽取到 @taste-food/shared/types，
+ * 此文件作为 re-export 入口，保持现有 import 路径向后兼容。
+ */
+export type {
+  ApiResponse,
+  PaginatedData,
+  PaginationParams,
+} from '@taste-food/shared/types';

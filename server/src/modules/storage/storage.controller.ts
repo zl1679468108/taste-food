@@ -1,7 +1,5 @@
-import { BadRequestException, Controller, Post, Delete, UseGuards, Body, Param, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { BadRequestException, Controller, Post, Delete, Body, Param, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { AuthGuard } from '../../common/guards/auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
@@ -13,7 +11,6 @@ export class StorageController {
   constructor(private readonly storageService: StorageService) {}
 
   @Post('images/menu')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @UseInterceptors(FileInterceptor('image'))
   async uploadMenuImage(
@@ -35,7 +32,6 @@ export class StorageController {
   }
 
   @Delete('images/*path')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   async deleteImage(@Param('path') path: string): Promise<ApiResponse<null>> {
     await this.storageService.deleteImage(decodeURIComponent(path));

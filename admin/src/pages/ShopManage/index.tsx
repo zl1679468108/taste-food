@@ -80,9 +80,9 @@ const ShopManagePage: React.FC = () => {
       setSubmitting(true);
       const data = {
         ...values,
-        deliveryRange: values.deliveryRange * 1000,
-        deliveryFee: values.deliveryFee * 100,
-        minOrderAmount: values.minOrderAmount * 100,
+        deliveryRange: Math.round(values.deliveryRange * 1000),
+        deliveryFee: Math.round(values.deliveryFee * 100),
+        minOrderAmount: Math.round(values.minOrderAmount * 100),
       };
 
       if (editingShop) {
@@ -95,7 +95,7 @@ const ShopManagePage: React.FC = () => {
       setModalVisible(false);
       loadShops();
     } catch (error) {
-      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
+      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
       message.error('操作失败');
     } finally {
       setSubmitting(false);
@@ -154,7 +154,14 @@ const ShopManagePage: React.FC = () => {
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
+          <Popconfirm
+            title="确认删除该店铺？"
+            description="删除后该店铺的所有数据将无法恢复"
+            okText="确认删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleDelete(record.id)}
+          >
             <Button type="link" danger icon={<DeleteOutlined />}>
               删除
             </Button>
@@ -198,29 +205,29 @@ const ShopManagePage: React.FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="店铺名称" rules={[{ required: true, message: '请输入店铺名称' }]}>
+          <Form.Item name="name" label="店铺名称" rules={[{ required: true, message: '请输入店铺名称' }, { max: 30, message: '店铺名称不超过 30 字' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="description" label="店铺描述">
+          <Form.Item name="description" label="店铺描述" rules={[{ max: 200, message: '描述不超过 200 字' }]}>
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item name="address" label="店铺地址">
+          <Form.Item name="address" label="店铺地址" rules={[{ max: 100, message: '地址不超过 100 字' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="phone" label="联系电话">
-            <Input />
+          <Form.Item name="phone" label="联系电话" rules={[{ pattern: /^1\d{10}$|^0\d{2,3}-?\d{7,8}$/, message: '请输入正确的手机号或座机号' }]}>
+            <Input placeholder="例如 13800138000 或 010-12345678" />
           </Form.Item>
-          <Form.Item name="logoUrl" label="Logo URL">
-            <Input />
+          <Form.Item name="logoUrl" label="Logo URL" rules={[{ type: 'url', message: '请输入合法的 URL' }]}>
+            <Input placeholder="https://..." />
           </Form.Item>
-          <Form.Item name="deliveryRange" label="配送范围（公里）" initialValue={3}>
+          <Form.Item name="deliveryRange" label="配送范围（公里）" initialValue={3} rules={[{ type: 'number', min: 0.5, max: 20, message: '配送范围 0.5 ~ 20 公里' }]}>
             <InputNumber min={0.5} max={20} step={0.5} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="deliveryFee" label="配送费（元）" initialValue={5}>
-            <InputNumber min={0} max={50} step={0.5} style={{ width: '100%' }} />
+          <Form.Item name="deliveryFee" label="配送费（元）" initialValue={5} rules={[{ type: 'number', min: 0, max: 50, message: '配送费 0 ~ 50 元' }]}>
+            <InputNumber min={0} max={50} step={0.5} precision={2} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="minOrderAmount" label="起送价（元）" initialValue={0}>
-            <InputNumber min={0} max={100} step={5} style={{ width: '100%' }} />
+          <Form.Item name="minOrderAmount" label="起送价（元）" initialValue={0} rules={[{ type: 'number', min: 0, max: 1000, message: '起送价 0 ~ 1000 元' }]}>
+            <InputNumber min={0} max={1000} step={1} precision={2} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>

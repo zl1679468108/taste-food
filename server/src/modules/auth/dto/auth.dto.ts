@@ -31,6 +31,8 @@ export class LoginResponseDto {
   userId!: string;
   openid!: string;
   role!: string;
+  shopId?: string; // admin 必填，绑定管理的店铺
+  nickName?: string;
 }
 
 export class RefreshTokenDto {

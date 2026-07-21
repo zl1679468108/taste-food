@@ -11,39 +11,40 @@ interface BottomSheetProps {
 }
 
 interface BottomSheetState {
-  show: boolean;
-  animating: boolean;
+  /** 是否挂载在 DOM 中（控制退出动画完成后再卸载） */
+  mounted: boolean;
 }
 
 export default class BottomSheet extends Component<PropsWithChildren<BottomSheetProps>, BottomSheetState> {
   constructor(props: BottomSheetProps) {
     super(props);
-    this.state = { show: false, animating: false };
+    this.state = { mounted: props.visible };
   }
 
-  static getDerivedStateFromProps(nextProps: BottomSheetProps): BottomSheetState {
+  static getDerivedStateFromProps(nextProps: BottomSheetProps, prevState: BottomSheetState): BottomSheetState {
+    // 打开时立即挂载；关闭时保持挂载，由 transitionEnd 后再卸载
     if (nextProps.visible) {
-      return { show: true, animating: true };
+      return { mounted: true };
     }
-    return { show: false, animating: false };
+    return prevState;
   }
 
   handleTransitionEnd() {
+    // 退出动画结束后才真正卸载
     if (!this.props.visible) {
-      this.setState({ animating: false });
+      this.setState({ mounted: false });
     }
   }
 
   handleClose() {
-    this.setState({ animating: false });
     this.props.onClose();
   }
 
   render() {
     const { visible, title, showClose = true, compact, children } = this.props;
-    const { show, animating } = this.state;
+    const { mounted } = this.state;
 
-    if (!show) return null;
+    if (!mounted) return null;
 
     return (
       <View

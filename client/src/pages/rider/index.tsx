@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
@@ -69,6 +69,13 @@ const RiderPage = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 页面再次显示时刷新数据（从详情页返回后保持最新状态）
+  useDidShow(() => {
+    if (isLoggedIn && user?.role === 'rider') {
+      loadDataRef.current();
+    }
+  });
 
   /** 切换 Tab */
   const switchTab = (tab: 'pool' | 'mine') => {

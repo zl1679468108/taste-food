@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import * as TaroImport from '@tarojs/taro';
 import { post, get as getRequest } from '../utils/request';
 import { ApiResponse } from '../types/api';
+import { disconnectSocket } from '../services/socket';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
@@ -106,6 +107,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     // 停止自动刷新
     get().stopAutoRefresh();
+    // 断开 WebSocket，避免用旧 token 继续接收订单推送
+    try {
+      disconnectSocket();
+    } catch (e) {
+      console.warn('[Auth] 断开 socket 失败:', e);
+    }
 
     Taro.removeStorageSync('token');
     Taro.removeStorageSync('refreshToken');

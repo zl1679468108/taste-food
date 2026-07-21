@@ -180,7 +180,8 @@ export default function MenuPage() {
       if (isMultiSelect) {
         // 多选：toggle 选中状态，不超过 maxSelect
         const alreadySelected = currentSelectedIds.includes(optionId);
-        const newOptions = sg.options.map((opt) => {
+        // 多选场景下 isSelected 状态维护在 selectedOptions 上（SpecOptionWithPrice[]）
+        const newOptions: SpecOptionWithPrice[] = sg.selectedOptions.map((opt) => {
           if (opt.id === optionId) {
             return { ...opt, isSelected: !opt.isSelected };
           }
@@ -194,7 +195,7 @@ export default function MenuPage() {
       }
 
       // 单选：只有选中的为 true
-      const newOptions = sg.options.map((opt) => ({
+      const newOptions: SpecOptionWithPrice[] = sg.selectedOptions.map((opt) => ({
         ...opt,
         isSelected: opt.id === optionId,
       }));
@@ -265,6 +266,8 @@ export default function MenuPage() {
       price: finalPrice,
       quantity: qty,
       specDesc: specDesc || '',
+      // 传 specOptionIds 用于生成稳定的唯一 key（避免规格描述顺序不同导致 key 冲突）
+      specOptionIds: Object.values(specOptionIds).filter(Boolean),
       imageUrl: item.imageUrl || '',
     });
 

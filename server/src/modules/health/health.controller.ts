@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { hasSupabase } from '../../database/supabase.client';
+import { Public } from '../../common/decorators/public.decorator';
 
 interface HealthStatus {
   status: string;
@@ -13,6 +14,7 @@ interface HealthStatus {
 @Controller('health')
 export class HealthController {
   @Get()
+  @Public()
   getHealth(): ApiResponse<HealthStatus> {
     return success({
       status: 'ok',

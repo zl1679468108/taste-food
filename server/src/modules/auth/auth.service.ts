@@ -11,6 +11,8 @@ import { CurrentUserPayload } from '../../common/decorators/current-user.decorat
 import { UserRole } from '../../common/constants/enums';
 import { WechatLoginDto, LoginResponseDto, RefreshTokenDto } from './dto/auth.dto';
 import { supabase, hasSupabase } from '../../database/supabase.client';
+import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
+import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 
 interface UserRecord {
   id: string;
@@ -26,9 +28,6 @@ interface UserRecord {
 const ACCESS_TOKEN_EXPIRES_IN = '15m'; // 15 分钟
 const REFRESH_TOKEN_EXPIRES_IN = '7d'; // 7 天
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 天（毫秒，用于数据库过期时间）
-
-// 默认店铺 ID（与 menu.controller.ts 中 DEFAULT_SHOP_ID 一致，单店铺场景兜底）
-const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
 const memoryUsers: Map<string, UserRecord> = new Map();
 const openidToUser: Map<string, UserRecord> = new Map();
@@ -179,9 +178,10 @@ export class AuthService {
       // 角色变更只能通过管理员后台接口
       const payload = this.toPayload(user);
       const token = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
-      const refreshToken = this.generateRefreshToken(user.id);
+      const refreshToken = await this.generateRefreshToken(user.id);
       return {
         token, refreshToken, userId: user.id, openid: user.openid, role: user.role,
+        shopId: user.shopId, nickName: user.nickName,
       };
     }
 
@@ -191,6 +191,8 @@ export class AuthService {
   private async wechatLoginMemory(
     openid: string, nickName: string, dto: WechatLoginDto, role: UserRole = UserRole.CUSTOMER,
   ): Promise<LoginResponseDto> {
+    // 生产环境禁止使用内存回退（业务数据必须持久化到 Supabase）
+    assertMemoryFallbackAllowed('AuthService');
     let user = openidToUser.get(openid);
     if (!user) {
       const id = uuidv4();
@@ -206,9 +208,10 @@ export class AuthService {
 
     const payload = this.toPayload(user);
     const token = this.jwtService.sign(payload, { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
-    const refreshToken = this.generateRefreshToken(user.id);
+    const refreshToken = await this.generateRefreshToken(user.id);
     return {
       token, refreshToken, userId: user.id, openid: user.openid, role: user.role,
+      shopId: user.shopId, nickName: user.nickName,
     };
   }
 
@@ -234,29 +237,27 @@ export class AuthService {
     }
   }
 
-  private generateRefreshToken(userId: string): string {
+  private async generateRefreshToken(userId: string): Promise<string> {
     const refreshToken = this.jwtService.sign(
       { userId, type: 'refresh' },
       { expiresIn: REFRESH_TOKEN_EXPIRES_IN }
     );
 
     if (hasSupabase() && supabase) {
-      // 生产环境：持久化到数据库（存哈希不存明文）
+      // 生产环境：持久化到数据库（存哈希不存明文），必须 await 确保持久化成功
       const tokenHash = this.hashToken(refreshToken);
       const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_MS).toISOString();
-      supabase
+      const { error } = await supabase
         .from('tf_refresh_tokens')
         .insert({
           token_hash: tokenHash,
           user_id: userId,
           expires_at: expiresAt,
           revoked: false,
-        })
-        .then(({ error }) => {
-          if (error) {
-            this.logger.error(`持久化 refresh_token 失败: ${error.message}`);
-          }
         });
+      if (error) {
+        this.logger.error(`持久化 refresh_token 失败: ${error.message}`);
+      }
     } else {
       // 开发环境内存回退
       refreshTokenStore.set(refreshToken, userId);
@@ -326,7 +327,7 @@ export class AuthService {
       // 生成新的 token
       const newPayload = this.toPayload(user);
       const newToken = this.jwtService.sign(newPayload, { expiresIn: ACCESS_TOKEN_EXPIRES_IN });
-      const newRefreshToken = this.generateRefreshToken(user.id);
+      const newRefreshToken = await this.generateRefreshToken(user.id);
 
       return { token: newToken, refreshToken: newRefreshToken };
     } catch (error) {

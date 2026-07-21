@@ -29,8 +29,13 @@ export function clearCache(pattern?: string): void {
     cache.clear();
     return;
   }
+  // 精确匹配资源段：避免 'orders' 误匹配 'order-items' 等
+  // cache key 格式为 `method:url:params`，提取 url 段比对资源 key
   for (const key of cache.keys()) {
-    if (key.includes(pattern)) {
+    const parts = key.split(':');
+    const url = parts.length >= 2 ? parts.slice(1, -1).join(':') : '';
+    const resourceKey = getCacheResourceKey(url);
+    if (resourceKey === pattern) {
       cache.delete(key);
     }
   }
@@ -61,7 +66,21 @@ export function getStorageCache<T>(key: string): T | null {
     }
     return entry.data;
   } catch {
+    // 数据损坏：清除无效缓存项，避免反复 parse 失败
+    try {
+      Taro.removeStorageSync(`cache_${key}`);
+    } catch {}
     return null;
+  }
+}
+
+/** 主动清理内存中所有过期缓存项，避免长期运行内存持续增长 */
+export function purgeExpiredCache(): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.timestamp > DEFAULT_TTL) {
+      cache.delete(key);
+    }
   }
 }
 

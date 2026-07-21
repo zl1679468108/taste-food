@@ -1,7 +1,6 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body } from '@nestjs/common';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
-import { AuthGuard } from '../../common/guards/auth.guard';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
 import { WechatLoginDto, LoginResponseDto, RefreshTokenDto } from './dto/auth.dto';
 
@@ -10,6 +9,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('wechat-login')
+  @Public()
   async wechatLogin(
     @Body() dto: WechatLoginDto,
   ): Promise<ApiResponse<LoginResponseDto>> {
@@ -18,6 +18,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Public()
   async refresh(
     @Body() dto: RefreshTokenDto,
   ): Promise<ApiResponse<{ token: string; refreshToken: string }>> {

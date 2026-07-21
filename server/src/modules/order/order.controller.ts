@@ -5,23 +5,20 @@ import {
   Param,
   Query,
   Body,
-  UseGuards,
-  Patch,
+  HttpCode,
+  HttpStatus,
   ForbiddenException,
 } from '@nestjs/common';
 import dayjs from 'dayjs';
-import { AuthGuard } from '../../common/guards/auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole, OrderStatus } from '../../common/constants/enums';
+import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
 import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto, OrderQueryDto } from './dto/update-order.dto';
-
-const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
 @Controller('orders')
 export class OrderController {
@@ -41,24 +38,23 @@ export class OrderController {
   }
 
   @Post()
-  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.CREATED)
   async createOrder(
     @Body() dto: CreateOrderDto,
     @CurrentUser('userId') userId: string,
   ): Promise<ApiResponse<OrderRecord>> {
-    dto.userId = userId;
-    const order = await this.orderService.create(dto);
+    // 不修改入参 DTO，创建新对象传入 service
+    const order = await this.orderService.create({ ...dto, userId });
     return success(order, '订单创建成功');
   }
 
   @Get()
-  @UseGuards(AuthGuard)
   async getOrders(
     @Query() query: OrderQueryDto,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<PaginatedData<OrderRecord>>> {
-    const page = parseInt(query.page || '1', 10);
-    const pageSize = parseInt(query.pageSize || '20', 10);
+    const page = parseInt(query.page || '1', 10) || 1;
+    const pageSize = parseInt(query.pageSize || '20', 10) || 20;
     // 多租户隔离：admin 只能查询自己绑定店铺的订单，不信任客户端传入的 shop_id
     const adminShopId = user.shopId || DEFAULT_SHOP_ID;
 
@@ -88,53 +84,40 @@ export class OrderController {
     return success(result);
   }
 
-  @Get('stats/:shopId')
-  @UseGuards(AuthGuard, RolesGuard)
+  @Get('stats/today')
   @Roles(UserRole.ADMIN)
   async getOrderStats(
-    @Param('shopId') shopId: string,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<OrderStats>> {
-    // 多租户隔离：admin 只能查询自己绑定店铺的统计
-    if (userShopId && shopId !== userShopId) {
-      throw new ForbiddenException('无权查询其他店铺的统计');
-    }
+    // 多租户隔离：admin 只能查询自己绑定店铺的统计（shopId 从 JWT 取，不信任客户端）
+    const shopId = userShopId || DEFAULT_SHOP_ID;
     const stats = await this.orderService.getTodayStats(shopId);
     return success(stats);
   }
 
-  @Get('stats/:shopId/daily')
-  @UseGuards(AuthGuard, RolesGuard)
+  @Get('stats/daily')
   @Roles(UserRole.ADMIN)
   async getDailyStats(
-    @Param('shopId') shopId: string,
     @Query('days') days: string | undefined,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<DailyStatsItem[]>> {
-    if (userShopId && shopId !== userShopId) {
-      throw new ForbiddenException('无权查询其他店铺的统计');
-    }
+    const shopId = userShopId || DEFAULT_SHOP_ID;
     const daysNum = Math.min(Math.max(parseInt(days || '7', 10) || 7, 1), 90);
     const daily = await this.orderService.getDailyStats(shopId, daysNum);
     return success(daily);
   }
 
-  @Get('stats/:shopId/status-distribution')
-  @UseGuards(AuthGuard, RolesGuard)
+  @Get('stats/status-distribution')
   @Roles(UserRole.ADMIN)
   async getStatusDistribution(
-    @Param('shopId') shopId: string,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<StatusDistributionItem[]>> {
-    if (userShopId && shopId !== userShopId) {
-      throw new ForbiddenException('无权查询其他店铺的统计');
-    }
+    const shopId = userShopId || DEFAULT_SHOP_ID;
     const dist = await this.orderService.getStatusDistribution(shopId);
     return success(dist);
   }
 
   @Get(':id')
-  @UseGuards(AuthGuard)
   async getOrder(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
@@ -154,7 +137,6 @@ export class OrderController {
   }
 
   @Post(':id/status')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   async updateOrderStatus(
     @Param('id') id: string,
@@ -169,12 +151,13 @@ export class OrderController {
   }
 
   @Post(':id/cancel')
-  @UseGuards(AuthGuard)
+  @Roles(UserRole.ADMIN, UserRole.CUSTOMER)
   async cancelOrder(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<OrderRecord>> {
     // 多租户隔离：校验访问权限（admin 仅本店铺，customer 仅本人订单）
+    // 骑手无权取消订单（如需取消应通过 admin 处理）
     const order = await this.orderService.findById(id);
     this.assertCanAccessOrder(order, user);
     const cancelled = await this.orderService.cancelOrder(id, user.userId);
@@ -182,7 +165,7 @@ export class OrderController {
   }
 
   @Post(':id/reorder')
-  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.CREATED)
   async reorder(
     @Param('id') id: string,
     @CurrentUser('userId') userId: string,
@@ -196,7 +179,6 @@ export class OrderController {
         menuItemId: item.menuItemId,
         name: item.name,
         quantity: item.quantity,
-        price: item.price,
         specDesc: item.specDesc,
         imageUrl: item.imageUrl,
       })),
@@ -204,6 +186,9 @@ export class OrderController {
       address: order.address,
       tableNo: order.tableNo,
       remark: order.remark,
+      // 从原订单复制联系方式，避免外送订单因无联系方式无法配送
+      contactName: order.contactName,
+      contactPhone: order.contactPhone,
     };
     const newOrder = await this.orderService.reorder(userId, reorderDto);
     return success(newOrder, '下单成功');
@@ -213,7 +198,6 @@ export class OrderController {
    * 骑手抢单
    */
   @Post(':id/grab')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async grabOrder(
     @Param('id') id: string,
@@ -227,7 +211,6 @@ export class OrderController {
    * 骑手确认送达
    */
   @Post(':id/deliver')
-  @UseGuards(AuthGuard, RolesGuard)
   @Roles(UserRole.RIDER)
   async deliverOrder(
     @Param('id') id: string,

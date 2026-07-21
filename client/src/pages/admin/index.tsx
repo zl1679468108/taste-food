@@ -66,20 +66,8 @@ const AdminPage = () => {
     setLoadingStats(true);
     try {
       const response = await get<OrderStats>(`/orders/stats/${shopId}`);
-
-      // 从订单列表获取其他统计数据
-      const allOrdersRes = await get<PaginatedData<Order>>('/orders', {
-        shop_id: shopId,
-        page: 1,
-        pageSize: 100,
-      });
-
-      const allOrders = allOrdersRes.data.items;
-
-      setStats({
-        ...response.data,
-        totalOrders: allOrders.length,
-      });
+      // 直接使用 stats 接口返回的 totalOrders，避免用单页 items.length 覆盖导致超 100 时显示错误
+      setStats(response.data);
       setLoadingStats(false);
     } catch (error: any) {
       setLoadingStats(false);

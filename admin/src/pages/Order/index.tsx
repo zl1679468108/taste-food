@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Card, Tag, Spin } from 'antd';
+import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Card, Tag, Spin, Popconfirm } from 'antd';
 import { EyeOutlined, ReloadOutlined, OrderedListOutlined } from '@ant-design/icons';
-import { getOrders, getOrder, updateOrderStatus, Order } from '@/services/order';
+import { getOrders, getOrder, updateOrderStatus, cancelOrder, Order } from '@/services/order';
 import OrderStatusTag from '@/components/OrderStatusTag';
 import PriceDisplay from '@/components/PriceDisplay';
 import { formatPrice, formatTime, shortOrderId } from '@/utils/format';
@@ -65,21 +65,53 @@ const OrderPage: React.FC = () => {
       await updateOrderStatus(orderId, status);
       message.success('状态更新成功');
       loadOrders();
+      // 同步刷新详情 Modal 中的订单数据
+      if (selectedOrder?.id === orderId) {
+        try {
+          const fresh = await getOrder(orderId);
+          setSelectedOrder(fresh);
+        } catch {
+          // ignore
+        }
+      }
     } catch (error) {
       message.error('状态更新失败');
     }
   };
 
+  const handleCancelOrder = async (orderId: string) => {
+    try {
+      await cancelOrder(orderId);
+      message.success('订单已取消');
+      loadOrders();
+      if (selectedOrder?.id === orderId) {
+        try {
+          const fresh = await getOrder(orderId);
+          setSelectedOrder(fresh);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (error) {
+      message.error('取消订单失败');
+    }
+  };
+
   const getAvailableActions = (order: Order) => {
-    const actions: { label: string; status: string; type: 'primary' | 'danger' }[] = [];
+    const actions: { label: string; status: string; type: 'primary' | 'danger'; cancel?: boolean }[] = [];
 
     switch (order.status) {
+      case 'pending_payment':
+        actions.push({ label: '取消订单', status: 'cancelled', type: 'danger', cancel: true });
+        break;
       case 'paid':
         actions.push({ label: '接单', status: 'accepted', type: 'primary' });
         actions.push({ label: '拒单', status: 'rejected', type: 'danger' });
+        actions.push({ label: '取消订单', status: 'cancelled', type: 'danger', cancel: true });
         break;
       case 'accepted':
         actions.push({ label: '开始制作', status: 'preparing', type: 'primary' });
+        actions.push({ label: '取消订单', status: 'cancelled', type: 'danger', cancel: true });
         break;
       case 'preparing':
         if (order.deliveryType === 'delivery') {
@@ -157,14 +189,30 @@ const OrderPage: React.FC = () => {
             详情
           </Button>
           {getAvailableActions(record).map(action => (
-            <Button
-              key={action.status}
-              type="link"
-              danger={action.type === 'danger'}
-              onClick={() => handleStatusUpdate(record.id, action.status)}
-            >
-              {action.label}
-            </Button>
+            action.cancel ? (
+              <Popconfirm
+                key={action.status}
+                title="确认取消该订单？"
+                description="取消后不可恢复，已支付订单将进入退款流程"
+                okText="确认取消"
+                cancelText="再想想"
+                okButtonProps={{ danger: true }}
+                onConfirm={() => handleCancelOrder(record.id)}
+              >
+                <Button type="link" danger>
+                  {action.label}
+                </Button>
+              </Popconfirm>
+            ) : (
+              <Button
+                key={action.status}
+                type="link"
+                danger={action.type === 'danger'}
+                onClick={() => handleStatusUpdate(record.id, action.status)}
+              >
+                {action.label}
+              </Button>
+            )
           ))}
         </Space>
       ),
@@ -181,6 +229,7 @@ const OrderPage: React.FC = () => {
     { key: 'delivering', label: '配送中' },
     { key: 'completed', label: '已完成' },
     { key: 'cancelled', label: '已取消' },
+    { key: 'rejected', label: '已拒单' },
   ];
 
   return (
@@ -229,7 +278,37 @@ const OrderPage: React.FC = () => {
         title="订单详情"
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
-        footer={null}
+        footer={selectedOrder ? (
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setDetailVisible(false)}>关闭</Button>
+            {getAvailableActions(selectedOrder).map(action => (
+              action.cancel ? (
+                <Popconfirm
+                  key={action.status}
+                  title="确认取消该订单？"
+                  description="取消后不可恢复，已支付订单将进入退款流程"
+                  okText="确认取消"
+                  cancelText="再想想"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={async () => {
+                    await handleCancelOrder(selectedOrder.id);
+                  }}
+                >
+                  <Button danger>{action.label}</Button>
+                </Popconfirm>
+              ) : (
+                <Button
+                  key={action.status}
+                  type={action.type === 'primary' ? 'primary' : 'default'}
+                  danger={action.type === 'danger'}
+                  onClick={() => handleStatusUpdate(selectedOrder.id, action.status)}
+                >
+                  {action.label}
+                </Button>
+              )
+            ))}
+          </Space>
+        ) : null}
         width={600}
       >
         <Spin spinning={detailLoading}>

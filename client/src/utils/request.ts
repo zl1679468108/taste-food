@@ -2,6 +2,7 @@ import * as TaroImport from '@tarojs/taro';
 import { API_BASE_URL } from '../env';
 import { ApiResponse } from '../types/api';
 import { getCache, setCache, clearResourceCache } from './cache';
+import { useAuthStore } from '../stores/authStore';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
@@ -89,15 +90,23 @@ async function request<T>(
 
     if (responseData.code !== 0) {
       if (responseData.code === 401) {
-        Taro.removeStorageSync('token');
+        // 401 联动 authStore.logout：统一清理 token/refreshTimer/socket 状态
         const pages = Taro.getCurrentPages();
         const currentPage = pages[pages.length - 1];
         const isLoginPage = currentPage?.route === 'pages/auth/login';
         if (!isLoginPage) {
           Taro.showToast({ title: '登录已过期，请重新登录', icon: 'none' });
+          // 延迟调用 logout，避免在请求拦截中立即触发 reLaunch 导致页面栈混乱
           setTimeout(() => {
-            Taro.reLaunch({ url: '/pages/auth/login' });
+            useAuthStore.getState().logout();
           }, 1500);
+        } else {
+          // 已在登录页则只清状态，不跳转
+          try {
+            useAuthStore.getState().stopAutoRefresh();
+          } catch {
+            // ignore
+          }
         }
       }
 

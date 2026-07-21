@@ -6,28 +6,54 @@ import { getCurrentUser } from './services/auth';
 
 const loginPath = '/login';
 
+function clearBrokenAuth() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('user');
+}
+
 export async function getInitialState(): Promise<{
   currentUser?: API.CurrentUser;
   admin?: { canAdmin: boolean };
 }> {
   const token = localStorage.getItem('token');
+  const userStr = localStorage.getItem('user');
   const pathname = window.location.pathname;
 
-  // 未登录且不在登录页，跳转到登录页
-  if (!token && pathname !== '/login') {
-    history.push(loginPath);
+  // 未登录且不在登录页，跳转到登录页（用 location.href 避免 UMI 渲染阶段 history.push 的竞态）
+  if (!token) {
+    if (pathname !== '/login') {
+      window.location.href = loginPath;
+      return { currentUser: undefined, admin: { canAdmin: false } };
+    }
     return { currentUser: undefined, admin: { canAdmin: false } };
   }
 
+  // token 存在但 user 数据损坏：清掉无效登录态
+  let parsedUser: API.CurrentUser | null = null;
+  if (userStr) {
+    try {
+      parsedUser = JSON.parse(userStr) as API.CurrentUser;
+    } catch {
+      clearBrokenAuth();
+      if (pathname !== '/login') {
+        window.location.href = loginPath;
+        return { currentUser: undefined, admin: { canAdmin: false } };
+      }
+      return { currentUser: undefined, admin: { canAdmin: false } };
+    }
+  }
+
   // 已登录但在登录页，跳转到首页
-  if (token && pathname === '/login') {
+  if (pathname === '/login') {
     history.push('/dashboard');
   }
 
-  const currentUser = await getCurrentUser();
-  // 权限根据用户角色决定，未登录或角色非 admin 时禁止访问
+  // 优先用 localStorage 缓存的用户信息恢复 UI（避免 token 失效时空白）
+  // token 真正有效性由 request 拦截器在 401 时清除登录态
+  const currentUser = parsedUser || await getCurrentUser();
   const canAdmin = !!currentUser && currentUser.role === 'admin';
-  return { currentUser, admin: { canAdmin } };
+  return { currentUser: currentUser || undefined, admin: { canAdmin } };
 }
 
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
@@ -98,7 +124,6 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     layout: 'mix',
     splitMenus: false,
     navTheme: 'light',
-    primaryColor: '#1890ff',
     colorWeak: false,
     contentStyle: { margin: 0 },
   };

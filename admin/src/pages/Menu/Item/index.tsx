@@ -46,7 +46,11 @@ const MenuItemPage: React.FC = () => {
 
   const handleEdit = (record: MenuItem) => {
     setEditingItem(record);
-    form.setFieldsValue(record);
+    // 后端按分存储，表单按元展示
+    form.setFieldsValue({
+      ...record,
+      price: record.price != null ? record.price / 100 : undefined,
+    });
     setModalVisible(true);
   };
 
@@ -64,17 +68,23 @@ const MenuItemPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       setSubmitting(true);
+      // 表单按元输入，提交时转分（整数）
+      const payload: Partial<MenuItem> = {
+        ...values,
+        price: Math.round(values.price * 100),
+        shopId: DEFAULT_SHOP_ID,
+      };
       if (editingItem) {
-        await updateMenuItem(editingItem.id, values);
+        await updateMenuItem(editingItem.id, payload);
         message.success('更新成功');
       } else {
-        await createMenuItem({ ...values, shopId: DEFAULT_SHOP_ID });
+        await createMenuItem(payload);
         message.success('创建成功');
       }
       setModalVisible(false);
       loadData();
     } catch (error) {
-      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
+      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
       console.error('提交失败:', error);
       message.error('操作失败');
     } finally {
@@ -155,7 +165,7 @@ const MenuItemPage: React.FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="菜品名称" rules={[{ required: true, message: '请输入菜品名称' }]}>
+          <Form.Item name="name" label="菜品名称" rules={[{ required: true, message: '请输入菜品名称' }, { max: 30, message: '菜品名称不超过 30 字' }]}>
             <Input />
           </Form.Item>
           <Form.Item name="categoryId" label="所属分类" rules={[{ required: true, message: '请选择所属分类' }]}>
@@ -165,14 +175,14 @@ const MenuItemPage: React.FC = () => {
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="price" label="价格（分）" rules={[{ required: true, message: '请输入价格' }]}>
-            <InputNumber min={0} style={{ width: '100%' }} />
+          <Form.Item name="price" label="价格（元）" rules={[{ required: true, message: '请输入价格' }, { type: 'number', min: 0, message: '价格必须为非负数' }]}>
+            <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="例如 12.50" />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label="描述" rules={[{ max: 200, message: '描述不超过 200 字' }]}>
             <TextArea rows={3} />
           </Form.Item>
-          <Form.Item name="imageUrl" label="图片URL">
-            <Input />
+          <Form.Item name="imageUrl" label="图片URL" rules={[{ type: 'url', message: '请输入合法的 URL' }]}>
+            <Input placeholder="https://..." />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="active">
             <Select>

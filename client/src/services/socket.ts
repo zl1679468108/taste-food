@@ -2,6 +2,9 @@ import { io, Socket } from 'socket.io-client';
 import Taro from '@tarojs/taro';
 import { WS_URL } from '../env';
 
+// 微信小程序全局对象类型声明（避免 TS 报错，运行时由微信小程序环境注入）
+declare const wx: unknown;
+
 let socket: Socket | null = null;
 let isConnected = false;
 let lastUserId: string | null = null;
@@ -67,6 +70,8 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
   socket = io(url, {
     auth: { token },
     transports,
+    // 禁用 transport upgrade：避免小程序环境从 polling 升级到 websocket 失败
+    upgrade: false,
     reconnection: true,
     reconnectionAttempts: Infinity, // 无限重连，避免网络波动后永久断开
     reconnectionDelay: 2000,
@@ -79,6 +84,8 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
     isConnected = true;
     // 连接/重连后绑定事件 handler，确保回调可用
     bindOrderHandlers();
+    // 重放 joinUserRoom：连接建立后重新声明身份（服务端 handleConnection 已根据 JWT
+    // 自动加入对应房间，此处仅作为向后兼容确认）
     if (lastUserId && lastUserRole) {
       joinUserRoom(lastUserId, lastUserRole);
     }
@@ -92,14 +99,6 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
     const msg = error instanceof Error ? error.message : String(error);
     console.warn('[Socket] 连接错误:', msg);
     isConnected = false;
-  });
-
-  socket.on('reconnect', (attempt) => {
-    isConnected = true;
-    bindOrderHandlers();
-    if (lastUserId && lastUserRole) {
-      joinUserRoom(lastUserId, lastUserRole);
-    }
   });
 }
 
@@ -143,11 +142,22 @@ export function disconnectSocket(): void {
     isConnected = false;
     isOrderUpdatedHandlerBound = false;
     isOrderCreatedHandlerBound = false;
+    // 清除缓存的用户身份，避免下次连接复用旧身份（导致加入错误房间）
+    lastUserId = null;
+    lastUserRole = null;
   }
 }
 
 export function joinUserRoom(userId: string, role: string): void {
-  if (!socket || !isConnected) return;
+  if (!socket || !isConnected) {
+    // socket 未连接时缓存身份，connect 事件触发后会自动重放
+    lastUserId = userId;
+    lastUserRole = role;
+    return;
+  }
+  // 缓存身份用于重连后重放
+  lastUserId = userId;
+  lastUserRole = role;
   socket.emit('order:joined', { userId, role });
 }
 

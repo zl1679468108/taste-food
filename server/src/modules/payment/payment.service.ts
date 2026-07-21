@@ -72,35 +72,27 @@ export class PaymentService {
     };
 
     if (hasSupabase() && supabase) {
-      const { error } = await supabase
-        .from('tf_payments')
-        .insert({
-          id: transactionId,
-          order_id: orderId,
-          user_id: userId,
-          amount: order.total,
-          status: 'success',
-          paid_at: now,
-        });
-      if (error) {
-        // Table might not exist, fall back to memory
+      // 使用原子 RPC 一次完成：权限校验 + 状态校验 + 支付记录插入 + 订单状态更新 + daily_stats 联动
+      const { error: rpcErr } = await supabase.rpc('atomic_pay_order', {
+        p_order_id: orderId,
+        p_user_id: userId,
+        p_amount: order.total,
+        p_transaction_id: transactionId,
+      });
+      if (rpcErr) {
+        // RPC 失败可能是约束冲突（如重复支付）或订单状态变化，回退到内存仅用于开发环境
         assertMemoryFallbackAllowed('PaymentService');
-        this.logger.warn(`支付记录写入失败，回退到内存: ${error.message}`);
+        this.logger.warn(`原子支付 RPC 失败，回退到内存: ${rpcErr.message}`);
         memoryPayments.set(transactionId, payment);
+        // 仍需更新订单状态
+        await this.orderService.updateStatus(orderId, { status: OrderStatus.PAID });
       }
     } else {
       assertMemoryFallbackAllowed('PaymentService');
       memoryPayments.set(transactionId, payment);
+      // 内存模式：直接更新订单状态（内存模式无 daily_stats）
+      await this.orderService.updateStatus(orderId, { status: OrderStatus.PAID });
     }
-
-    // Update order status to paid（订单状态更新会触发 updateDailyStatsOnStatusChange 统计更新）
-    await this.orderService.updateStatus(orderId, {
-      status: OrderStatus.PAID,
-    });
-
-    // 注意：统计更新已由 orderService.updateStatus 内部的
-    // updateDailyStatsOnStatusChange 统一处理，此处不再重复调用
-    // atomic_update_daily_stats，避免订单数翻倍（见 T101）
 
     return payment;
   }

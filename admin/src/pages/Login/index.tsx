@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { Card, Button, Typography, Space, Divider, message } from 'antd';
 import { ShopOutlined, SafetyOutlined } from '@ant-design/icons';
-import { history } from '@umijs/max';
+import { history, useModel } from '@umijs/max';
 import { loginAsAdmin } from '@/services/auth';
 
 const { Title, Text, Paragraph } = Typography;
 
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const { setInitialState } = useModel('@@initialState');
 
   const handleLogin = async () => {
     setLoading(true);
@@ -19,6 +20,17 @@ const LoginPage: React.FC = () => {
           localStorage.setItem('refreshToken', result.refreshToken);
         }
         localStorage.setItem('user', JSON.stringify(result));
+        // 立即刷新全局 initialState，让 access 权限即时生效（避免依赖路由跳转后重新拉取）
+        await setInitialState((s) => ({
+          ...s,
+          currentUser: {
+            id: result.userId,
+            name: result.nickName || '商家管理员',
+            role: result.role,
+            shopId: result.shopId,
+          } as API.CurrentUser,
+          admin: { canAdmin: result.role === 'admin' },
+        }));
         message.success('登录成功');
         history.push('/dashboard');
       } else {

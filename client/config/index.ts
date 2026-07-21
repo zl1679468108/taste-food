@@ -6,6 +6,9 @@ const engineIOClientPath = path.dirname(
   require.resolve('engine.io-client/package.json')
 );
 
+// 共享包源码路径（monorepo workspace，源码直接引用，无需构建）
+const sharedPath = path.resolve(__dirname, '../packages/shared/src');
+
 export default defineConfig({
   projectName: 'taste-food',
   framework: 'react',
@@ -66,6 +69,9 @@ export default defineConfig({
         path.join(engineIOClientPath, 'build/cjs/globals.node.js'),
         path.join(engineIOClientPath, 'build/cjs/globals.js')
       );
+
+      // @taste-food/shared 源码直接引用
+      chain.resolve.alias.set('@taste-food/shared', sharedPath);
     },
   },
 
@@ -77,6 +83,9 @@ export default defineConfig({
         enable: true,
         config: {},
       },
+    },
+    webpackChain(chain) {
+      chain.resolve.alias.set('@taste-food/shared', sharedPath);
     },
   },
 });

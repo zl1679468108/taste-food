@@ -425,3 +425,184 @@ BEGIN
   DELETE FROM tf_categories WHERE id = p_category_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- 原子更新订单状态：在单个事务内完成状态校验 + 订单状态更新 + 每日统计联动
+-- 通过乐观锁（WHERE status = p_from_status）保证状态流转原子性，避免并发覆盖
+-- 返回 jsonb: { success, previousStatus, newStatus, shopId, orderDate }
+CREATE OR REPLACE FUNCTION atomic_update_order_status(
+  p_order_id uuid,
+  p_from_status text,
+  p_to_status text
+) RETURNS jsonb AS $$
+DECLARE
+  v_order tf_orders%ROWTYPE;
+  v_order_date date;
+  v_order_delta integer := 0;
+  v_revenue_delta integer := 0;
+  v_completed_delta integer := 0;
+  v_cancelled_delta integer := 0;
+BEGIN
+  -- Step 1: 读取当前订单（带锁）
+  SELECT * INTO v_order FROM tf_orders WHERE id = p_order_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '订单 % 不存在', p_order_id;
+  END IF;
+
+  -- Step 2: 校验状态匹配（乐观锁）
+  IF v_order.status <> p_from_status THEN
+    RAISE EXCEPTION '订单状态不匹配：期望 %，实际 %', p_from_status, v_order.status;
+  END IF;
+
+  -- Step 3: 更新订单状态
+  UPDATE tf_orders
+  SET status = p_to_status, updated_at = now()
+  WHERE id = p_order_id;
+
+  v_order_date := (v_order.created_at AT TIME ZONE 'Asia/Shanghai')::date;
+
+  -- Step 4: 计算 daily_stats delta
+  -- 新订单计数：PENDING_PAYMENT -> PAID
+  IF p_from_status = 'pending_payment' AND p_to_status = 'paid' THEN
+    v_order_delta := 1;
+  END IF;
+
+  -- 完成计数：DELIVERING/READY_FOR_PICKUP -> COMPLETED
+  IF p_from_status IN ('delivering', 'ready_for_pickup') AND p_to_status = 'completed' THEN
+    v_completed_delta := 1;
+    v_revenue_delta := v_order.total;
+  END IF;
+
+  -- 取消计数：PENDING_PAYMENT/PAID -> CANCELLED
+  IF p_to_status = 'cancelled' THEN
+    v_cancelled_delta := 1;
+    IF p_from_status = 'paid' THEN
+      -- 已支付取消：冲减收入
+      v_revenue_delta := -(v_order.total);
+    END IF;
+  END IF;
+
+  -- Step 5: 更新 daily_stats
+  IF v_order_delta <> 0 OR v_revenue_delta <> 0 OR v_completed_delta <> 0 OR v_cancelled_delta <> 0 THEN
+    INSERT INTO tf_daily_stats (shop_id, stat_date, total_orders, total_revenue, completed_orders, cancelled_orders)
+    VALUES (v_order.shop_id, v_order_date, v_order_delta, v_revenue_delta, v_completed_delta, v_cancelled_delta)
+    ON CONFLICT (shop_id, stat_date)
+    DO UPDATE SET
+      total_orders = tf_daily_stats.total_orders + EXCLUDED.total_orders,
+      total_revenue = tf_daily_stats.total_revenue + EXCLUDED.total_revenue,
+      completed_orders = tf_daily_stats.completed_orders + EXCLUDED.completed_orders,
+      cancelled_orders = tf_daily_stats.cancelled_orders + EXCLUDED.cancelled_orders,
+      updated_at = now();
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'previousStatus', p_from_status,
+    'newStatus', p_to_status,
+    'shopId', v_order.shop_id,
+    'orderDate', v_order_date,
+    'total', v_order.total
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 原子取消订单：在单个事务内完成状态校验 + 支付记录退款 + 订单状态更新 + 每日统计联动
+-- 返回 jsonb: { success, previousStatus, refunded: boolean }
+CREATE OR REPLACE FUNCTION atomic_cancel_order(
+  p_order_id uuid,
+  p_user_id text
+) RETURNS jsonb AS $$
+DECLARE
+  v_order tf_orders%ROWTYPE;
+  v_refunded boolean := false;
+BEGIN
+  -- Step 1: 读取订单（带锁）
+  SELECT * INTO v_order FROM tf_orders WHERE id = p_order_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '订单 % 不存在', p_order_id;
+  END IF;
+
+  -- Step 2: 权限校验（顾客只能取消自己的订单）
+  IF p_user_id IS NOT NULL AND v_order.user_id <> p_user_id THEN
+    RAISE EXCEPTION '不能取消他人的订单';
+  END IF;
+
+  -- Step 3: 状态校验
+  IF v_order.status NOT IN ('pending_payment', 'paid') THEN
+    RAISE EXCEPTION '订单状态为 %，不允许取消', v_order.status;
+  END IF;
+
+  -- Step 4: 已支付订单退款（更新支付记录状态为 refunded）
+  IF v_order.status = 'paid' THEN
+    UPDATE tf_payments
+    SET status = 'refunded', updated_at = now()
+    WHERE order_id = p_order_id AND status = 'success';
+    GET DIAGNOSTICS v_refunded = ROW_COUNT;
+    v_refunded := (v_refunded > 0);
+  END IF;
+
+  -- Step 5: 调用原子状态更新 RPC（内部完成订单状态 + daily_stats 更新）
+  PERFORM atomic_update_order_status(p_order_id, v_order.status, 'cancelled');
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'previousStatus', v_order.status,
+    'refunded', v_refunded
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 原子支付订单：在单个事务内完成支付记录插入 + 订单状态更新 + 每日统计联动
+-- 返回 jsonb: { success, transactionId, previousStatus }
+CREATE OR REPLACE FUNCTION atomic_pay_order(
+  p_order_id uuid,
+  p_user_id text,
+  p_amount integer,
+  p_transaction_id uuid,
+  p_method text DEFAULT 'wechat'
+) RETURNS jsonb AS $$
+DECLARE
+  v_order tf_orders%ROWTYPE;
+  v_previous_status text;
+BEGIN
+  -- Step 1: 读取订单（带锁）
+  SELECT * INTO v_order FROM tf_orders WHERE id = p_order_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION '订单 % 不存在', p_order_id;
+  END IF;
+
+  -- Step 2: 权限校验（顾客只能支付自己的订单）
+  IF p_user_id IS NOT NULL AND v_order.user_id <> p_user_id THEN
+    RAISE EXCEPTION '不能支付他人的订单';
+  END IF;
+
+  -- Step 3: 状态校验
+  IF v_order.status <> 'pending_payment' THEN
+    RAISE EXCEPTION '订单状态为 %，不允许支付', v_order.status;
+  END IF;
+
+  -- Step 4: 插入支付记录
+  INSERT INTO tf_payments (id, order_id, shop_id, user_id, transaction_id, amount, method, status, paid_at)
+  VALUES (
+    p_transaction_id,
+    p_order_id,
+    v_order.shop_id,
+    p_user_id,
+    p_transaction_id::text,
+    p_amount,
+    p_method,
+    'success',
+    now()
+  );
+
+  v_previous_status := v_order.status;
+
+  -- Step 5: 调用原子状态更新 RPC（内部完成订单状态 + daily_stats 更新）
+  PERFORM atomic_update_order_status(p_order_id, v_order.status, 'paid');
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'transactionId', p_transaction_id,
+    'previousStatus', v_previous_status
+  );
+END;
+$$ LANGUAGE plpgsql;

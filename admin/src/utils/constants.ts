@@ -1,12 +1,24 @@
 /**
  * 全局共享常量
  *
- * 仅在此处定义默认值，业务代码应优先使用从登录态 / JWT payload 中解析得到的 shopId，
- * 仅在登录态尚未注入或后端未返回 shopId 时回退到 DEFAULT_SHOP_ID。
+ * 实际定义已抽取到 @taste-food/shared/constants，
+ * 此文件作为 re-export 入口，保持现有 import 路径向后兼容。
  */
-
-/**
- * 默认店铺 ID（与 server 端、database-init.sql 中种子数据保持一致）
- * 用于：admin 登录态未携带 shopId 时的回退值
- */
-export const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
+export {
+  OrderStatus,
+  DeliveryType,
+  MenuItemStatus,
+  ShopStatus,
+  UserRole,
+  PromotionType,
+  PromotionStatus,
+  DEFAULT_SHOP_ID,
+  ORDER_STATUS_MAP,
+  DELIVERY_TYPE_MAP,
+  ORDER_STATUS_COLOR_MAP,
+  PROMOTION_TYPE_MAP,
+  USER_ROLE_MAP,
+  ORDER_STATUS_TRANSITIONS,
+  canTransitionTo,
+  isTerminalStatus,
+} from '@taste-food/shared/constants';

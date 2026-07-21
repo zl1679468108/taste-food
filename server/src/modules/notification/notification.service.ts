@@ -9,6 +9,33 @@ export interface SubscriptionMessagePayload {
   data: Record<string, { value: string }>;
 }
 
+// access_token 缓存（避免每次发通知都请求微信 API）
+interface CachedAccessToken {
+  token: string;
+  expiresAt: number; // 毫秒时间戳
+}
+let cachedAccessToken: CachedAccessToken | null = null;
+
+// fetch 超时配置（10s，避免微信 API 异常时拖垮主流程）
+const FETCH_TIMEOUT_MS = 10_000;
+
+// 订阅消息字段值长度限制（微信侧限制，超出会被截断或拒收）
+const MAX_FIELD_VALUE_LENGTH = 20;
+
+function truncate(value: string, max = MAX_FIELD_VALUE_LENGTH): string {
+  return value.length > max ? value.slice(0, max) : value;
+}
+
+async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
@@ -36,6 +63,37 @@ export class NotificationService {
   }
 
   /**
+   * 获取微信 access_token，带本地缓存（有效期内复用，避免重复请求）
+   */
+  private async getAccessToken(appId: string, appSecret: string): Promise<string | null> {
+    const now = Date.now();
+    // 提前 60s 过期，避免边界情况下使用即将过期的 token
+    if (cachedAccessToken && cachedAccessToken.expiresAt - 60_000 > now) {
+      return cachedAccessToken.token;
+    }
+
+    try {
+      const tokenRes = await fetchWithTimeout(
+        `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`,
+      );
+      const tokenData = await tokenRes.json() as { access_token?: string; expires_in?: number; errcode?: number; errmsg?: string };
+      if (!tokenData.access_token) {
+        this.logger.error('[Notification] 获取 access_token 失败:', tokenData);
+        return null;
+      }
+      const expiresInSec = tokenData.expires_in || 7200;
+      cachedAccessToken = {
+        token: tokenData.access_token,
+        expiresAt: now + expiresInSec * 1000,
+      };
+      return tokenData.access_token;
+    } catch (e) {
+      this.logger.error('[Notification] 获取 access_token 异常:', e instanceof Error ? e.message : e);
+      return null;
+    }
+  }
+
+  /**
    * 发送微信订阅消息
    * 注意：个人主体 AppID 无法调用微信订阅消息 API
    * 此服务为预留接口，企业主体认证后配置 WECHAT_APP_ID / WECHAT_APP_SECRET / WECHAT_TEMPLATE_IDS 即可启用
@@ -50,13 +108,9 @@ export class NotificationService {
     }
 
     try {
-      // 1. 获取 access_token
-      const tokenRes = await fetch(
-        `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${appId}&secret=${appSecret}`,
-      );
-      const tokenData = await tokenRes.json();
-      if (!tokenData.access_token) {
-        this.logger.error('[Notification] 获取 access_token 失败:', tokenData);
+      // 1. 获取 access_token（带缓存）
+      const accessToken = await this.getAccessToken(appId, appSecret);
+      if (!accessToken) {
         return false;
       }
 
@@ -68,8 +122,8 @@ export class NotificationService {
       }
 
       // 3. 发送订阅消息
-      const msgRes = await fetch(
-        `https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${tokenData.access_token}`,
+      const msgRes = await fetchWithTimeout(
+        `https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${accessToken}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -82,7 +136,7 @@ export class NotificationService {
         },
       );
 
-      const msgData = await msgRes.json();
+      const msgData = await msgRes.json() as { errcode?: number; errmsg?: string };
       if (msgData.errcode !== 0) {
         this.logger.error('[Notification] 发送订阅消息失败:', msgData);
         return false;
@@ -91,7 +145,7 @@ export class NotificationService {
       this.logger.log(`[Notification] 订阅消息发送成功: openId=${openId}, template=${payload.templateId}`);
       return true;
     } catch (error) {
-      this.logger.error('[Notification] 发送订阅消息异常:', error);
+      this.logger.error('[Notification] 发送订阅消息异常:', error instanceof Error ? error.message : error);
       return false;
     }
   }
@@ -128,10 +182,10 @@ export class NotificationService {
       templateId,
       page: `/pages/order-detail/index?id=${orderId}`,
       data: {
-        thing1: { value: statusText[previousStatus] || previousStatus },
-        thing2: { value: statusText[status] || status },
+        thing1: { value: truncate(statusText[previousStatus] || previousStatus) },
+        thing2: { value: truncate(statusText[status] || status) },
         time3: { value: new Date().toLocaleString('zh-CN') },
-        thing4: { value: orderId.substring(0, 12) + '...' },
+        thing4: { value: truncate(`订单${orderId.slice(-8)}`) },
       },
     });
   }
@@ -155,7 +209,7 @@ export class NotificationService {
       templateId,
       page: `/pages/admin/index`,
       data: {
-        thing1: { value: `订单 ${orderId.substring(0, 12)}...` },
+        thing1: { value: truncate(`订单${orderId.slice(-8)}`) },
         amount2: { value: `¥${(total / 100).toFixed(2)}` },
         time3: { value: new Date().toLocaleString('zh-CN') },
       },

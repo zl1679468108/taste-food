@@ -1,13 +1,17 @@
-import { Controller, Get, Post, Delete, Param, Body, UseGuards, Req } from '@nestjs/common';
-import { AuthGuard } from '../../common/guards/auth.guard';
+import { Controller, Get, Post, Delete, Param, Body } from '@nestjs/common';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { FavoritesService, FavoriteWithMenuItem } from './favorites.service';
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { ToggleFavoriteDto } from './dto/toggle-favorite.dto';
 
+/**
+ * 收藏控制器：统一的收藏资源入口。
+ * - GET /favorites         列表
+ * - GET /favorites/check/:menuItemId   检查是否已收藏
+ * - POST /favorites/toggle 切换收藏状态
+ * - DELETE /favorites/:menuItemId      取消收藏
+ */
 @Controller('favorites')
-@UseGuards(AuthGuard)
 export class FavoritesController {
   constructor(private readonly favoritesService: FavoritesService) {}
 

@@ -11,6 +11,8 @@ export interface LoginResult {
   userId: string;
   openid: string;
   role: string;
+  shopId?: string; // admin 必填
+  nickName?: string;
 }
 
 export const login = (params: LoginParams) =>

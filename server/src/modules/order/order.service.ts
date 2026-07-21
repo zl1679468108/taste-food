@@ -533,14 +533,17 @@ export class OrderService {
       if (dto.status) {
         this.validateStatusTransition(order.status, dto.status);
         const previousStatus = order.status;
-        const { error: updateErr } = await supabase
-          .from('tf_orders')
-          .update({ status: dto.status, updated_at: new Date().toISOString() })
-          .eq('id', id);
-        if (updateErr) throw new BadRequestException(`更新订单状态失败: ${updateErr.message}`);
 
-        // Update daily stats atomically on status transitions
-        await this.updateDailyStatsOnStatusChange(order.shopId, id, previousStatus, dto.status!);
+        // 使用原子 RPC 完成状态更新 + daily_stats 联动（一个事务）
+        // RPC 内部通过 SELECT FOR UPDATE + 状态匹配校验保证并发安全
+        const { error: rpcErr } = await supabase.rpc('atomic_update_order_status', {
+          p_order_id: id,
+          p_from_status: previousStatus,
+          p_to_status: dto.status,
+        });
+        if (rpcErr) {
+          throw new BadRequestException(`更新订单状态失败: ${rpcErr.message}`);
+        }
 
         try {
           this.orderGateway.emitOrderUpdated(order, previousStatus);
@@ -560,47 +563,32 @@ export class OrderService {
         order.updatedAt = new Date().toISOString();
         return order;
       }
-    } else {
-      assertMemoryFallbackAllowed('OrderService');
-      const order = memoryOrders.get(id);
-      if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
 
-      if (dto.status) {
-        this.validateStatusTransition(order.status, dto.status);
-        const previousStatus = order.status;
-        order.status = dto.status;
-        order.updatedAt = new Date().toISOString();
-        memoryOrders.set(id, order);
-
-        try {
-          this.orderGateway.emitOrderUpdated(order, previousStatus);
-        } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
-        return order;
-      }
-
-      if (dto.remark !== undefined) {
-        order.remark = dto.remark;
-      }
-      order.updatedAt = new Date().toISOString();
-      memoryOrders.set(id, order);
       return order;
     }
 
-    // Fallback: no status or remark provided, return current order
-    if (hasSupabase() && supabase) {
-      const { data: rowData } = await supabase
-        .from('tf_orders')
-        .select('*')
-        .eq('id', id)
-        .single();
-      if (!rowData) throw new NotFoundException(`订单 ${id} 不存在`);
-      const order = this.toRecord(rowData);
-      order.items = await this.fetchItems(id);
-      return order;
-    }
     assertMemoryFallbackAllowed('OrderService');
     const order = memoryOrders.get(id);
     if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
+
+    if (dto.status) {
+      this.validateStatusTransition(order.status, dto.status);
+      const previousStatus = order.status;
+      order.status = dto.status;
+      order.updatedAt = new Date().toISOString();
+      memoryOrders.set(id, order);
+
+      try {
+        this.orderGateway.emitOrderUpdated(order, previousStatus);
+      } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
+      return order;
+    }
+
+    if (dto.remark !== undefined) {
+      order.remark = dto.remark;
+    }
+    order.updatedAt = new Date().toISOString();
+    memoryOrders.set(id, order);
     return order;
   }
 
@@ -613,25 +601,34 @@ export class OrderService {
       throw new BadRequestException(`订单状态为 ${order.status}，不允许取消`);
     }
 
-    // 已支付订单取消时需触发退款：更新支付记录状态为 refunded
-    if (order.status === OrderStatus.PAID && hasSupabase() && supabase) {
-      try {
-        await supabase
-          .from('tf_payments')
-          .update({ status: 'refunded', updated_at: new Date().toISOString() })
-          .eq('order_id', id)
-          .eq('status', 'success');
-      } catch (e) {
-        this.logger.warn(
-          `订单 ${id} 取消时退款记录更新失败: ${e instanceof Error ? e.message : e}`,
-        );
-        // 退款记录更新失败不阻止取消，但需记录日志供后续对账
+    const previousStatus = order.status;
+
+    if (hasSupabase() && supabase) {
+      // 使用原子 RPC 一次完成：状态校验 + 权限校验 + 退款记录更新 + 订单状态更新 + daily_stats 联动
+      const { error: rpcErr } = await supabase.rpc('atomic_cancel_order', {
+        p_order_id: id,
+        p_user_id: userId || null,
+      });
+      if (rpcErr) {
+        throw new BadRequestException(`取消订单失败: ${rpcErr.message}`);
       }
+    } else {
+      assertMemoryFallbackAllowed('OrderService');
+      // 内存模式：已支付订单无支付记录需退款，直接状态更新
     }
 
-    return this.updateStatus(id, {
-      status: OrderStatus.CANCELLED,
-    });
+    // 内存模式回退到 updateStatus
+    if (!hasSupabase() || !supabase) {
+      return this.updateStatus(id, { status: OrderStatus.CANCELLED });
+    }
+
+    try {
+      this.orderGateway.emitOrderUpdated(order, previousStatus);
+    } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
+
+    order.status = OrderStatus.CANCELLED;
+    order.updatedAt = new Date().toISOString();
+    return order;
   }
 
   async reorder(userId: string, dto: { shopId: string; items: CreateOrderDto['items']; deliveryType: DeliveryType; address?: string; tableNo?: string; remark?: string; contactName?: string; contactPhone?: string }): Promise<OrderRecord> {
@@ -725,6 +722,10 @@ export class OrderService {
 
   /**
    * 原子更新每日统计数据（订单状态变化时调用）
+   *
+   * 注意：此方法已废弃，daily_stats 更新逻辑已迁移到 atomic_update_order_status RPC 内部，
+   * 由 RPC 在同一事务中完成订单状态 + daily_stats 联动，避免应用层多步操作导致不一致。
+   * 保留方法仅供内存回退模式使用（生产环境依赖 Supabase RPC）。
    */
   private async updateDailyStatsOnStatusChange(
     shopId: string,
@@ -735,25 +736,24 @@ export class OrderService {
     if (!hasSupabase() || !supabase) return;
 
     const orderDate = new Date().toISOString().split('T')[0];
-    
-    // Determine deltas based on status transitions
+
     let orderDelta = 0;
     let revenueDelta = 0;
     let completedDelta = 0;
     let cancelledDelta = 0;
 
-    // Count new order: PENDING_PAYMENT -> PAID
     if (fromStatus === OrderStatus.PENDING_PAYMENT && toStatus === OrderStatus.PAID) {
       orderDelta = 1;
-      // Revenue counted at payment time via payment service
     }
-    
-    // Count completed: DELIVERING -> COMPLETED or PREPARING -> COMPLETED
-    if ([OrderStatus.DELIVERING, OrderStatus.PREPARING].includes(fromStatus) && toStatus === OrderStatus.COMPLETED) {
+
+    // 仅 DELIVERING/READY_FOR_PICKUP -> COMPLETED 计入完成数（与 PRD 状态流转一致）
+    if (
+      [OrderStatus.DELIVERING, OrderStatus.READY_FOR_PICKUP].includes(fromStatus) &&
+      toStatus === OrderStatus.COMPLETED
+    ) {
       completedDelta = 1;
-      // Get order total for revenue
       try {
-        const { data: orderData } = await supabase!
+        const { data: orderData } = await supabase
           .from('tf_orders')
           .select('total')
           .eq('id', orderId)
@@ -764,13 +764,11 @@ export class OrderService {
       } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
     }
 
-    // Count cancelled: PENDING_PAYMENT -> CANCELLED or PAID -> CANCELLED
     if (toStatus === OrderStatus.CANCELLED) {
       cancelledDelta = 1;
       if (fromStatus === OrderStatus.PAID) {
-        // Revenue was already counted, need to reverse it
         try {
-          const { data: orderData } = await supabase!
+          const { data: orderData } = await supabase
             .from('tf_orders')
             .select('total')
             .eq('id', orderId)
@@ -973,16 +971,16 @@ export class OrderService {
   }
 
   private validateStatusTransition(current: OrderStatus, next: OrderStatus): void {
-    // 状态流转规范：
+    // 状态流转规范（与 PRD §5.2 一致）：
     // 外送: pending_payment → paid → accepted → preparing → delivering → completed
-    // 自取: pending_payment → paid → accepted → preparing → ready_for_pickup → completed
-    // 堂食: pending_payment → paid → accepted → preparing → completed
+    // 自取/堂食: pending_payment → paid → accepted → preparing → ready_for_pickup → completed
     // 分支: → cancelled（pending_payment/paid 时）、→ rejected（paid 时）
+    // 注意：preparing 不能直接 → completed，必须经过 delivering 或 ready_for_pickup 中转
     const validTransitions: Record<OrderStatus, OrderStatus[]> = {
       [OrderStatus.PENDING_PAYMENT]: [OrderStatus.PAID, OrderStatus.CANCELLED],
       [OrderStatus.PAID]: [OrderStatus.ACCEPTED, OrderStatus.REJECTED, OrderStatus.CANCELLED],
       [OrderStatus.ACCEPTED]: [OrderStatus.PREPARING],
-      [OrderStatus.PREPARING]: [OrderStatus.DELIVERING, OrderStatus.READY_FOR_PICKUP, OrderStatus.COMPLETED],
+      [OrderStatus.PREPARING]: [OrderStatus.DELIVERING, OrderStatus.READY_FOR_PICKUP],
       [OrderStatus.READY_FOR_PICKUP]: [OrderStatus.COMPLETED],
       [OrderStatus.DELIVERING]: [OrderStatus.COMPLETED],
       [OrderStatus.COMPLETED]: [],

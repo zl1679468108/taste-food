@@ -58,15 +58,15 @@ const ShopPage: React.FC = () => {
       const values = await form.validateFields();
       setEditSaving(true);
       await updateShop(DEFAULT_SHOP_ID, {
-        deliveryRange: values.deliveryRange * 1000, // 转换为米
-        deliveryFee: values.deliveryFee * 100, // 转换为分
-        minOrderAmount: values.minOrderAmount * 100, // 转换为分
+        deliveryRange: Math.round(values.deliveryRange * 1000), // 转换为米
+        deliveryFee: Math.round(values.deliveryFee * 100), // 转换为分
+        minOrderAmount: Math.round(values.minOrderAmount * 100), // 转换为分
       });
       message.success('保存成功');
       setEditModalVisible(false);
       loadShop();
     } catch (error) {
-      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
+      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
       message.error('保存失败');
     } finally {
       setEditSaving(false);

@@ -102,16 +102,17 @@ const OrderConfirmPage = () => {
     try {
       const orderData = {
         shopId: cartShopId || DEFAULT_SHOP_ID,
+        // 服务端校验菜品价格：仅传 menuItemId/quantity/specDesc，price 由后端从数据库查询
+        // 避免客户端篡改 price 导致低价下单
         items: cartItems.map((item) => ({
           menuItemId: item.menuItemId,
           name: item.name,
           quantity: item.quantity,
-          price: item.price,
           specDesc: item.specDesc || '',
           imageUrl: item.imageUrl || '',
         })),
         deliveryType,
-        deliveryFee: deliveryFee,
+        // deliveryFee 由服务端从店铺配置获取，不信任客户端传值
         address: deliveryType === DeliveryType.DELIVERY ? address : '',
         tableNo: (deliveryType === DeliveryType.DINE_IN || deliveryType === DeliveryType.PICKUP) ? tableNo : '',
         remark: cartRemarks || '',

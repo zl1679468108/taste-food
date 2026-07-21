@@ -1,12 +1,40 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Select, message, Space, Popconfirm, Typography, Tag, DatePicker, Card } from 'antd';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, ReloadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promotion } from '@/services/promotion';
 import { formatTime } from '@/utils/format';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
+
+// 各促销类型对应的 rule 字段定义
+type RuleFieldDef = {
+  name: 'threshold' | 'discount';
+  label: string;
+  required: boolean;
+  /** 字段描述（展示在表单下方） */
+  hint: string;
+  /** 单位（分 vs 元，统一用元展示，提交时转换为分） */
+  unit: 'yuan';
+};
+
+const RULE_FIELDS_BY_TYPE: Record<string, RuleFieldDef[]> = {
+  // 满减：满 threshold 元减 discount 元
+  full_discount: [
+    { name: 'threshold', label: '满（元）', required: true, hint: '订单金额达到此值才触发满减', unit: 'yuan' },
+    { name: 'discount', label: '减（元）', required: true, hint: '满足条件后减免的金额', unit: 'yuan' },
+  ],
+  // 首单立减：首单减 discount 元
+  first_order: [
+    { name: 'discount', label: '首单立减（元）', required: true, hint: '新用户首单减免的金额', unit: 'yuan' },
+  ],
+  // 折扣：减 discount 元（与首单类似，但所有订单可用）
+  discount: [
+    { name: 'discount', label: '立减（元）', required: true, hint: '每单减免的金额', unit: 'yuan' },
+  ],
+};
 
 const PromotionPage: React.FC = () => {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -15,6 +43,8 @@ const PromotionPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
   const [form] = Form.useForm();
+  // 监听 type 变化以动态渲染子表单字段
+  const selectedType = Form.useWatch('type', form);
 
   useEffect(() => {
     loadPromotions();
@@ -40,10 +70,22 @@ const PromotionPage: React.FC = () => {
 
   const handleEdit = (record: Promotion) => {
     setEditingPromotion(record);
+    // 将 rule 对象拆解到子字段
+    const ruleFields: Record<string, number> = {};
+    const rule = (record.rule || {}) as Record<string, number>;
+    // 数据库存的是分，表单展示用元
+    if (typeof rule.threshold === 'number') ruleFields.threshold = rule.threshold / 100;
+    if (typeof rule.discount === 'number') ruleFields.discount = rule.discount / 100;
+
+    // RangePicker 使用 dayjs，按本地时区解析 UTC 字符串，提交时再转回 UTC，确保编辑-提交-存储往返一致
     form.setFieldsValue({
-      ...record,
+      name: record.name,
+      type: record.type,
+      status: record.status,
+      description: record.description,
       dateRange: record.startDate && record.endDate ?
-        [new Date(record.startDate), new Date(record.endDate)] : null,
+        [dayjs(record.startDate), dayjs(record.endDate)] : null,
+      ...ruleFields,
     });
     setModalVisible(true);
   };
@@ -61,17 +103,25 @@ const PromotionPage: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const { dateRange, ...rest } = values;
+      const { dateRange, type, threshold, discount, ...rest } = values;
       setSubmitting(true);
+
+      // 根据 type 组装 rule 对象（金额转分）
+      const rule: Record<string, number> = {};
+      if (typeof threshold === 'number') rule.threshold = Math.round(threshold * 100);
+      if (typeof discount === 'number') rule.discount = Math.round(discount * 100);
 
       const data: Partial<Promotion> = {
         ...rest,
+        type,
         shopId: DEFAULT_SHOP_ID,
+        rule,
       };
 
+      // dateRange 是 dayjs 数组；提交时转 ISO UTC 字符串，与后端存储一致
       if (dateRange && dateRange[0] && dateRange[1]) {
-        data.startDate = dateRange[0].toISOString();
-        data.endDate = dateRange[1].toISOString();
+        data.startDate = (dateRange[0] as dayjs.Dayjs).toISOString();
+        data.endDate = (dateRange[1] as dayjs.Dayjs).toISOString();
       }
 
       if (editingPromotion) {
@@ -84,7 +134,7 @@ const PromotionPage: React.FC = () => {
       setModalVisible(false);
       loadPromotions();
     } catch (error) {
-      if ((error as any)?.errorFields) return; // 表单校验失败，不提示
+      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
       console.error('提交失败:', error);
       message.error('操作失败');
     } finally {
@@ -98,6 +148,21 @@ const PromotionPage: React.FC = () => {
     discount: { color: 'blue', text: '折扣' },
   };
 
+  // 渲染 rule 字段摘要（列表展示用）
+  const renderRuleSummary = (record: Promotion): string => {
+    const rule = (record.rule || {}) as Record<string, number>;
+    if (record.type === 'full_discount') {
+      const t = rule.threshold ? (rule.threshold / 100).toFixed(2) : '-';
+      const d = rule.discount ? (rule.discount / 100).toFixed(2) : '-';
+      return `满 ¥${t} 减 ¥${d}`;
+    }
+    if (record.type === 'first_order' || record.type === 'discount') {
+      const d = rule.discount ? (rule.discount / 100).toFixed(2) : '-';
+      return `减 ¥${d}`;
+    }
+    return '-';
+  };
+
   const columns = [
     { title: '活动名称', dataIndex: 'name', key: 'name' },
     {
@@ -108,6 +173,11 @@ const PromotionPage: React.FC = () => {
         const config = promotionTypeMap[type] || { color: 'default', text: type };
         return <Tag color={config.color}>{config.text}</Tag>;
       },
+    },
+    {
+      title: '优惠规则',
+      key: 'rule',
+      render: (_: Promotion, record: Promotion) => renderRuleSummary(record),
     },
     {
       title: '状态',
@@ -147,6 +217,9 @@ const PromotionPage: React.FC = () => {
     },
   ];
 
+  // 当前 type 对应的 rule 字段定义
+  const currentRuleFields = selectedType ? RULE_FIELDS_BY_TYPE[selectedType] || [] : [];
+
   return (
     <div >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
@@ -181,6 +254,7 @@ const PromotionPage: React.FC = () => {
         onCancel={() => setModalVisible(false)}
         confirmLoading={submitting}
         okText="保存"
+        width={520}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="活动名称" rules={[{ required: true, message: '请输入活动名称' }]}>
@@ -193,6 +267,25 @@ const PromotionPage: React.FC = () => {
               <Select.Option value="discount">折扣</Select.Option>
             </Select>
           </Form.Item>
+
+          {/* 根据 type 动态渲染 rule 子表单字段 */}
+          {currentRuleFields.map((field) => (
+            <Form.Item
+              key={field.name}
+              name={field.name}
+              label={field.label}
+              rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : []}
+              extra={<Text type="secondary" style={{ fontSize: 12 }}>{field.hint}</Text>}
+            >
+              <InputNumber
+                min={0}
+                precision={2}
+                style={{ width: '100%' }}
+                placeholder={`请输入${field.label}`}
+              />
+            </Form.Item>
+          ))}
+
           <Form.Item name="status" label="状态" initialValue="active">
             <Select>
               <Select.Option value="active">启用</Select.Option>

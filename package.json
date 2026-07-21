@@ -2,11 +2,23 @@
   "name": "taste-food",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "packages/*",
+    "server",
+    "client",
+    "admin"
+  ],
   "scripts": {
     "test": "npx playwright test",
     "test:admin": "npx playwright test tests/admin.spec.ts",
     "test:headed": "npx playwright test --headed",
-    "test:report": "npx playwright show-report"
+    "test:report": "npx playwright show-report",
+    "build:shared": "echo '@taste-food/shared 使用源码直接引用，无需构建'",
+    "typecheck:shared": "cd packages/shared && npx tsc --noEmit",
+    "typecheck:server": "cd server && npx tsc --noEmit",
+    "typecheck:admin": "cd admin && npx tsc --noEmit",
+    "typecheck:client": "cd client && npx tsc --noEmit",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:admin && npm run typecheck:client"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

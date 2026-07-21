@@ -8,8 +8,10 @@ export interface CartItem {
   price: number;
   /** 数量 */
   quantity: number;
-  /** 所选规格描述 */
+  /** 所选规格描述（用于展示） */
   specDesc: string;
+  /** 所选规格选项 ID 列表（已排序，用于生成稳定的唯一 key） */
+  specOptionIds?: string[];
   /** 菜品图片 */
   imageUrl: string;
   /** 唯一标识（用于区分同菜品不同规格） */

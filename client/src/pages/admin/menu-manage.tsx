@@ -110,6 +110,10 @@ const MenuManagePage = () => {
   const handleUploadImage = async () => {
     try {
       const res = await Taro.chooseMedia({ count: 1, mediaType: ['image'] });
+      // 用户取消选择时 tempFiles 为空数组，不应视为错误
+      if (!res.tempFiles || res.tempFiles.length === 0) {
+        return;
+      }
       const tempFilePath = res.tempFiles[0].tempFilePath;
 
       Taro.showLoading({ title: '上传中...' });
@@ -137,6 +141,11 @@ const MenuManagePage = () => {
       }
     } catch (e: any) {
       Taro.hideLoading();
+      // chooseMedia:fail cancel 是用户主动取消，不弹错误提示
+      const errMsg: string = e?.errMsg || e?.message || '';
+      if (errMsg.includes('cancel')) {
+        return;
+      }
       Taro.showToast({ title: '上传失败: ' + (e.message || ''), icon: 'none' });
     }
   };
