@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm } from 'antd';
 import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getCategories, createCategory, updateCategory, deleteCategory, getMenuItems, Category } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
+import SearchFilterBar from '@/components/SearchFilterBar';
+import { useCrudModal } from '@/hooks/useCrudModal';
+import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 // 与小程序 client/src/utils/iconMap.ts 中的 CATEGORY_ICONS 对齐
@@ -16,40 +19,37 @@ const CATEGORY_ICON_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const CategoryPage: React.FC = () => {
+  const [searchText, setSearchText] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [form] = Form.useForm();
 
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  const loadCategories = async () => {
+  const loadCategories = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getCategories(DEFAULT_SHOP_ID);
       setCategories(res || []);
     } catch (error) {
       console.error('加载分类失败:', error);
+      message.error('加载分类失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAdd = () => {
-    setEditingCategory(null);
-    form.resetFields();
-    setModalVisible(true);
-  };
+  const {
+    form,
+    visible: modalVisible,
+    submitting,
+    editing: editingCategory,
+    openCreate: handleAdd,
+    openEdit: handleEdit,
+    close: closeModal,
+    submit: submitModal,
+  } = useCrudModal<Category>({ onSuccess: loadCategories });
 
-  const handleEdit = (record: Category) => {
-    setEditingCategory(record);
-    form.setFieldsValue(record);
-    setModalVisible(true);
-  };
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -67,27 +67,11 @@ const CategoryPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      setSubmitting(true);
-      if (editingCategory) {
-        await updateCategory(editingCategory.id, values);
-        message.success('更新成功');
-      } else {
-        await createCategory({ ...values, shopId: DEFAULT_SHOP_ID });
-        message.success('创建成功');
-      }
-      setModalVisible(false);
-      loadCategories();
-    } catch (error) {
-      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
-      console.error('提交失败:', error);
-      message.error('操作失败');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const handleSubmit = () =>
+    submitModal({
+      create: (values) => createCategory({ ...values, shopId: DEFAULT_SHOP_ID } as any),
+      update: (id, values) => updateCategory(id, values as any),
+    });
 
   const columns = [
     { title: '分类名称', dataIndex: 'name', key: 'name' },
@@ -126,6 +110,11 @@ const CategoryPage: React.FC = () => {
     },
   ];
 
+  const filteredCategories = useMemo(() => {
+    if (!searchText.trim()) return categories;
+    return categories.filter((c) => c.name?.includes(searchText.trim()));
+  }, [categories, searchText]);
+
   return (
     <div >
       <PageHeaderActions
@@ -136,15 +125,22 @@ const CategoryPage: React.FC = () => {
         onRefresh={loadCategories}
       />
 
+      <SearchFilterBar
+        searchPlaceholder="搜索分类名称"
+        onSearch={setSearchText}
+        onSearchClear={() => setSearchText('')}
+      />
       <TableCard>
-        <Table columns={columns} dataSource={categories} rowKey="id" loading={loading} />
+        <Table columns={columns} dataSource={filteredCategories} rowKey="id" loading={loading} 
+        pagination={DEFAULT_TABLE_PAGINATION}
+      />
       </TableCard>
 
       <Modal
         title={editingCategory ? '编辑分类' : '新增分类'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={closeModal}
         confirmLoading={submitting}
         okText="保存"
       >

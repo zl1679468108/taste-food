@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Card, Tag, Spin, Popconfirm } from 'antd';
-import { EyeOutlined, ReloadOutlined, OrderedListOutlined } from '@ant-design/icons';
+import {EyeOutlined, ReloadOutlined, OrderedListOutlined, ShoppingOutlined} from '@ant-design/icons';
 import { getOrders, getOrder, updateOrderStatus, cancelOrder, Order } from '@/services/order';
+import DeliveryTypeTag from '@/components/DeliveryTypeTag';
 import OrderStatusTag from '@/components/OrderStatusTag';
 import PriceDisplay from '@/components/PriceDisplay';
 import { formatPrice, formatTime, shortOrderId } from '@/utils/format';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import TableCard from '@/components/TableCard';
 
 const { Title, Text } = Typography;
 
@@ -39,6 +42,7 @@ const OrderPage: React.FC = () => {
       setTotal(res?.total || 0);
     } catch (error) {
       console.error('加载订单失败:', error);
+      message.error('加载订单失败');
     } finally {
       setLoading(false);
     }
@@ -55,6 +59,7 @@ const OrderPage: React.FC = () => {
     } catch (error) {
       // 列表数据已展示，详情加载失败不阻塞
       console.error('加载订单详情失败:', error);
+      message.error('加载订单详情失败');
     } finally {
       setDetailLoading(false);
     }
@@ -154,15 +159,7 @@ const OrderPage: React.FC = () => {
       title: '配送方式',
       dataIndex: 'deliveryType',
       key: 'deliveryType',
-      render: (type: string) => {
-        const map: Record<string, { color: string; text: string }> = {
-          delivery: { color: 'blue', text: '外卖' },
-          pickup: { color: 'green', text: '自取' },
-          dine_in: { color: 'orange', text: '堂食' },
-        };
-        const config = map[type] || { color: 'default', text: type };
-        return <Tag color={config.color}>{config.text}</Tag>;
-      },
+      render: (type: string) => <DeliveryTypeTag type={type} />,
     },
     {
       title: '金额',
@@ -233,24 +230,14 @@ const OrderPage: React.FC = () => {
   ];
 
   return (
-    <div >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <OrderedListOutlined style={{ marginRight: 8 }} />
-          订单管理
-        </Title>
-        <Button icon={<ReloadOutlined />} onClick={loadOrders}>
-          刷新
-        </Button>
-      </div>
+    <div>
+      <PageHeaderActions
+      icon={<ShoppingOutlined style={{ marginRight: 8 }} />}
+      title="订单管理"
+      onRefresh={loadOrders}
+    />
 
-      <Card
-        bordered={false}
-        style={{
-          borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        }}
-      >
+      <TableCard>
         <Tabs
           activeKey={activeTab}
           onChange={(key) => { setActiveTab(key); setPage(1); }}
@@ -268,11 +255,12 @@ const OrderPage: React.FC = () => {
             total,
             pageSize: 10,
             onChange: setPage,
-            showSizeChanger: false,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50'],
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
-      </Card>
+      </TableCard>
 
       <Modal
         title="订单详情"
@@ -323,11 +311,7 @@ const OrderPage: React.FC = () => {
               <OrderStatusTag status={selectedOrder.status} />
             </Descriptions.Item>
             <Descriptions.Item label="配送方式">
-              <Tag color={selectedOrder.deliveryType === 'delivery' ? 'blue' :
-                selectedOrder.deliveryType === 'pickup' ? 'green' : 'orange'}>
-                {selectedOrder.deliveryType === 'delivery' ? '外卖' :
-                  selectedOrder.deliveryType === 'pickup' ? '自取' : '堂食'}
-              </Tag>
+              <DeliveryTypeTag type={selectedOrder.deliveryType} />
             </Descriptions.Item>
             <Descriptions.Item label="金额">
               <Text strong style={{ color: '#f5222d', fontSize: 16 }}>

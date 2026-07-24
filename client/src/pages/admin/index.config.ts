@@ -1,6 +1,6 @@
 export default definePageConfig({
   navigationBarTitleText: '店铺管理',
-  navigationBarBackgroundColor: '#e74c3c',
+  navigationBarBackgroundColor: '#FF6B35',
   navigationBarTextStyle: 'white',
   backgroundColor: '#f5f5f5',
   disableScroll: false,

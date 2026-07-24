@@ -9,7 +9,12 @@ import { getCategoryIcon } from '../../utils/iconMap';
 import { Shop } from '../../types/shop';
 import { Category, MenuItem, SpecGroup, SpecOption } from '../../types/menu';
 import { DEFAULT_SHOP_ID } from '../../env';
+import SkeletonLoader from '../../components/SkeletonLoader';
+import BottomSheet from '../../components/BottomSheet';
+import EmptyState from '../../components/EmptyState';
+import { usePullRefresh } from '../../hooks/usePullRefresh';
 import './index.scss';
+
 import FlyInAnimation from '../../components/FlyInAnimation';
 import MenuItemCard from '../../components/MenuItemCard';
 import CartItemRow from '../../components/CartItemRow';
@@ -50,6 +55,7 @@ export default function MenuPage() {
   const [loadingSpecs, setLoadingSpecs] = useState(false);
   const [scrollIntoView, setScrollIntoView] = useState('');
   const [specExtraPrice, setSpecExtraPrice] = useState(0);
+  const [addingToCart, setAddingToCart] = useState(false);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchRequestRef = useRef(0); // 搜索请求序号，防止慢响应覆盖新结果
 
@@ -70,6 +76,8 @@ export default function MenuPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  usePullRefresh(loadData);
 
   async function loadData() {
     setLoading(true);
@@ -232,8 +240,10 @@ export default function MenuPage() {
   }
 
   async function addToCart() {
+    if (addingToCart) return;
     const item = selectedItemRef.current;
     if (!item) return;
+    setAddingToCart(true);
 
     const qty = quantityRef.current;
     const specs = selectedSpecsRef.current;
@@ -246,6 +256,7 @@ export default function MenuPage() {
       .map((sg) => sg.name);
     if (missingSpecs.length > 0) {
       Taro.showToast({ title: `请选择${missingSpecs.join('、')}`, icon: 'none' });
+      setAddingToCart(false);
       return;
     }
 
@@ -287,6 +298,7 @@ export default function MenuPage() {
 
     Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 1000 });
     setSpecPopupVisible(false);
+    setAddingToCart(false);
   }
 
   function handleSearch(keyword: string) {
@@ -431,7 +443,9 @@ export default function MenuPage() {
       )}
 
       {loading ? (
-        <View className='menu-page__empty'>加载中...</View>
+        <SkeletonLoader mode='list' count={5} />
+      ) : categories.length === 0 ? (
+        <EmptyState icon='🍽️' title='暂无菜品' description='商家正在准备菜单，请稍后再来' />
       ) : (
         <View className='menu-body'>
           {/* 左侧分类侧边栏 */}
@@ -484,60 +498,42 @@ export default function MenuPage() {
         </View>
       )}
 
-      {/* 购物车弹出层 */}
-      {cartPopupVisible && (
-        <View
-          className='cart-popup-mask'
-          onClick={() => setCartPopupVisible(false)}
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.5)', zIndex: 1100,
-          }}
-        >
-          <View className='cart-popup' onClick={e => e.stopPropagation()}>
-            <View className='cart-popup__header'>
-              <Text className='cart-popup__title'>购物车</Text>
-              <View className='cart-popup__clear' onClick={() => cartStore.clearCart()}>
-                清空
-              </View>
-            </View>
-            <View className='cart-popup__body'>
-              {cartItems.length === 0 ? (
-                <View className='cart-popup__empty'><Text>购物车空空如也</Text></View>
-              ) : (
-                cartItems.map((item) => (
-                  <CartItemRow
-                    key={item.key}
-                    item={item}
-                    onUpdateQuantity={(key, delta) => cartStore.updateQuantity(key, delta)}
-                  />
-                ))
-              )}
+      {/* 购物车弹出层（公共 BottomSheet） */}
+      <BottomSheet
+        visible={cartPopupVisible}
+        onClose={() => setCartPopupVisible(false)}
+        title='购物车'
+      >
+        <View className='cart-popup cart-popup--embedded'>
+          <View className='cart-popup__header'>
+            <View className='cart-popup__clear' onClick={() => cartStore.clearCart()}>
+              清空
             </View>
           </View>
+          <View className='cart-popup__body'>
+            {cartItems.length === 0 ? (
+              <EmptyState icon='🛒' title='购物车空空如也' description='去挑选几道好菜吧' />
+            ) : (
+              cartItems.map((item) => (
+                <CartItemRow
+                  key={item.key}
+                  item={item}
+                  onUpdateQuantity={(key, delta) => cartStore.updateQuantity(key, delta)}
+                />
+              ))
+            )}
+          </View>
         </View>
-      )}
+      </BottomSheet>
 
-      {/* 规格选择弹窗 */}
-      {specPopupVisible && selectedItem && (
-        <View
-          style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(0,0,0,0.5)', zIndex: 1100,
-          }}
-          onClick={() => setSpecPopupVisible(false)}
-        >
-          <View
-            style={{
-              position: 'absolute', bottom: 0, left: 0, right: 0,
-              background: '#fff', borderRadius: '16px 16px 0 0',
-              maxHeight: '70vh', overflowY: 'auto',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
+      {/* 规格选择弹窗（公共 BottomSheet） */}
+      <BottomSheet
+        visible={!!(specPopupVisible && selectedItem)}
+        onClose={() => setSpecPopupVisible(false)}
+        title={selectedItem?.name || '选择规格'}
+      >
+        {selectedItem && (
             <View className='spec-popup'>
-              <View className='spec-popup__handle'><View className='spec-popup__handle-bar' /></View>
-
               <View className='spec-popup__header'>
                 <View className={`spec-popup__image ${getItemBgColor(activeCategoryIndex)}`}>
                   <Text style={{ fontSize: 36 }}>{getItemEmoji(selectedItem.name)}</Text>
@@ -614,14 +610,16 @@ export default function MenuPage() {
                     {formatPriceWithSymbol((selectedItem.price + specExtraPrice) * quantity)}
                   </Text>
                 </View>
-                <View className='spec-popup__add-cart-btn' onClick={addToCart}>
-                  加入购物车
+                <View
+                  className={`spec-popup__add-cart-btn${addingToCart ? ' disabled' : ''}`}
+                  onClick={addToCart}
+                >
+                  {addingToCart ? '加入中...' : '加入购物车'}
                 </View>
               </View>
             </View>
-          </View>
-        </View>
-      )}
+        )}
+      </BottomSheet>
 
       {/* 飞入动画 */}
       <FlyInAnimation visible={flyInVisible} />

@@ -1,3 +1,5 @@
+import './global.css';
+
 export const REQUEST_ERROR_CODE = {
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,

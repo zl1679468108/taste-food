@@ -37,7 +37,7 @@ describe('Order API 服务', () => {
 
       await getOrderStats('shop001');
 
-      expect(request.get).toHaveBeenCalledWith('/api/orders/stats/shop001');
+      expect(request.get).toHaveBeenCalledWith('/api/orders/stats/today');
     });
   });
 

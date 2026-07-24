@@ -26,7 +26,7 @@
 .category-header__add-btn {
   padding: 6px 16px;
   border-radius: 16px;
-  background: linear-gradient(135deg, #e74c3c, #f39c12);
+  background: linear-gradient(135deg, #FF6B35, #FF8F65);
   color: #fff;
   font-size: 13px;
   font-weight: 500;
@@ -65,9 +65,9 @@
   }
 
   &--active {
-    color: #e74c3c;
+    color: #FF6B35;
     font-weight: 500;
-    border-bottom-color: #e74c3c;
+    border-bottom-color: #FF6B35;
   }
 
   &__edit {
@@ -174,7 +174,7 @@
   &__price {
     font-size: 15px;
     font-weight: 600;
-    color: #e74c3c;
+    color: #FF6B35;
   }
 
   &__actions {
@@ -300,7 +300,7 @@
   }
 
   &--submit {
-    background: linear-gradient(135deg, #e74c3c, #f39c12);
+    background: linear-gradient(135deg, #FF6B35, #FF8F65);
     color: #fff;
   }
 }
@@ -381,7 +381,7 @@
   }
 
   &--selected {
-    border-color: #e74c3c;
+    border-color: #FF6B35;
     background: #fff5f5;
   }
 }

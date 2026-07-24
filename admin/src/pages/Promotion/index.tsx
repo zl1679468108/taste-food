@@ -1,10 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promotion } from '@/services/promotion';
+import SearchFilterBar from '@/components/SearchFilterBar';
+import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import { formatTime } from '@/utils/format';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import { useCrudModal } from '@/hooks/useCrudModal';
+import TableCard from '@/components/TableCard';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -37,58 +42,58 @@ const RULE_FIELDS_BY_TYPE: Record<string, RuleFieldDef[]> = {
 };
 
 const PromotionPage: React.FC = () => {
+  const [searchText, setSearchText] = useState('');
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
-  const [form] = Form.useForm();
-  // 监听 type 变化以动态渲染子表单字段
-  const selectedType = Form.useWatch('type', form);
 
-  useEffect(() => {
-    loadPromotions();
-  }, []);
-
-  const loadPromotions = async () => {
+  const loadPromotions = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getPromotions(DEFAULT_SHOP_ID);
       setPromotions(res || []);
     } catch (error) {
       console.error('加载促销失败:', error);
+      message.error('加载促销失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAdd = () => {
-    setEditingPromotion(null);
-    form.resetFields();
-    setModalVisible(true);
-  };
+  const {
+    form,
+    visible: modalVisible,
+    submitting,
+    editing: editingPromotion,
+    openCreate: handleAdd,
+    openEdit: handleEdit,
+    close: closeModal,
+    submit: submitModal,
+  } = useCrudModal<Promotion>({
+    onSuccess: loadPromotions,
+    mapRecordToForm: (record) => {
+      const ruleFields: Record<string, number> = {};
+      const rule = (record.rule || {}) as Record<string, number>;
+      if (typeof rule.threshold === 'number') ruleFields.threshold = rule.threshold / 100;
+      if (typeof rule.discount === 'number') ruleFields.discount = rule.discount / 100;
+      return {
+        name: record.name,
+        type: record.type,
+        status: record.status,
+        description: record.description,
+        dateRange: record.startDate && record.endDate
+          ? [dayjs(record.startDate), dayjs(record.endDate)]
+          : null,
+        ...ruleFields,
+      };
+    },
+  });
 
-  const handleEdit = (record: Promotion) => {
-    setEditingPromotion(record);
-    // 将 rule 对象拆解到子字段
-    const ruleFields: Record<string, number> = {};
-    const rule = (record.rule || {}) as Record<string, number>;
-    // 数据库存的是分，表单展示用元
-    if (typeof rule.threshold === 'number') ruleFields.threshold = rule.threshold / 100;
-    if (typeof rule.discount === 'number') ruleFields.discount = rule.discount / 100;
+  // 监听 type 变化以动态渲染子表单字段
+  const selectedType = Form.useWatch('type', form);
 
-    // RangePicker 使用 dayjs，按本地时区解析 UTC 字符串，提交时再转回 UTC，确保编辑-提交-存储往返一致
-    form.setFieldsValue({
-      name: record.name,
-      type: record.type,
-      status: record.status,
-      description: record.description,
-      dateRange: record.startDate && record.endDate ?
-        [dayjs(record.startDate), dayjs(record.endDate)] : null,
-      ...ruleFields,
-    });
-    setModalVisible(true);
-  };
+  useEffect(() => {
+    loadPromotions();
+  }, [loadPromotions]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -100,47 +105,28 @@ const PromotionPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      const { dateRange, type, threshold, discount, ...rest } = values;
-      setSubmitting(true);
-
-      // 根据 type 组装 rule 对象（金额转分）
-      const rule: Record<string, number> = {};
-      if (typeof threshold === 'number') rule.threshold = Math.round(threshold * 100);
-      if (typeof discount === 'number') rule.discount = Math.round(discount * 100);
-
-      const data: Partial<Promotion> = {
-        ...rest,
-        type,
-        shopId: DEFAULT_SHOP_ID,
-        rule,
-      };
-
-      // dateRange 是 dayjs 数组；提交时转 ISO UTC 字符串，与后端存储一致
-      if (dateRange && dateRange[0] && dateRange[1]) {
-        data.startDate = (dateRange[0] as dayjs.Dayjs).toISOString();
-        data.endDate = (dateRange[1] as dayjs.Dayjs).toISOString();
-      }
-
-      if (editingPromotion) {
-        await updatePromotion(editingPromotion.id, data);
-        message.success('更新成功');
-      } else {
-        await createPromotion(data);
-        message.success('创建成功');
-      }
-      setModalVisible(false);
-      loadPromotions();
-    } catch (error) {
-      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
-      console.error('提交失败:', error);
-      message.error('操作失败');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const handleSubmit = () =>
+    submitModal({
+      transformValues: (values) => {
+        const { dateRange, type, threshold, discount, ...rest } = values as any;
+        const rule: Record<string, number> = {};
+        if (typeof threshold === 'number') rule.threshold = Math.round(threshold * 100);
+        if (typeof discount === 'number') rule.discount = Math.round(discount * 100);
+        const data: Record<string, unknown> = {
+          ...rest,
+          type,
+          shopId: DEFAULT_SHOP_ID,
+          rule,
+        };
+        if (dateRange && dateRange[0] && dateRange[1]) {
+          data.startDate = (dateRange[0] as dayjs.Dayjs).toISOString();
+          data.endDate = (dateRange[1] as dayjs.Dayjs).toISOString();
+        }
+        return data;
+      },
+      create: (values) => createPromotion(values as any),
+      update: (id, values) => updatePromotion(id, values as any),
+    });
 
   const promotionTypeMap: Record<string, { color: string; text: string }> = {
     full_discount: { color: 'orange', text: '满减' },
@@ -220,38 +206,37 @@ const PromotionPage: React.FC = () => {
   // 当前 type 对应的 rule 字段定义
   const currentRuleFields = selectedType ? RULE_FIELDS_BY_TYPE[selectedType] || [] : [];
 
-  return (
-    <div >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <GiftOutlined style={{ marginRight: 8 }} />
-          促销管理
-        </Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadPromotions}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            新增促销
-          </Button>
-        </Space>
-      </div>
+  const filteredPromotions = useMemo(() => {
+    if (!searchText.trim()) return promotions;
+    return promotions.filter((p) => p.name?.includes(searchText.trim()));
+  }, [promotions, searchText]);
 
-      <Card
-        bordered={false}
-        style={{
-          borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        }}
-      >
-        <Table columns={columns} dataSource={promotions} rowKey="id" loading={loading} />
-      </Card>
+  return (
+    <div>
+      <PageHeaderActions
+      icon={<GiftOutlined style={{ marginRight: 8 }} />}
+      title="促销管理"
+      addText="新增促销"
+      onAdd={handleAdd}
+      onRefresh={loadPromotions}
+    />
+
+      <TableCard>
+              <SearchFilterBar
+        searchPlaceholder="搜索促销名称"
+        onSearch={setSearchText}
+        onSearchClear={() => setSearchText('')}
+      />
+      <Table columns={columns} dataSource={filteredPromotions} rowKey="id" loading={loading} 
+        pagination={DEFAULT_TABLE_PAGINATION}
+      />
+      </TableCard>
 
       <Modal
         title={editingPromotion ? '编辑促销' : '新增促销'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={closeModal}
         confirmLoading={submitting}
         okText="保存"
         width={520}

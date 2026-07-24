@@ -246,11 +246,13 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 100rpx;
+  min-height: 100rpx;
   background: #333;
   display: flex;
   align-items: center;
   padding: 0 32rpx 0 120rpx;
+  padding-bottom: constant(safe-area-inset-bottom);
+  padding-bottom: env(safe-area-inset-bottom);
   z-index: 1000;
   border-radius: 50rpx 50rpx 0 0;
   margin: 0 24rpx 24rpx;
@@ -284,14 +286,14 @@
     height: 18px;
     border-radius: 9px;
     background: #fff;
-    color: #e74c3c;
+    color: #FF6B35;
     font-size: 11px;
     font-weight: 600;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0 4px;
-    border: 1px solid #e74c3c;
+    border: 1px solid #FF6B35;
   }
 
   &__info {
@@ -686,7 +688,7 @@
 
   &__price {
     font-size: 24rpx;
-    color: #e74c3c;
+    color: #FF6B35;
     margin-left: 8rpx;
   }
 }

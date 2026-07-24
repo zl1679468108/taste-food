@@ -85,7 +85,7 @@ const UserManagePage = () => {
         <Text className='subtitle'>共 {total || users.length} 位成员</Text>
       </View>
 
-      <ScrollView scrollY className='user-list'>
+      <ScrollView scrollY className='user-list' onScrollToLower={() => loadMore()} lowerThreshold={80}>
         {loading ? (
           <View className='status-info'>加载中...</View>
         ) : users.length === 0 ? (

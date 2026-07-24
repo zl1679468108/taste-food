@@ -1,3 +1,5 @@
+@import '../../styles/design-tokens';
+
 /* ========== 订单列表页样式 ========== */
 
 .order-list-page {
@@ -65,7 +67,7 @@
     color: #333;
 
     &-price {
-      color: #e74c3c;
+      color: #FF6B35;
       font-weight: 600;
       font-size: 16px;
     }

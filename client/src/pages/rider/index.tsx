@@ -1,14 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
-import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
-import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP } from '../../utils/constants';
+import { shortOrderId } from '../../utils/format';
 import { Order, OrderStatus } from '../../types/order';
 import { PaginatedData } from '../../types/api';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
+import FilterTabs from '../../components/FilterTabs';
+import OrderCard from '../../components/OrderCard';
+import EmptyState from '../../components/EmptyState';
+import SkeletonLoader from '../../components/SkeletonLoader';
+import { usePullRefresh } from '../../hooks/usePullRefresh';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
 import './index.scss';
 
 const RiderPage = () => {
@@ -20,6 +25,7 @@ const RiderPage = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pool' | 'mine'>('pool');
+  const [actingId, setActingId] = useState<string | null>(null);
   const shopId = DEFAULT_SHOP_ID;
 
   /** 加载数据 */
@@ -77,6 +83,11 @@ const RiderPage = () => {
     }
   });
 
+  const refreshLoader = useCallback(async () => {
+    await loadDataRef.current();
+  }, []);
+  usePullRefresh(refreshLoader);
+
   /** 切换 Tab */
   const switchTab = (tab: 'pool' | 'mine') => {
     setActiveTab(tab);
@@ -85,6 +96,8 @@ const RiderPage = () => {
 
   /** 抢单 */
   const handleGrab = async (orderId: string) => {
+    if (actingId) return;
+    setActingId(orderId);
     try {
       await post(`/orders/${orderId}/grab`);
       Taro.showToast({ title: '抢单成功', icon: 'success' });
@@ -92,11 +105,15 @@ const RiderPage = () => {
     } catch (e) {
       console.error('抢单失败:', e);
       Taro.showToast({ title: '抢单失败', icon: 'none' });
+    } finally {
+      setActingId(null);
     }
   };
 
   /** 确认送达 */
   const handleDeliver = async (orderId: string) => {
+    if (actingId) return;
+    setActingId(orderId);
     try {
       await post(`/orders/${orderId}/deliver`);
       Taro.showToast({ title: '确认送达成功', icon: 'success' });
@@ -104,58 +121,65 @@ const RiderPage = () => {
     } catch (e) {
       console.error('确认送达失败:', e);
       Taro.showToast({ title: '确认送达失败', icon: 'none' });
+    } finally {
+      setActingId(null);
     }
   };
 
   return (
     <View className='rider-page'>
-      <View className='tab-bar'>
-        <View
-          className={`tab-item ${activeTab === 'pool' ? 'active' : ''}`}
-          onClick={() => switchTab('pool')}
-        >待抢单</View>
-        <View
-          className={`tab-item ${activeTab === 'mine' ? 'active' : ''}`}
-          onClick={() => switchTab('mine')}
-        >我的配送</View>
-      </View>
+      <FilterTabs
+        tabs={[
+          { key: 'pool', label: '待抢单' },
+          { key: 'mine', label: '我的配送' },
+        ]}
+        activeKey={activeTab}
+        onChange={(key) => switchTab(key as 'pool' | 'mine')}
+        variant='pill'
+        scrollable={false}
+      />
 
       <ScrollView scrollY className='order-list'>
         {loading ? (
-          <View className='loading'>加载中...</View>
+          <SkeletonLoader mode='card' count={3} />
         ) : orders.length === 0 ? (
-          <View className='empty'>暂无订单</View>
+          <EmptyState
+            icon='🛵'
+            title={activeTab === 'pool' ? '暂无待抢订单' : '暂无配送中订单'}
+            description={activeTab === 'pool' ? '有新单会实时提醒' : '抢单后会显示在这里'}
+          />
         ) : (
           orders.map(order => (
-            <View key={order.id} className='order-card'>
-              <View className='card-header'>
-                <Text className='order-no'>{shortOrderId(order.id)}</Text>
-                <Text className='status' style={{ color: ORDER_STATUS_COLOR_MAP[order.status] }}>
-                  {ORDER_STATUS_MAP[order.status]}
-                </Text>
-              </View>
-              <View className='card-body'>
-                <View className='info-item'>
-                  <Text className='label'>地址：</Text>
-                  <Text className='value'>{order.address || '到店自取'}</Text>
-                </View>
-                <View className='info-item'>
-                  <Text className='label'>联系人：</Text>
-                  <Text className='value'>{order.contactName || '匿名'} {order.contactPhone}</Text>
-                </View>
-                <View className='info-item'>
-                  <Text className='label'>金额：</Text>
-                  <Text className='price'>{formatPriceWithSymbol(order.total)}</Text>
-                </View>
-              </View>
-              <View className='card-footer'>
-                {activeTab === 'pool' ? (
-                  <View className='btn grab-btn' onClick={() => handleGrab(order.id)}>抢单</View>
+            <OrderCard
+              key={order.id}
+              order={{ ...order, items: order.items || [] }}
+              shopName={shortOrderId(order.id)}
+              footerExtra={
+                activeTab === 'pool' ? (
+                  <View
+                    className={`btn grab-btn${actingId === order.id ? ' disabled' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation?.();
+                      handleGrab(order.id);
+                    }}
+                  >
+                    {actingId === order.id ? '抢单中...' : '抢单'}
+                  </View>
                 ) : order.status === OrderStatus.DELIVERING ? (
-                  <View className='btn deliver-btn' onClick={() => handleDeliver(order.id)}>确认送达</View>
-                ) : null}
-              </View>
-            </View>
+                  <View
+                    className={`btn deliver-btn${actingId === order.id ? ' disabled' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation?.();
+                      handleDeliver(order.id);
+                    }}
+                  >
+                    {actingId === order.id ? '提交中...' : '确认送达'}
+                  </View>
+                ) : (
+                  <Text className='value'>{order.address || '到店自取'}</Text>
+                )
+              }
+            />
           ))
         )}
       </ScrollView>

@@ -1,16 +1,19 @@
 import React from 'react';
 import { Card } from 'antd';
+import { brand } from '@/theme';
 
 interface TableCardProps {
   children: React.ReactNode;
+  className?: string;
 }
 
-const TableCard: React.FC<TableCardProps> = ({ children }) => (
+const TableCard: React.FC<TableCardProps> = ({ children, className }) => (
   <Card
     bordered={false}
+    className={className}
     style={{
-      borderRadius: 8,
-      boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+      borderRadius: brand.radius,
+      boxShadow: brand.shadow,
     }}
   >
     {children}

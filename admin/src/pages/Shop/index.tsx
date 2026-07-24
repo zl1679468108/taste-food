@@ -26,6 +26,7 @@ const ShopPage: React.FC = () => {
       setShop(res);
     } catch (error) {
       console.error('加载店铺失败:', error);
+      message.error('加载店铺失败');
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,7 @@ const ShopPage: React.FC = () => {
               title="配送范围"
               value={shop?.deliveryRange ? (shop.deliveryRange / 1000).toFixed(1) : '3.0'}
               suffix="km"
-              prefix={<CarOutlined style={{ color: '#1890ff' }} />}
+              prefix={<CarOutlined style={{ color: '#FF6B35' }} />}
             />
           </Card>
         </Col>

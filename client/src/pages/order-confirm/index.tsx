@@ -8,6 +8,11 @@ import { formatPriceWithSymbol } from '../../utils/format';
 import { DeliveryType } from '../../types/order';
 import { DEFAULT_SHOP_ID } from '../../env';
 import { Promotion } from '../../types/promotion';
+import SectionCard from '../../components/SectionCard';
+import FooterBar from '../../components/FooterBar';
+import { isValidPhone, isNonEmpty } from '../../utils/validators';
+import { estimateDiscount } from '../../utils/promotion';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
 import './index.scss';
 
 const OrderConfirmPage = () => {
@@ -26,7 +31,7 @@ const OrderConfirmPage = () => {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [tableNo, setTableNo] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const { pending: submitting, run: runSubmit } = useAsyncAction();
   const [shopName, setShopName] = useState('');
   const [shopDeliveryFee, setShopDeliveryFee] = useState(0);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -91,15 +96,35 @@ const OrderConfirmPage = () => {
       return;
     }
 
-    // 配送方式为外送时必填地址
-    if (deliveryType === DeliveryType.DELIVERY && !address) {
-      Taro.showToast({ title: '请填写配送地址', icon: 'none' });
+    // 配送方式为外送时必填地址与联系人
+    if (deliveryType === DeliveryType.DELIVERY) {
+      if (!isNonEmpty(address)) {
+        Taro.showToast({ title: '请填写配送地址', icon: 'none' });
+        return;
+      }
+      if (!isNonEmpty(contactName)) {
+        Taro.showToast({ title: '请填写联系人', icon: 'none' });
+        return;
+      }
+      if (!isValidPhone(contactPhone)) {
+        Taro.showToast({ title: '请填写正确的手机号', icon: 'none' });
+        return;
+      }
+    }
+
+    // 堂食桌号必填
+    if (deliveryType === DeliveryType.DINE_IN && !isNonEmpty(tableNo)) {
+      Taro.showToast({ title: '请填写桌号', icon: 'none' });
       return;
     }
 
-    setSubmitting(true);
+    // 外送/自取若填写了手机号则校验格式
+    if (isNonEmpty(contactPhone) && !isValidPhone(contactPhone)) {
+      Taro.showToast({ title: '请填写正确的手机号', icon: 'none' });
+      return;
+    }
 
-    try {
+    await runSubmit(async () => {
       const orderData = {
         shopId: cartShopId || DEFAULT_SHOP_ID,
         // 服务端校验菜品价格：仅传 menuItemId/quantity/specDesc，price 由后端从数据库查询
@@ -133,11 +158,9 @@ const OrderConfirmPage = () => {
           url: `/pages/order-detail/index?orderId=${response.data.id}`,
         });
       }, 1000);
-    } catch (error: any) {
+    }).catch((error: any) => {
       console.error('提交订单失败:', error);
-    } finally {
-      setSubmitting(false);
-    }
+    });
   };
 
   /** 添加备注标签 */
@@ -149,7 +172,8 @@ const OrderConfirmPage = () => {
   };
 
   const subtotal = getTotalPrice();
-  const total = subtotal + deliveryFee;
+  const discountAmount = estimateDiscount(promotions, subtotal);
+  const total = Math.max(0, subtotal + deliveryFee - discountAmount);
 
   const remarkTags = ['少辣', '不要葱', '多醋', '不要辣', '加蒜'];
 
@@ -157,11 +181,7 @@ const OrderConfirmPage = () => {
     <View className='order-confirm'>
       <View className='order-confirm__content'>
         {/* 配送方式 */}
-        <View className='section-card delivery-section'>
-          <View className='section-header'>
-            <Text className='section-icon'>📦</Text>
-            <Text className='section-title'>配送方式</Text>
-          </View>
+        <SectionCard className='delivery-section' icon='📦' title='配送方式'>
           <View className='delivery-type-list'>
             {[
               { type: DeliveryType.DELIVERY, icon: '🛵', label: '外卖配送' },
@@ -219,15 +239,11 @@ const OrderConfirmPage = () => {
               <View className='pickup-hint'>请前往：{shopName || '店铺'}自取</View>
             )}
           </View>
-        </View>
+        </SectionCard>
 
         {/* 优惠信息 */}
         {promotions.length > 0 && (
-          <View className='section-card promotion-section'>
-            <View className='section-header'>
-              <Text className='section-icon'>🏷️</Text>
-              <Text className='section-title'>优惠活动</Text>
-            </View>
+          <SectionCard className='promotion-section' icon='🏷️' title='优惠活动'>
             {promotions.map((promo: Promotion, idx: number) => {
               const rule = promo.rule || {};
               let desc = '';
@@ -241,21 +257,17 @@ const OrderConfirmPage = () => {
                 desc = promo.description || promo.name;
               }
               return (
-                <View key={promo.id} style={{ padding: '6px 0', fontSize: 12, color: '#e74c3c' }}>
+                <View key={promo.id} style={{ padding: '6px 0', fontSize: 12, color: '#FF6B35' }}>
                   <Text>🎉 {promo.name}</Text>
                   <Text style={{ marginLeft: 8, color: '#666' }}>{desc}</Text>
                 </View>
               );
             })}
-          </View>
+          </SectionCard>
         )}
 
         {/* 商品列表 */}
-        <View className='section-card goods-section'>
-          <View className='section-header'>
-            <Text className='section-icon'>📋</Text>
-            <Text className='section-title'>已选菜品 ({cartItems.length}件)</Text>
-          </View>
+        <SectionCard className='goods-section' icon='📋' title={`已选菜品 (${cartItems.length}件)`}>
           <View className='goods-list'>
             {cartItems.map((item) => (
               <View key={item.key} className='goods-item'>
@@ -273,14 +285,10 @@ const OrderConfirmPage = () => {
               </View>
             ))}
           </View>
-        </View>
+        </SectionCard>
 
         {/* 备注 */}
-        <View className='section-card remark-section'>
-          <View className='section-header'>
-            <Text className='section-icon'>💬</Text>
-            <Text className='section-title'>备注</Text>
-          </View>
+        <SectionCard className='remark-section' icon='💬' title='备注'>
           <View className='remark-input-wrap'>
             <Input
               className='remark-input'
@@ -300,10 +308,10 @@ const OrderConfirmPage = () => {
               </View>
             ))}
           </View>
-        </View>
+        </SectionCard>
 
         {/* 价格统计 */}
-        <View className='section-card price-section'>
+        <SectionCard className='price-section'>
           <View className='price-item'>
             <Text className='price-label'>菜品小计</Text>
             <Text className='price-value'>{formatPriceWithSymbol(subtotal)}</Text>
@@ -312,22 +320,21 @@ const OrderConfirmPage = () => {
             <Text className='price-label'>配送费</Text>
             <Text className='price-value'>{deliveryFee > 0 ? formatPriceWithSymbol(deliveryFee) : '免费'}</Text>
           </View>
-        </View>
+          {discountAmount > 0 && (
+            <View className='price-item'>
+              <Text className='price-label'>优惠减免</Text>
+              <Text className='price-value price-value--discount'>-{formatPriceWithSymbol(discountAmount)}</Text>
+            </View>
+          )}
+        </SectionCard>
       </View>
 
-      {/* 底部提交栏 */}
-      <View className='footer-bar'>
-        <View className='footer-left'>
-          <Text className='total-label'>合计：</Text>
-          <Text className='total-price'>{formatPriceWithSymbol(total)}</Text>
-        </View>
-        <View
-          className={`submit-btn ${submitting ? 'disabled' : ''}`}
-          onClick={() => !submitting && submitOrder()}
-        >
-          {submitting ? '提交中...' : '提交订单'}
-        </View>
-      </View>
+      <FooterBar
+        totalText={formatPriceWithSymbol(total)}
+        actionText={submitting ? '提交中...' : '提交订单'}
+        actionDisabled={submitting}
+        onAction={submitOrder}
+      />
     </View>
   );
 };

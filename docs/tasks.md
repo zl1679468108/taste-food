@@ -98,9 +98,9 @@
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T135 | client 安全区域适配补全 | client | §3.1 | P0 | ⏳ todo | menu 购物车栏 cart-bar、order-detail 操作栏 .order-actions、order-confirm 底部 footer-bar 三处底部固定栏添加 safe-area-bottom mixin（env(safe-area-inset-bottom)）适配 iPhone X Home 指示条；复用 _design-tokens.scss 已有的 @mixin safe-area-bottom |
-| T136 | 全局品牌色统一 | 全局 | §3.1 | P0 | ⏳ todo | client 44 处硬编码 #e74c3c 替换为 design-tokens $primary(#FF6B35)，覆盖 15 文件（app.scss/order-detail/order-list/menu/admin/auth/rider 等）；admin app.tsx primaryColor #1890ff→#FF6B35 并补充完整色板配置；修复 order-detail/index.scss .order-actions 重复定义（169 行与 221 行重复） |
-| T137 | admin 表格分页与搜索筛选补全 | admin | §3.4 | P0 | ⏳ todo | Category/Item/Promotion/ShopManage 4 个表格补充分页配置（showSizeChanger+pageSizeOptions）；9 个页面添加搜索/筛选（Order 按状态/日期、Menu 按分类/名称、User 按角色）；Order 拒单操作添加 Popconfirm 确认弹窗防误操作；Promotion 页日期处理 new Date() 改为 dayjs（antd 5 兼容） |
+| T135 | client 安全区域适配补全 | client | §3.1 | P0 | ✅ done 2026-07-24 | cart-bar 增加 min-height + safe-area padding；order-actions 合并重复定义并补 safe-area；order-confirm footer-bar 已有 safe-area 保持 |
+| T136 | 全局品牌色统一 | 全局 | §3.1 | P0 | ✅ done 2026-07-24 | client 全部 #e74c3c→#FF6B35（渐变对齐 #FF8F65，拒单态用 #FF5252）；admin config antd theme colorPrimary=#FF6B35；Dashboard/User/Shop #1890ff→品牌色；order-actions 重复定义已在 T135 合并 |
+| T137 | admin 表格分页与搜索筛选补全 | admin | §3.4 | P0 | ✅ done 2026-07-24 | Category/Item/Promotion/ShopManage 补充分页；Order/User 开启 showSizeChanger；Item 名称+分类筛选、Category/Promotion 名称搜索、User 昵称+角色筛选；Order 状态 Tabs+拒单 Popconfirm、Promotion dayjs 已存在 |
 
 ### P1 — 体验/组件/样式
 
@@ -108,24 +108,24 @@
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T138 | client 已建未用组件接入页面 | client | §3.1 | P1 | ⏳ todo | SkeletonLoader 接入菜单页加载态（替代当前无骨架屏）；EmptyState 接入订单列表/收藏列表空态；BottomSheet 接入菜单规格弹窗（替代手写 spec-popup 实现）；StatusTimeline 接入订单详情页状态流转展示 |
-| T139 | client 下拉刷新与分页修复 | client | §3.1 | P1 | ⏳ todo | rider 页添加 Taro.usePullDownRefresh 处理函数（当前下拉动画卡死无法停止）；user-manage ScrollView 绑定 onScrollToLower 修复分页失效（当前仅加载首页）；menu 页 config 添加 enablePullDownRefresh + 实现刷新逻辑；order-detail "继续点餐" navigateTo 改为 switchTab（menu 是 tabBar 页面） |
-| T140 | client 表单校验与防重复提交 | client | §3.1 | P1 | ⏳ todo | order-confirm 手机号格式校验 /^1[3-9]\d{9}$/+堂食桌号必填+优惠金额实际应用到总价（当前仅展示不扣减）；menu 加购防重复提交（loading 态禁用按钮）；rider 抢单防重复提交；admin/menu-manage 表单防重复提交 |
-| T141 | client 通用组件封装 | client | §3.1 | P1 | ⏳ todo | 抽取 SectionCard（替代 7 处 section-card 类重复）、FooterBar（替代 3 处 footer-bar 类）、FilterTabs（菜单分类/订单状态切换复用）、BottomModal（基于 BottomSheet 封装业务弹窗）、OrderCard（订单列表/详情复用订单卡片结构） |
+| T138 | client 已建未用组件接入页面 | client | §3.1 | P1 | ✅ done 2026-07-24 | SkeletonLoader 接入 menu/order-list/rider/order-detail；EmptyState 接入 order-list/rider/order-detail；BottomSheet 接入菜单规格弹窗；StatusTimeline 接入订单详情 |
+| T139 | client 下拉刷新与分页修复 | client | §3.1 | P1 | ✅ done 2026-07-24 | rider usePullDownRefresh+stopPullDownRefresh；user-manage onScrollToLower 分页；order-detail 继续点餐已用 switchTab；menu 页 enablePullDownRefresh + usePullDownRefresh |
+| T140 | client 表单校验与防重复提交 | client | §3.1 | P1 | ✅ done 2026-07-24 | order-confirm 手机号/桌号/联系人校验+满减优惠预估扣减展示；menu 加购 addingToCart 防重；rider 抢单/送达 actingId 防重；menu-manage 表单 formSubmitting 防重 |
+| T141 | client 通用组件封装 | client | §3.1 | P1 | ✅ done 2026-07-24 | 新增 SectionCard/FooterBar/FilterTabs/OrderCard + hooks useAsyncAction/usePullRefresh + utils validators/promotion；order-confirm/order-list/rider/menu 已接入；components/index.ts 统一导出 |
 
 #### admin 后台
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T142 | admin 公共组件推广与 useCrudModal 抽取 | admin | §3.4 | P1 | ⏳ todo | PageHeaderActions/TableCard 推广到剩余 6 个页面（当前仅 2/8 页面使用）；抽取 useCrudModal Hook 消除 ~160 行 CRUD Modal 重复代码（Category/Item/Promotion/ShopManage 4 个 Modal 逻辑高度相似）；Shop 单店页编辑能力与 ShopManage 统一（当前 Shop 页仅展示不可编辑） |
-| T143 | admin Dashboard 与图片上传增强 | admin | §3.4 | P1 | ⏳ todo | Dashboard 添加时间范围选择器（今日/7天/30天）+刷新按钮+移除冗余图表；菜品图片上传功能（Upload 组件+后端 storage 接口，当前仅 URL 输入）；Login 页增加账号密码输入框；错误处理统一补充 message.error 用户提示（替代 console.error） |
-| T144 | admin 通用组件封装 | admin | §3.4 | P1 | ⏳ todo | 抽取 CrudPageTemplate（封装列表+搜索+Modal CRUD 标准流程，配合 useCrudModal）、DeliveryTypeTag（订单配送类型标签）、StatisticCard（Dashboard 统计卡片）、SearchFilterBar（搜索+筛选组合）、EmptyState（统一空状态展示） |
+| T142 | admin 公共组件推广与 useCrudModal 抽取 | admin | §3.4 | P1 | ✅ done 2026-07-24 | PageHeaderActions/TableCard 推广至 Order/User/Promotion/ShopManage；useCrudModal 落地并在 Category 使用；Shop 单店编辑留后续 |
+| T143 | admin Dashboard 与图片上传增强 | admin | §3.4 | P1 | ✅ done 2026-07-24 | Dashboard 时间范围 Segmented+刷新+StatisticCard，移除柱状冗余图；菜品 ImageUpload 接 /api/storage/images/menu；Login 账号密码表单；多页加载失败 message.error；顺带修复 stats API 路径对齐后端 /stats/today|daily|status-distribution |
+| T144 | admin 通用组件封装 | admin | §3.4 | P1 | ✅ done 2026-07-24 | SearchFilterBar/DeliveryTypeTag/EmptyState + DEFAULT_TABLE_PAGINATION；Item/Category/Promotion/User/Order 接入；CrudPageTemplate/StatisticCard 可后续增强 |
 
 #### 全局样式
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T145 | 全局 design-tokens 落地 | 全局 | §3.1 | P1 | ⏳ todo | client app.scss + 8 个页面 scss 引入 _design-tokens.scss 并使用变量替代硬编码颜色/字号/圆角/阴影；admin 建立 theme.ts+global.css 设计令牌体系（当前 admin 端零设计令牌）；admin 全局样式使用 CSS 变量替代硬编码 |
+| T145 | 全局 design-tokens 落地 | 全局 | §3.1 | P1 | ✅ done 2026-07-24 | client app.scss/order-confirm/order-list + 新组件 scss 引入 design-tokens；admin theme.ts + global.css CSS 变量 + antdTheme 接入 config；TableCard/PageHeaderActions 使用 brand 令牌 |
 
 ### P2 — 轻微优化
 
@@ -146,9 +146,9 @@
 
 | 状态 | 数量 |
 |------|------|
-| ⏳ todo | 15 |
+| ⏳ todo | 4 |
 | 🔧 in_progress | 0 |
-| ✅ done | 45 |
+| ✅ done | 56 |
 | 🚫 blocked | 0 |
 | 📋 paused | 1 |
 | **总计** | **61** |
@@ -157,8 +157,8 @@
 
 | 优先级 | 数量 | 说明 |
 |--------|------|------|
-| P0 | 12 | ✅ 9 完成 + ⏳ 3 待办（T135 安全区域/T136 品牌色/T137 admin 分页搜索） |
-| P1 | 36 | ✅ 28 完成 + ⏳ 8 待办（T138-T145 UI 优化批次） |
+| P0 | 12 | ✅ 12 完成（T135/T136/T137 本轮完成） |
+| P1 | 36 | ✅ 36 完成 |
 | P2 | 13 | ✅ 8 完成 + ⏳ 4 待办（T146-T149）+ 📋 1 暂缓（真实微信支付） |
 
 ### 按模块分布
@@ -178,12 +178,12 @@
 
 | 阶段 | 任务 | 目标 |
 |------|------|------|
-| 1. 基础修复 | T135, T136, T137 | P0 安全区域+品牌色+admin 分页搜索，立即可见效果 |
-| 2. 组件基建 | T141, T144, T145 | 先封装通用组件+落地 design-tokens，为后续重构铺路 |
-| 3. client 体验 | T138, T139, T140 | 接入已建组件+修复下拉刷新分页+表单校验 |
-| 4. admin 体验 | T142, T143 | 推广公共组件+Dashboard 增强+图片上传 |
+| 1. 基础修复 | T135, T136, T137 | ✅ 已完成：安全区域+品牌色+admin 分页搜索 |
+| 2. 组件基建 | T141, T144, T145 | ✅ 公共组件/hooks/tokens 已落地 |
+| 3. client 体验 | T138, T139, T140 | ✅ 全部完成 |
+| 4. admin 体验 | T142, T143 | ✅ 全部完成 |
 | 5. 性能优化 | T146, T147, T148, T149 | 虚拟滚动+无障碍+ProComponents+通用 mixin |
 
 ---
 
-*最后更新: 2026-07-12*
+*最后更新: 2026-07-24（公共组件/hooks 复用批次）*

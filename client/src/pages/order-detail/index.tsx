@@ -7,7 +7,11 @@ import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/for
 import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP } from '../../utils/constants';
 import { Order, OrderStatus } from '../../types/order';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
+import StatusTimeline from '../../components/StatusTimeline';
+import SkeletonLoader from '../../components/SkeletonLoader';
+import EmptyState from '../../components/EmptyState';
 import './index.scss';
+
 
 const OrderDetailPage = () => {
   // Store 订阅（函数组件中正确订阅变化）
@@ -178,9 +182,7 @@ const OrderDetailPage = () => {
   if (loading) {
     return (
       <View className='order-detail'>
-        <View className='detail-loading'>
-          <Text>加载中...</Text>
-        </View>
+        <SkeletonLoader mode='detail' />
       </View>
     );
   }
@@ -188,9 +190,13 @@ const OrderDetailPage = () => {
   if (!order) {
     return (
       <View className='order-detail'>
-        <View className='detail-loading'>
-          <Text>订单不存在</Text>
-        </View>
+        <EmptyState
+          icon='📭'
+          title='订单不存在'
+          description='可能已被删除或链接无效'
+          actionText='返回订单列表'
+          onAction={() => Taro.switchTab({ url: '/pages/order-list/index' })}
+        />
       </View>
     );
   }
@@ -216,6 +222,18 @@ const OrderDetailPage = () => {
           </Text>
         )}
       </View>
+
+
+      
+      <StatusTimeline
+        currentStatus={order.status}
+        statusHistory={[
+          { status: 'pending_payment', time: order.createdAt },
+          ...(order.status !== 'pending_payment'
+            ? [{ status: order.status, time: order.updatedAt || order.createdAt }]
+            : []),
+        ]}
+      />
 
       {/* 配送信息 */}
       <View className='info-card'>
@@ -292,7 +310,6 @@ const OrderDetailPage = () => {
           </Text>
         </View>
       </View>
-
       {/* 订单信息 */}
       <View className='order-meta'>
         <Text className='order-meta__item'>

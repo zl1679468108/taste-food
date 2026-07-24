@@ -606,3 +606,66 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql;
+
+-- ============================================================
+-- Supabase Storage：菜品图片桶 menu-images
+-- 对齐 server/src/modules/storage/storage.service.ts
+-- 后端优先使用 SUPABASE_SERVICE_ROLE_KEY（绕过 RLS）上传/删除
+-- public = true 以支持 getPublicUrl 公开访问
+-- ============================================================
+
+-- 1) 创建/更新公开桶
+INSERT INTO storage.buckets (
+  id,
+  name,
+  public,
+  file_size_limit,
+  allowed_mime_types
+) VALUES (
+  'menu-images',
+  'menu-images',
+  true,
+  5242880, -- 5MB，与代码 MAX_FILE_SIZE 一致
+  ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- 2) 策略：公开读（任何人可读，配合 public bucket 的 public URL）
+DROP POLICY IF EXISTS "menu_images_public_read" ON storage.objects;
+CREATE POLICY "menu_images_public_read"
+ON storage.objects
+FOR SELECT
+TO public
+USING (bucket_id = 'menu-images');
+
+-- 3) 策略：认证用户可上传（后端用 service_role 时本策略可作兜底）
+DROP POLICY IF EXISTS "menu_images_auth_insert" ON storage.objects;
+CREATE POLICY "menu_images_auth_insert"
+ON storage.objects
+FOR INSERT
+TO authenticated, service_role
+WITH CHECK (bucket_id = 'menu-images');
+
+-- 4) 策略：认证用户可更新
+DROP POLICY IF EXISTS "menu_images_auth_update" ON storage.objects;
+CREATE POLICY "menu_images_auth_update"
+ON storage.objects
+FOR UPDATE
+TO authenticated, service_role
+USING (bucket_id = 'menu-images')
+WITH CHECK (bucket_id = 'menu-images');
+
+-- 5) 策略：认证用户可删除
+DROP POLICY IF EXISTS "menu_images_auth_delete" ON storage.objects;
+CREATE POLICY "menu_images_auth_delete"
+ON storage.objects
+FOR DELETE
+TO authenticated, service_role
+USING (bucket_id = 'menu-images');
+
+-- 可选校验：
+-- SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets WHERE id = 'menu-images';
+-- SELECT policyname, cmd, roles FROM pg_policies WHERE tablename = 'objects' AND policyname LIKE 'menu_images%';

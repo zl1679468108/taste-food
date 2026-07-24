@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button, Space, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { brand } from '@/theme';
 
 const { Title } = Typography;
 
@@ -19,7 +20,7 @@ const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
   onAdd,
   onRefresh,
 }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, color: brand.textPrimary }}>
     <Title level={4} style={{ margin: 0 }}>
       {icon}
       {title}

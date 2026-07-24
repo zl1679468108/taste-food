@@ -1,0 +1,64 @@
+@import '../../styles/design-tokens';
+
+.tf-filter-tabs-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.tf-filter-tabs {
+  display: flex;
+  background: #fff;
+  padding: 0 12px;
+  border-bottom: 1px solid $gray-200;
+
+  &__item {
+    padding: 12px 14px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  &__label {
+    font-size: 14px;
+    color: $gray-600;
+  }
+
+  &--underline {
+    .tf-filter-tabs__item {
+      border-bottom: 2px solid transparent;
+
+      &.is-active {
+        border-bottom-color: $primary;
+
+        .tf-filter-tabs__label {
+          color: $primary;
+          font-weight: $weight-semibold;
+        }
+      }
+    }
+  }
+
+  &--pill {
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: none;
+    background: transparent;
+
+    .tf-filter-tabs__item {
+      padding: 8px 16px;
+      border-radius: 20px;
+      background: #fff;
+      border: 1px solid $gray-200;
+
+      &.is-active {
+        background: $primary-light;
+        border-color: $primary;
+
+        .tf-filter-tabs__label {
+          color: $primary;
+          font-weight: $weight-semibold;
+        }
+      }
+    }
+  }
+}

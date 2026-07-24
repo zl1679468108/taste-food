@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, message, Space, Popconfirm, Typography, Card, Tag, Switch } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
@@ -10,49 +10,52 @@ import {
   Shop as ShopModel,
 } from '@/services/shop';
 import { formatTime, formatPrice } from '@/utils/format';
+import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import { useCrudModal } from '@/hooks/useCrudModal';
+import TableCard from '@/components/TableCard';
 
 const { Title, Text } = Typography;
 
 const ShopManagePage: React.FC = () => {
   const [shops, setShops] = useState<ShopModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [editingShop, setEditingShop] = useState<ShopModel | null>(null);
-  const [form] = Form.useForm();
 
-  useEffect(() => {
-    loadShops();
-  }, []);
-
-  const loadShops = async () => {
+  const loadShops = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getShops();
       setShops(res || []);
     } catch (error) {
       console.error('加载店铺失败:', error);
+      message.error('加载店铺失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAdd = () => {
-    setEditingShop(null);
-    form.resetFields();
-    setModalVisible(true);
-  };
-
-  const handleEdit = (record: ShopModel) => {
-    setEditingShop(record);
-    form.setFieldsValue({
+  const {
+    form,
+    visible: modalVisible,
+    submitting,
+    editing: editingShop,
+    openCreate: handleAdd,
+    openEdit: handleEdit,
+    close: closeModal,
+    submit: submitModal,
+  } = useCrudModal<ShopModel>({
+    onSuccess: loadShops,
+    mapRecordToForm: (record) => ({
       ...record,
       deliveryRange: record.deliveryRange ? record.deliveryRange / 1000 : 3,
       deliveryFee: record.deliveryFee ? record.deliveryFee / 100 : 5,
       minOrderAmount: record.minOrderAmount ? record.minOrderAmount / 100 : 0,
-    });
-    setModalVisible(true);
-  };
+    }),
+  });
+
+  useEffect(() => {
+    loadShops();
+  }, [loadShops]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -74,33 +77,23 @@ const ShopManagePage: React.FC = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      setSubmitting(true);
-      const data = {
-        ...values,
-        deliveryRange: Math.round(values.deliveryRange * 1000),
-        deliveryFee: Math.round(values.deliveryFee * 100),
-        minOrderAmount: Math.round(values.minOrderAmount * 100),
-      };
-
-      if (editingShop) {
-        await updateShop(editingShop.id, data);
-        message.success('更新成功');
-      } else {
-        await createShop(data);
-        message.success('创建成功');
-      }
-      setModalVisible(false);
-      loadShops();
-    } catch (error) {
-      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
-      message.error('操作失败');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const handleSubmit = () =>
+    submitModal({
+      create: (values) =>
+        createShop({
+          ...values,
+          deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
+          deliveryFee: Math.round(Number(values.deliveryFee) * 100),
+          minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
+        } as any),
+      update: (id, values) =>
+        updateShop(id, {
+          ...values,
+          deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
+          deliveryFee: Math.round(Number(values.deliveryFee) * 100),
+          minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
+        } as any),
+    });
 
   const columns = [
     {
@@ -172,34 +165,26 @@ const ShopManagePage: React.FC = () => {
   ];
 
   return (
-    <div >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <ShopOutlined style={{ marginRight: 8 }} />
-          多店铺管理
-        </Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={loadShops}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            新增店铺
-          </Button>
-        </Space>
-      </div>
+    <div>
+      <PageHeaderActions
+      icon={<ShopOutlined style={{ marginRight: 8 }} />}
+      title="店铺管理"
+      addText="新增店铺"
+      onAdd={handleAdd}
+      onRefresh={loadShops}
+    />
 
-      <Card
-        bordered={false}
-        style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
-      >
-        <Table columns={columns} dataSource={shops} rowKey="id" loading={loading} />
-      </Card>
+      <TableCard>
+        <Table columns={columns} dataSource={shops} rowKey="id" loading={loading} 
+        pagination={DEFAULT_TABLE_PAGINATION}
+      />
+      </TableCard>
 
       <Modal
         title={editingShop ? '编辑店铺' : '新增店铺'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={closeModal}
         confirmLoading={submitting}
         okText="保存"
         width={600}

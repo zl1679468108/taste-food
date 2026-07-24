@@ -12,7 +12,7 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px;
-  background: linear-gradient(135deg, #e74c3c, #f39c12);
+  background: linear-gradient(135deg, #FF6B35, #FF8F65);
 }
 
 .stat-card {
@@ -75,9 +75,9 @@
   }
 
   &--active {
-    color: #e74c3c;
+    color: #FF6B35;
     font-weight: 500;
-    border-bottom-color: #e74c3c;
+    border-bottom-color: #FF6B35;
   }
 
   &__count {
@@ -151,7 +151,7 @@
     color: #333;
 
     &-price {
-      color: #e74c3c;
+      color: #FF6B35;
       font-weight: 600;
     }
   }
@@ -177,7 +177,7 @@
     }
 
     &--primary {
-      background: linear-gradient(135deg, #e74c3c, #f39c12);
+      background: linear-gradient(135deg, #FF6B35, #FF8F65);
       color: #fff;
     }
 
@@ -188,8 +188,8 @@
 
     &--danger {
       background: #fff5f5;
-      color: #e74c3c;
-      border: 1px solid #e74c3c;
+      color: #FF6B35;
+      border: 1px solid #FF6B35;
     }
 
     &--success {
@@ -307,7 +307,7 @@
   }
 
   &--primary {
-    background: linear-gradient(135deg, #e74c3c, #f39c12);
+    background: linear-gradient(135deg, #FF6B35, #FF8F65);
     color: #fff;
   }
 
@@ -318,8 +318,8 @@
 
   &--danger {
     background: #fff5f5;
-    color: #e74c3c;
-    border: 1px solid #e74c3c;
+    color: #FF6B35;
+    border: 1px solid #FF6B35;
   }
 
   &--success {
@@ -349,7 +349,7 @@
 
 /* ========== 新订单横幅通知 ========== */
 .new-order-banner {
-  background: linear-gradient(135deg, #e74c3c, #ff6b6b);
+  background: linear-gradient(135deg, #FF6B35, #FF8F65);
   color: #fff;
   padding: 16px 24px;
   display: flex;

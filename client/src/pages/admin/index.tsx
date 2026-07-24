@@ -448,7 +448,7 @@ const AdminPage = () => {
               </View>
               <View className='action-modal__info-row'>
                 <Text className='action-modal__info-label'>金额</Text>
-                <Text className='action-modal__info-value' style={{ color: '#e74c3c' }}>
+                <Text className='action-modal__info-value' style={{ color: '#FF6B35' }}>
                   {formatPriceWithSymbol(selectedOrder.total)}
                 </Text>
               </View>

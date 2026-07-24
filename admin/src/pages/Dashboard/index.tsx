@@ -1,24 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Col, Row, Statistic, Table, Typography, Space, Tag, Spin } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Card, Col, Row, Table, Typography, Space, Spin, Segmented, Button, message,
+} from 'antd';
 import {
   ShoppingCartOutlined,
   MoneyCollectOutlined,
   ClockCircleOutlined,
   CheckCircleOutlined,
   RiseOutlined,
-  AlertOutlined,
-  BarChartOutlined,
-  PieChartOutlined,
   LineChartOutlined,
+  PieChartOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
-import { Column, Pie, Line } from '@ant-design/charts';
-import { getOrderStats, getOrders, getDailyStats, getStatusDistribution, Order, OrderStats, DailyStatsItem as ApiDailyStatsItem, StatusDistributionItem } from '@/services/order';
+import { Line, Pie } from '@ant-design/charts';
+import {
+  getOrderStats,
+  getOrders,
+  getDailyStats,
+  getStatusDistribution,
+  Order,
+  OrderStats,
+  DailyStatsItem as ApiDailyStatsItem,
+  StatusDistributionItem,
+} from '@/services/order';
 import { formatTime, shortOrderId, formatPrice } from '@/utils/format';
 import OrderStatusTag from '@/components/OrderStatusTag';
 import PriceDisplay from '@/components/PriceDisplay';
+import DeliveryTypeTag from '@/components/DeliveryTypeTag';
+import StatisticCard from '@/components/StatisticCard';
+import PageHeaderActions from '@/components/PageHeaderActions';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { brand } from '@/theme';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
+
+type RangeKey = '1' | '7' | '30';
 
 interface DailyStats {
   date: string;
@@ -31,44 +47,66 @@ interface StatusStats {
   value: number;
 }
 
+const RANGE_OPTIONS = [
+  { label: '今日', value: '1' },
+  { label: '近7天', value: '7' },
+  { label: '近30天', value: '30' },
+];
+
+const STATUS_TEXT: Record<string, string> = {
+  completed: '已完成',
+  delivering: '配送中',
+  preparing: '制作中',
+  paid: '已支付',
+  accepted: '已接单',
+  pending_payment: '待支付',
+  cancelled: '已取消',
+  rejected: '已拒绝',
+  ready_for_pickup: '待自取',
+};
+
+function getStatusText(status: string): string {
+  return STATUS_TEXT[status] || status;
+}
+
 const DashboardPage: React.FC = () => {
+  const [range, setRange] = useState<RangeKey>('7');
   const [stats, setStats] = useState<OrderStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(true);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [statusStats, setStatusStats] = useState<StatusStats[]>([]);
+  const [rangeStats, setRangeStats] = useState({ orders: 0, revenue: 0 });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async (days: number) => {
     setLoading(true);
     setChartLoading(true);
     try {
-      // 并行加载：今日统计、最近订单、近7天日趋势、状态分布
       const [statsResult, ordersResult, dailyResult, distResult] = await Promise.all([
         getOrderStats(DEFAULT_SHOP_ID),
         getOrders({ shop_id: DEFAULT_SHOP_ID, page: 1, pageSize: 10 }),
-        getDailyStats(DEFAULT_SHOP_ID, 7),
+        getDailyStats(DEFAULT_SHOP_ID, days),
         getStatusDistribution(DEFAULT_SHOP_ID),
       ]);
+
       setStats(statsResult);
       setOrders(ordersResult?.items || []);
 
-      // 日趋势：后端按天聚合，前端仅做格式转换（取 MM-DD 作为图表 x 轴）
       const dailyData = (dailyResult || []).map((d: ApiDailyStatsItem) => {
         const parts = d.date.split('-');
         return {
-          date: `${parts[1]}-${parts[2]}`,
+          date: parts.length >= 3 ? `${parts[1]}-${parts[2]}` : d.date,
           orders: d.orders,
-          revenue: Math.round(d.revenue / 100), // 分转元
+          revenue: Math.round((d.revenue || 0) / 100),
         };
       });
       setDailyStats(dailyData);
 
-      // 状态分布：后端全量聚合，前端转中文文案
+      const rangeOrders = dailyData.reduce((s, d) => s + d.orders, 0);
+      const rangeRevenue = dailyData.reduce((s, d) => s + d.revenue, 0);
+      setRangeStats({ orders: rangeOrders, revenue: rangeRevenue });
+
       const distData = (distResult || []).map((item: StatusDistributionItem) => ({
         type: getStatusText(item.status),
         value: item.count,
@@ -76,127 +114,122 @@ const DashboardPage: React.FC = () => {
       setStatusStats(distData.length > 0 ? distData : [{ type: '暂无数据', value: 1 }]);
     } catch (error) {
       console.error('加载数据失败:', error);
+      message.error('加载看板数据失败');
     } finally {
       setLoading(false);
       setChartLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    void loadData(Number(range));
+  }, [range, loadData]);
+
+  const handleRangeChange = (value: string | number) => {
+    setRange(String(value) as RangeKey);
   };
 
-  const getStatusText = (status: string): string => {
-    const map: Record<string, string> = {
-      completed: '已完成',
-      delivering: '配送中',
-      preparing: '制作中',
-      paid: '已支付',
-      accepted: '已接单',
-      pending_payment: '待支付',
-      cancelled: '已取消',
-      rejected: '已拒绝',
-      ready_for_pickup: '待自取',
-    };
-    return map[status] || status;
-  };
-
-  const columns = [
-    {
-      title: '订单号',
-      dataIndex: 'id',
-      key: 'id',
-      render: (id: string) => (
-        <Text strong style={{ fontFamily: 'monospace' }}>
-          {shortOrderId(id)}
-        </Text>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => <OrderStatusTag status={status} />,
-    },
-    {
-      title: '配送方式',
-      dataIndex: 'deliveryType',
-      key: 'deliveryType',
-      render: (type: string) => {
-        const map: Record<string, { color: string; text: string }> = {
-          delivery: { color: 'blue', text: '外卖' },
-          pickup: { color: 'green', text: '自取' },
-          dine_in: { color: 'orange', text: '堂食' },
-        };
-        const config = map[type] || { color: 'default', text: type };
-        return <Tag color={config.color}>{config.text}</Tag>;
+  const columns = useMemo(
+    () => [
+      {
+        title: '订单号',
+        dataIndex: 'id',
+        key: 'id',
+        render: (id: string) => (
+          <Text strong style={{ fontFamily: 'monospace' }}>
+            {shortOrderId(id)}
+          </Text>
+        ),
       },
-    },
-    {
-      title: '金额',
-      dataIndex: 'total',
-      key: 'total',
-      render: (total: number) => <PriceDisplay price={total} />,
-    },
-    {
-      title: '时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (time: string) => formatTime(time, 'MM-DD HH:mm'),
-    },
-  ];
+      {
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        render: (status: string) => <OrderStatusTag status={status} />,
+      },
+      {
+        title: '配送方式',
+        dataIndex: 'deliveryType',
+        key: 'deliveryType',
+        render: (type: string) => <DeliveryTypeTag type={type} />,
+      },
+      {
+        title: '金额',
+        dataIndex: 'total',
+        key: 'total',
+        render: (total: number) => <PriceDisplay price={total} />,
+      },
+      {
+        title: '时间',
+        dataIndex: 'createdAt',
+        key: 'createdAt',
+        render: (time: string) => formatTime(time, 'MM-DD HH:mm'),
+      },
+    ],
+    [],
+  );
+
+  // 今日：顶部卡用 today stats；7/30 天：用区间汇总 + 今日待处理/已完成仍参考 today stats
+  const isToday = range === '1';
+  const displayOrders = isToday ? (stats?.totalOrders || 0) : rangeStats.orders;
+  const displayRevenue = isToday
+    ? (stats?.totalRevenue ? formatPrice(stats.totalRevenue).replace('¥', '') : '0.00')
+    : rangeStats.revenue.toFixed(2);
+  const ordersTitle = isToday ? '今日订单' : `近${range}天订单`;
+  const revenueTitle = isToday ? '今日营收' : `近${range}天营收`;
 
   const statCards = [
     {
-      title: '今日订单',
-      value: stats?.totalOrders || 0,
+      title: ordersTitle,
+      value: displayOrders,
       icon: <ShoppingCartOutlined />,
-      color: '#1890ff',
-      bgColor: '#e6f7ff',
+      color: brand.primary,
+      bgColor: brand.primaryLight,
     },
     {
-      title: '今日营收',
-      value: stats?.totalRevenue ? formatPrice(stats.totalRevenue).replace('¥', '') : '0.00',
+      title: revenueTitle,
+      value: displayRevenue,
       suffix: '元',
       icon: <MoneyCollectOutlined />,
-      color: '#52c41a',
+      color: brand.success,
       bgColor: '#f6ffed',
     },
     {
       title: '待处理',
       value: stats?.pendingCount || 0,
       icon: <ClockCircleOutlined />,
-      color: '#faad14',
+      color: brand.warning,
       bgColor: '#fffbe6',
     },
     {
       title: '已完成',
       value: stats?.completedCount || 0,
       icon: <CheckCircleOutlined />,
-      color: '#52c41a',
+      color: brand.success,
       bgColor: '#f6ffed',
     },
   ];
 
-  // 订单趋势图表配置
   const lineConfig = {
     data: dailyStats,
     xField: 'date',
     yField: 'orders',
     smooth: true,
-    point: { size: 5, shape: 'diamond' },
+    point: { size: 5, shape: 'diamond' as const },
     label: { style: { fill: '#aaa', fontSize: 12 } },
-    color: '#1890ff',
+    color: brand.primary,
   };
 
-  // 营收趋势图表配置
   const revenueConfig = {
     data: dailyStats,
     xField: 'date',
     yField: 'revenue',
     smooth: true,
-    point: { size: 5, shape: 'circle' },
+    point: { size: 5, shape: 'circle' as const },
     label: { style: { fill: '#aaa', fontSize: 12 } },
-    color: '#52c41a',
+    color: brand.success,
   };
 
-  // 订单状态分布图表配置
   const pieConfig = {
     data: statusStats,
     angleField: 'value',
@@ -208,79 +241,140 @@ const DashboardPage: React.FC = () => {
     interaction: { elementHighlight: true },
   };
 
-  // 每日订单柱状图配置
-  const columnConfig = {
-    data: dailyStats,
-    xField: 'date',
-    yField: 'orders',
-    label: { position: 'middle' as const, style: { fill: '#fff', fontSize: 12 } },
-    color: '#1890ff',
-  };
+  const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)?.label || '近7天';
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <RiseOutlined style={{ marginRight: 8 }} />
-          数据看板
-        </Title>
+      <PageHeaderActions
+        icon={<RiseOutlined style={{ marginRight: 8 }} />}
+        title="数据看板"
+        onRefresh={() => loadData(Number(range))}
+      />
+
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 16,
+          flexWrap: 'wrap',
+          gap: 12,
+        }}
+      >
+        <Segmented
+          options={RANGE_OPTIONS}
+          value={range}
+          onChange={handleRangeChange}
+        />
+        <Button
+          icon={<ReloadOutlined />}
+          loading={loading}
+          onClick={() => loadData(Number(range))}
+        >
+          刷新
+        </Button>
       </div>
 
-      {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        {statCards.map((card, index) => (
-          <Col xs={24} sm={12} lg={6} key={index}>
-            <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-              <Statistic
-                title={card.title}
-                value={card.value}
-                suffix={card.suffix}
-                prefix={
-                  <div style={{
-                    color: card.color, backgroundColor: card.bgColor,
-                    width: 48, height: 48, borderRadius: '50%',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24,
-                  }}>
-                    {card.icon}
-                  </div>
-                }
-                valueStyle={{ color: '#333', fontWeight: 600 }}
-              />
-            </Card>
+        {statCards.map((card) => (
+          <Col xs={24} sm={12} lg={6} key={card.title}>
+            <StatisticCard
+              title={card.title}
+              value={card.value}
+              suffix={card.suffix}
+              icon={card.icon}
+              color={card.color}
+              bgColor={card.bgColor}
+            />
           </Col>
         ))}
       </Row>
 
-      {/* 图表区域 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} lg={16}>
-          <Card title={<Space><LineChartOutlined /><span>近7天订单趋势</span></Space>} bordered={false} style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            {chartLoading ? <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div> : <div style={{ height: 300 }}><Line {...lineConfig} /></div>}
+        <Col xs={24} lg={14}>
+          <Card
+            title={
+              <Space>
+                <LineChartOutlined />
+                <span>{rangeLabel}订单趋势</span>
+              </Space>
+            }
+            bordered={false}
+            style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
+          >
+            {chartLoading ? (
+              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spin />
+              </div>
+            ) : (
+              <div style={{ height: 300 }}>
+                <Line {...lineConfig} />
+              </div>
+            )}
           </Card>
         </Col>
-        <Col xs={24} lg={8}>
-          <Card title={<Space><PieChartOutlined /><span>订单状态分布</span></Space>} bordered={false} style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            {chartLoading ? <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div> : <div style={{ height: 300 }}><Pie {...pieConfig} /></div>}
+        <Col xs={24} lg={10}>
+          <Card
+            title={
+              <Space>
+                <PieChartOutlined />
+                <span>订单状态分布</span>
+              </Space>
+            }
+            bordered={false}
+            style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
+          >
+            {chartLoading ? (
+              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spin />
+              </div>
+            ) : (
+              <div style={{ height: 300 }}>
+                <Pie {...pieConfig} />
+              </div>
+            )}
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} lg={12}>
-          <Card title={<Space><BarChartOutlined /><span>每日订单量</span></Space>} bordered={false} style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            {chartLoading ? <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div> : <div style={{ height: 300 }}><Column {...columnConfig} /></div>}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title={<Space><RiseOutlined /><span>近7天营收趋势</span></Space>} bordered={false} style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-            {chartLoading ? <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div> : <div style={{ height: 300 }}><Line {...revenueConfig} /></div>}
+        <Col span={24}>
+          <Card
+            title={
+              <Space>
+                <LineChartOutlined />
+                <span>{rangeLabel}营收趋势（元）</span>
+              </Space>
+            }
+            bordered={false}
+            style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
+          >
+            {chartLoading ? (
+              <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spin />
+              </div>
+            ) : (
+              <div style={{ height: 280 }}>
+                <Line {...revenueConfig} />
+              </div>
+            )}
           </Card>
         </Col>
       </Row>
 
-      {/* 最近订单 */}
-      <Card title={<Space><AlertOutlined /><span>最近订单</span></Space>} bordered={false} style={{ borderRadius: 8, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
-        <Table columns={columns} dataSource={orders} rowKey="id" loading={loading} pagination={false} size="middle" />
+      <Card
+        title="最近订单"
+        bordered={false}
+        style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
+      >
+        <Table
+          columns={columns}
+          dataSource={orders}
+          rowKey="id"
+          loading={loading}
+          pagination={false}
+          size="middle"
+        />
       </Card>
     </div>
   );

@@ -1,0 +1,53 @@
+@import '../../styles/design-tokens';
+
+.tf-footer-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  min-height: 120rpx;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32rpx;
+  @include safe-area-bottom;
+  box-shadow: $shadow-top;
+  z-index: 1000;
+
+  &__left {
+    display: flex;
+    align-items: baseline;
+  }
+
+  &__label {
+    font-size: $font-sm;
+    color: $text-primary;
+  }
+
+  &__total {
+    font-size: $font-2xl;
+    color: $primary;
+    font-weight: $weight-bold;
+  }
+
+  &__action {
+    padding: 20rpx 60rpx;
+    background: $gradient-brand;
+    color: #fff;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    border-radius: 40rpx;
+    box-shadow: $shadow-btn;
+
+    &.is-disabled {
+      background: $gray-300;
+      box-shadow: none;
+      pointer-events: none;
+    }
+
+    &:active {
+      transform: scale(0.96);
+    }
+  }
+}

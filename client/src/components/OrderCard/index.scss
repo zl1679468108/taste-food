@@ -1,0 +1,79 @@
+@import '../../styles/design-tokens';
+
+.tf-order-card {
+  background: #fff;
+  margin: 10px 12px;
+  border-radius: $radius-lg;
+  padding: 16px;
+  box-shadow: $shadow-sm;
+
+  &:active {
+    opacity: 0.85;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  &__shop {
+    font-size: 15px;
+    font-weight: $weight-medium;
+    color: $text-primary;
+  }
+
+  &__status {
+    font-size: 13px;
+    font-weight: $weight-medium;
+    padding: 2px 10px;
+    border-radius: 10px;
+  }
+
+  &__goods {
+    margin-bottom: 10px;
+  }
+
+  &__goods-item {
+    font-size: 13px;
+    color: $gray-600;
+    line-height: 1.6;
+    display: block;
+
+    &--more {
+      color: $gray-400;
+    }
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid $gray-100;
+    padding-top: 10px;
+  }
+
+  &__time {
+    font-size: 12px;
+    color: $gray-500;
+  }
+
+  &__total {
+    font-size: 14px;
+    color: $text-primary;
+  }
+
+  &__total-price {
+    color: $primary;
+    font-weight: $weight-semibold;
+    font-size: 16px;
+  }
+
+  &__actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+}

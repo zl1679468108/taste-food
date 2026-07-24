@@ -1,0 +1,27 @@
+:root {
+  --tf-primary: #FF6B35;
+  --tf-primary-light: #FFF0EB;
+  --tf-primary-dark: #E55A2B;
+  --tf-success: #00C853;
+  --tf-warning: #FFB300;
+  --tf-danger: #FF5252;
+  --tf-gray-100: #F5F5F5;
+  --tf-gray-200: #EEEEEE;
+  --tf-text: #212121;
+  --tf-text-secondary: #757575;
+  --tf-radius: 8px;
+  --tf-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+body {
+  color: var(--tf-text);
+}
+
+.tf-page {
+  padding: 0;
+}
+
+.tf-table-card {
+  border-radius: var(--tf-radius);
+  box-shadow: var(--tf-shadow);
+}

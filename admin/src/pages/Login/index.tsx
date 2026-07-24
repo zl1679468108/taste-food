@@ -1,16 +1,31 @@
 import React, { useState } from 'react';
-import { Card, Button, Typography, Space, Divider, message } from 'antd';
-import { ShopOutlined, SafetyOutlined } from '@ant-design/icons';
+import { Card, Button, Typography, Space, Divider, message, Form, Input } from 'antd';
+import { ShopOutlined, SafetyOutlined, UserOutlined, LockOutlined } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
 import { loginAsAdmin } from '@/services/auth';
+import { brand } from '@/theme';
 
 const { Title, Text, Paragraph } = Typography;
 
+interface LoginFormValues {
+  username: string;
+  password: string;
+}
+
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [form] = Form.useForm<LoginFormValues>();
   const { setInitialState } = useModel('@@initialState');
 
-  const handleLogin = async () => {
+  const handleLogin = async (values?: LoginFormValues) => {
+    // 开发态：账号密码仅做前端校验，实际走模拟管理员登录
+    if (values) {
+      if (!values.username?.trim() || !values.password?.trim()) {
+        message.warning('请输入账号和密码');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const result = await loginAsAdmin();
@@ -20,7 +35,6 @@ const LoginPage: React.FC = () => {
           localStorage.setItem('refreshToken', result.refreshToken);
         }
         localStorage.setItem('user', JSON.stringify(result));
-        // 立即刷新全局 initialState，让 access 权限即时生效（避免依赖路由跳转后重新拉取）
         await setInitialState((s) => ({
           ...s,
           currentUser: {
@@ -45,17 +59,19 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '20px',
-    }}>
-      <Card 
-        style={{ 
-          width: 420, 
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: `linear-gradient(135deg, ${brand.primary} 0%, ${brand.primaryDark} 100%)`,
+        padding: '20px',
+      }}
+    >
+      <Card
+        style={{
+          width: 420,
           textAlign: 'center',
           borderRadius: 12,
           boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
@@ -63,46 +79,65 @@ const LoginPage: React.FC = () => {
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div>
-            <div style={{ 
-              fontSize: 64, 
-              lineHeight: '64px',
-              marginBottom: 16,
-            }}>
-              🍜
-            </div>
-            <Title level={2} style={{ marginBottom: 8 }}>小买卖管理后台</Title>
+            <div style={{ fontSize: 64, lineHeight: '64px', marginBottom: 16 }}>🍜</div>
+            <Title level={2} style={{ marginBottom: 8 }}>
+              小买卖管理后台
+            </Title>
             <Text type="secondary">商家管理系统</Text>
           </div>
 
           <Divider />
-          
-          <div>
-            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              点击下方按钮以管理员身份登录
-            </Paragraph>
-            <Button 
-              type="primary" 
-              size="large" 
-              block 
-              loading={loading}
-              onClick={handleLogin}
-              icon={<SafetyOutlined />}
-              style={{ height: 48, fontSize: 16 }}
+
+          <Form
+            form={form}
+            layout="vertical"
+            requiredMark={false}
+            onFinish={handleLogin}
+            initialValues={{ username: 'admin', password: 'admin123' }}
+            style={{ textAlign: 'left' }}
+          >
+            <Form.Item
+              name="username"
+              label="账号"
+              rules={[{ required: true, message: '请输入账号' }]}
             >
-              管理员登录
+              <Input
+                prefix={<UserOutlined />}
+                placeholder="请输入账号"
+                size="large"
+                autoComplete="username"
+              />
+            </Form.Item>
+            <Form.Item
+              name="password"
+              label="密码"
+              rules={[{ required: true, message: '请输入密码' }]}
+            >
+              <Input.Password
+                prefix={<LockOutlined />}
+                placeholder="请输入密码"
+                size="large"
+                autoComplete="current-password"
+              />
+            </Form.Item>
+
+            <Button
+              type="primary"
+              htmlType="submit"
+              size="large"
+              block
+              loading={loading}
+              icon={<ShopOutlined />}
+            >
+              登录管理后台
             </Button>
-          </div>
-          
-          <div style={{ 
-            background: '#f6f8fa', 
-            borderRadius: 8, 
-            padding: '12px 16px',
-            textAlign: 'left',
-          }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              <ShopOutlined style={{ marginRight: 8 }} />
-              登录后可管理菜品、订单、用户等
-            </Text>
+          </Form>
+
+          <div>
+            <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
+              <SafetyOutlined style={{ marginRight: 4 }} />
+              开发环境使用模拟登录（任意账号密码即可）
+            </Paragraph>
           </div>
         </Space>
       </Card>

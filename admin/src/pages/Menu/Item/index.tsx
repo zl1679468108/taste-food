@@ -1,28 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
 import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getCategories, MenuItem, Category } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
+import SearchFilterBar from '@/components/SearchFilterBar';
+import { useCrudModal } from '@/hooks/useCrudModal';
+import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import PriceDisplay from '@/components/PriceDisplay';
+import ImageUpload from '@/components/ImageUpload';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 const { TextArea } = Input;
 
 const MenuItemPage: React.FC = () => {
+  const [searchText, setSearchText] = useState('');
+  const [filterCategoryId, setFilterCategoryId] = useState<string | undefined>();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
-  const [form] = Form.useForm();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [itemsRes, categoriesRes] = await Promise.all([
@@ -33,26 +31,33 @@ const MenuItemPage: React.FC = () => {
       setCategories(categoriesRes || []);
     } catch (error) {
       console.error('加载数据失败:', error);
+      message.error('加载菜品失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleAdd = () => {
-    setEditingItem(null);
-    form.resetFields();
-    setModalVisible(true);
-  };
-
-  const handleEdit = (record: MenuItem) => {
-    setEditingItem(record);
-    // 后端按分存储，表单按元展示
-    form.setFieldsValue({
+  const {
+    form,
+    visible: modalVisible,
+    submitting,
+    editing: editingItem,
+    openCreate: handleAdd,
+    openEdit: handleEdit,
+    close: closeModal,
+    submit: submitModal,
+  } = useCrudModal<MenuItem>({
+    onSuccess: loadData,
+    mapRecordToForm: (record) => ({
       ...record,
+      // 后端按分存储，表单按元展示
       price: record.price != null ? record.price / 100 : undefined,
-    });
-    setModalVisible(true);
-  };
+    }),
+  });
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -64,33 +69,21 @@ const MenuItemPage: React.FC = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    try {
-      const values = await form.validateFields();
-      setSubmitting(true);
-      // 表单按元输入，提交时转分（整数）
-      const payload: Partial<MenuItem> = {
-        ...values,
-        price: Math.round(values.price * 100),
-        shopId: DEFAULT_SHOP_ID,
-      };
-      if (editingItem) {
-        await updateMenuItem(editingItem.id, payload);
-        message.success('更新成功');
-      } else {
-        await createMenuItem(payload);
-        message.success('创建成功');
-      }
-      setModalVisible(false);
-      loadData();
-    } catch (error) {
-      if ((error as { errorFields?: unknown })?.errorFields) return; // 表单校验失败，不提示
-      console.error('提交失败:', error);
-      message.error('操作失败');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const handleSubmit = () =>
+    submitModal({
+      create: (values) =>
+        createMenuItem({
+          ...values,
+          price: Math.round(Number(values.price) * 100),
+          shopId: DEFAULT_SHOP_ID,
+        } as any),
+      update: (id, values) =>
+        updateMenuItem(id, {
+          ...values,
+          price: Math.round(Number(values.price) * 100),
+          shopId: DEFAULT_SHOP_ID,
+        } as any),
+    });
 
   const columns = [
     {
@@ -141,6 +134,14 @@ const MenuItemPage: React.FC = () => {
     },
   ];
 
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      const matchName = !searchText || item.name?.includes(searchText.trim());
+      const matchCat = !filterCategoryId || item.categoryId === filterCategoryId;
+      return matchName && matchCat;
+    });
+  }, [items, searchText, filterCategoryId]);
+
   return (
     <div >
       <PageHeaderActions
@@ -151,15 +152,26 @@ const MenuItemPage: React.FC = () => {
         onRefresh={loadData}
       />
 
+            <SearchFilterBar
+        searchPlaceholder="搜索菜品名称"
+        onSearch={setSearchText}
+        onSearchClear={() => setSearchText('')}
+        filterPlaceholder="按分类筛选"
+        filterValue={filterCategoryId}
+        filterOptions={categories.map((c) => ({ label: c.name, value: c.id }))}
+        onFilterChange={setFilterCategoryId}
+      />
       <TableCard>
-        <Table columns={columns} dataSource={items} rowKey="id" loading={loading} />
+        <Table columns={columns} dataSource={filteredItems} rowKey="id" loading={loading} 
+        pagination={DEFAULT_TABLE_PAGINATION}
+      />
       </TableCard>
 
       <Modal
         title={editingItem ? '编辑菜品' : '新增菜品'}
         open={modalVisible}
         onOk={handleSubmit}
-        onCancel={() => setModalVisible(false)}
+        onCancel={closeModal}
         confirmLoading={submitting}
         okText="保存"
         width={600}
@@ -181,8 +193,24 @@ const MenuItemPage: React.FC = () => {
           <Form.Item name="description" label="描述" rules={[{ max: 200, message: '描述不超过 200 字' }]}>
             <TextArea rows={3} />
           </Form.Item>
-          <Form.Item name="imageUrl" label="图片URL" rules={[{ type: 'url', message: '请输入合法的 URL' }]}>
-            <Input placeholder="https://..." />
+          <Form.Item
+            name="imageUrl"
+            label="菜品图片"
+            rules={[
+              {
+                validator: async (_, value) => {
+                  if (!value) return;
+                  try {
+                    // eslint-disable-next-line no-new
+                    new URL(value);
+                  } catch {
+                    throw new Error('请输入合法的 URL');
+                  }
+                },
+              },
+            ]}
+          >
+            <ImageUpload />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="active">
             <Select>

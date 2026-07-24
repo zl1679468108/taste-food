@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Tag, Typography, Avatar, Card, Space, Button } from 'antd';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Table, Tag, Typography, Avatar, Card, Space, Button, Input, Select, message} from 'antd';
 import { UserOutlined, TeamOutlined, ReloadOutlined } from '@ant-design/icons';
 import { getUsers, User } from '@/services/user';
+import SearchFilterBar from '@/components/SearchFilterBar';
 import { formatTime } from '@/utils/format';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import TableCard from '@/components/TableCard';
 
 const { Title, Text } = Typography;
 
 const UserPage: React.FC = () => {
+  const [searchText, setSearchText] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string | undefined>();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -24,6 +29,7 @@ const UserPage: React.FC = () => {
       setTotal(res?.total || 0);
     } catch (error) {
       console.error('加载用户失败:', error);
+      message.error('加载用户失败');
     } finally {
       setLoading(false);
     }
@@ -45,7 +51,7 @@ const UserPage: React.FC = () => {
           src={url}
           icon={<UserOutlined />}
           size={40}
-          style={{ backgroundColor: '#1890ff' }}
+          style={{ backgroundColor: '#FF6B35' }}
         />
       ),
     },
@@ -72,28 +78,40 @@ const UserPage: React.FC = () => {
     },
   ];
 
-  return (
-    <div >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <TeamOutlined style={{ marginRight: 8 }} />
-          用户管理
-        </Title>
-        <Button icon={<ReloadOutlined />} onClick={loadUsers}>
-          刷新
-        </Button>
-      </div>
+  const filteredUsers = useMemo(() => {
+    return users.filter((u) => {
+      const name = (u.nickName || '').toLowerCase();
+      const matchName = !searchText.trim() || name.includes(searchText.trim().toLowerCase());
+      const matchRole = !roleFilter || u.role === roleFilter;
+      return matchName && matchRole;
+    });
+  }, [users, searchText, roleFilter]);
 
-      <Card
-        bordered={false}
-        style={{
-          borderRadius: 8,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        }}
-      >
-        <Table
+  return (
+    <div>
+      <PageHeaderActions
+      icon={<TeamOutlined style={{ marginRight: 8 }} />}
+      title="用户管理"
+      onRefresh={loadUsers}
+    />
+
+      <TableCard>
+              <SearchFilterBar
+        searchPlaceholder="搜索用户昵称"
+        onSearch={setSearchText}
+        onSearchClear={() => setSearchText('')}
+        filterPlaceholder="按角色筛选"
+        filterValue={roleFilter}
+        filterOptions={[
+          { label: '顾客', value: 'customer' },
+          { label: '商家', value: 'admin' },
+          { label: '骑手', value: 'rider' },
+        ]}
+        onFilterChange={setRoleFilter}
+      />
+      <Table
           columns={columns}
-          dataSource={users}
+          dataSource={filteredUsers}
           rowKey="id"
           loading={loading}
           pagination={{
@@ -101,11 +119,12 @@ const UserPage: React.FC = () => {
             total,
             pageSize: 10,
             onChange: setPage,
-            showSizeChanger: false,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50'],
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
-      </Card>
+      </TableCard>
     </div>
   );
 };

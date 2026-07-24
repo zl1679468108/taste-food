@@ -51,6 +51,7 @@ const MenuManagePage = () => {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategorySort, setNewCategorySort] = useState('0');
   const [addCategoryVisible, setAddCategoryVisible] = useState(false);
+  const [formSubmitting, setFormSubmitting] = useState(false);
 
   /** 加载数据 */
   const loadData = async () => {
@@ -180,6 +181,7 @@ const MenuManagePage = () => {
 
   /** 保存菜品表单 */
   const saveItemForm = async () => {
+    if (formSubmitting) return;
     if (!formName || !formPrice) {
       Taro.showToast({ title: '请填写名称和价格', icon: 'none' });
       return;
@@ -196,11 +198,12 @@ const MenuManagePage = () => {
       description: formDescription,
       price: priceInFen,
       categoryId: formCategoryId,
-        shopId: DEFAULT_SHOP_ID,
+      shopId: DEFAULT_SHOP_ID,
       status: formStatus,
       imageUrl: formImageUrl,
     };
 
+    setFormSubmitting(true);
     try {
       if (formMode.type === 'create') {
         await post<any>('/menu-items', data);
@@ -214,6 +217,8 @@ const MenuManagePage = () => {
       loadData();
     } catch (error: any) {
       console.error('保存菜品失败:', error);
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -258,8 +263,8 @@ const MenuManagePage = () => {
 
   /** 保存分类编辑 */
   const saveCategoryEdit = async () => {
-    if (!editCategoryItem) return;
-
+    if (!editCategoryItem || formSubmitting) return;
+    setFormSubmitting(true);
     try {
       await httpPatch(`/categories/${editCategoryItem.id}`, {
         name: editCategoryName,
@@ -270,6 +275,8 @@ const MenuManagePage = () => {
       loadData();
     } catch (error: any) {
       console.error('更新分类失败:', error);
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -295,15 +302,17 @@ const MenuManagePage = () => {
 
   /** 添加分类 */
   const addCategory = async () => {
+    if (formSubmitting) return;
     if (!newCategoryName) {
       Taro.showToast({ title: '请输入分类名称', icon: 'none' });
       return;
     }
 
+    setFormSubmitting(true);
     try {
       await post<any>('/categories', {
         name: newCategoryName,
-      shopId: DEFAULT_SHOP_ID,
+        shopId: DEFAULT_SHOP_ID,
         sortOrder: parseInt(newCategorySort, 10) || 0,
       });
       Taro.showToast({ title: '分类创建成功', icon: 'success' });
@@ -313,6 +322,8 @@ const MenuManagePage = () => {
       loadData();
     } catch (error: any) {
       console.error('创建分类失败:', error);
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -384,7 +395,7 @@ const MenuManagePage = () => {
                   style={{
                     padding: '6px 16px',
                     borderRadius: 16,
-                    background: 'linear-gradient(135deg, #e74c3c, #f39c12)',
+                    background: 'linear-gradient(135deg, #FF6B35, #FF8F65)',
                     color: '#fff',
                     fontSize: 13,
                     fontWeight: 500,
@@ -620,7 +631,7 @@ const MenuManagePage = () => {
                 style={{
                   height: 40,
                   borderRadius: 20,
-                  background: 'linear-gradient(135deg, #e74c3c, #f39c12)',
+                  background: 'linear-gradient(135deg, #FF6B35, #FF8F65)',
                   color: '#fff',
                   display: 'flex',
                   alignItems: 'center',
@@ -727,7 +738,7 @@ const MenuManagePage = () => {
                   flex: 1,
                   height: 40,
                   borderRadius: 20,
-                  background: 'linear-gradient(135deg, #e74c3c, #f39c12)',
+                  background: 'linear-gradient(135deg, #FF6B35, #FF8F65)',
                   color: '#fff',
                   display: 'flex',
                   alignItems: 'center',

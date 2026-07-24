@@ -86,7 +86,7 @@
             flex: 1;
           }
           .price {
-            color: #e74c3c;
+            color: #FF6B35;
             font-weight: bold;
           }
         }
@@ -103,7 +103,12 @@
           font-size: 14px;
           font-weight: bold;
 
-          &.grab-btn {
+          &.btn.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.grab-btn {
             background: #ff6b35;
             color: #fff;
           }

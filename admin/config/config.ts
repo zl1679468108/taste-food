@@ -1,3 +1,4 @@
+import { antdTheme } from '../src/theme';
 import { defineConfig } from '@umijs/max';
 import path from 'node:path';
 import routes from './routes';
@@ -7,7 +8,9 @@ import proxy from './proxy';
 const sharedPath = path.resolve(__dirname, '../../packages/shared/src');
 
 export default defineConfig({
-  antd: {},
+  antd: {
+    theme: antdTheme,
+  },
   access: {},
   model: {},
   initialState: {},

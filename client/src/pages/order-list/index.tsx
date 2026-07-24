@@ -3,12 +3,14 @@ import { View, Text, ScrollView } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
-import { formatPriceWithSymbol, formatRelativeTime } from '../../utils/format';
-import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP } from '../../utils/constants';
-import { Order, OrderItem, OrderStatus } from '../../types/order';
+import { Order, OrderStatus } from '../../types/order';
 import { PaginatedData } from '../../types/api';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
+import FilterTabs from '../../components/FilterTabs';
+import OrderCard from '../../components/OrderCard';
+import EmptyState from '../../components/EmptyState';
+import SkeletonLoader from '../../components/SkeletonLoader';
 import './index.scss';
 
 const FILTER_TABS = [
@@ -136,16 +138,11 @@ const OrderListPage = () => {
   };
 
   /** 获取状态颜色 */
-  const getStatusColor = (status: string): string => {
-    return ORDER_STATUS_COLOR_MAP[status] || '#999';
-  };
 
   if (loading) {
     return (
       <View className='order-list-page'>
-        <View className='list-loading'>
-          <Text>加载中...</Text>
-        </View>
+        <SkeletonLoader mode='card' count={4} />
       </View>
     );
   }
@@ -153,138 +150,63 @@ const OrderListPage = () => {
   if (!isLoggedIn) {
     return (
       <View className='order-list-page'>
-        <View className='empty-state'>
-          <Text className='empty-state__icon'>🔒</Text>
-          <Text className='empty-state__text'>请先登录</Text>
-          <View
-            style={{
-              marginTop: 16,
-              padding: '8px 24px',
-              background: '#e74c3c',
-              color: '#fff',
-              borderRadius: 20,
-              fontSize: 14,
-            }}
-            onClick={() => Taro.navigateTo({ url: '/pages/auth/login' })}
-          >
-            去登录
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  if (orders.length === 0) {
-    return (
-      <View className='order-list-page'>
-        <View className='empty-state'>
-          <Text className='empty-state__icon'>📋</Text>
-          <Text className='empty-state__text'>暂无订单</Text>
-          <Text
-            style={{
-              marginTop: 8,
-              fontSize: 13,
-              color: '#bbb',
-            }}
-          >
-            去点餐页面挑选美食吧
-          </Text>
-          <View
-            style={{
-              marginTop: 16,
-              padding: '8px 24px',
-              background: '#e74c3c',
-              color: '#fff',
-              borderRadius: 20,
-              fontSize: 14,
-            }}
-            onClick={() => Taro.switchTab({ url: '/pages/menu/index' })}
-          >
-            去点餐
-          </View>
-        </View>
+        <EmptyState
+          icon='🔒'
+          title='请先登录'
+          description='登录后可查看订单'
+          actionText='去登录'
+          onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
+        />
       </View>
     );
   }
 
   return (
     <View className='order-list-page'>
-      {/* 筛选 Tab */}
-      <View className='filter-tabs'>
-        {FILTER_TABS.map((tab) => (
-          <View
-            key={tab.key}
-            className={`filter-tab ${activeFilter === tab.key ? 'filter-tab--active' : ''}`}
-            onClick={() => switchFilter(tab.key)}
-          >
-            <Text>{tab.label}</Text>
-          </View>
-        ))}
-      </View>
+      <FilterTabs
+        tabs={FILTER_TABS}
+        activeKey={activeFilter}
+        onChange={switchFilter}
+      />
 
-      <ScrollView
-        scrollY
-        style={{ height: 'calc(100vh - 48px)' }}
-        onScrollToLower={() => loadMore()}
-        enhanced
-        showScrollbar={false}
-      >
-        {orders.map((order) => (
-          <View
-            key={order.id}
-            className='order-card'
-            onClick={() => goToDetail(order.id)}
-          >
-            <View className='order-card__header'>
-              <Text className='order-card__shop'>{shopName || '店铺'}</Text>
-              <Text
-                className='order-card__status'
-                style={{
-                  color: getStatusColor(order.status),
-                  background: `${getStatusColor(order.status)}15`,
-                }}
-              >
-                {ORDER_STATUS_MAP[order.status] || order.status}
-              </Text>
-            </View>
-            <View className='order-card__goods'>
-              {order.items.slice(0, 3).map((item) => (
-                <Text key={item.id} className='order-card__goods-item'>
-                  {item.name} x{item.quantity}
-                </Text>
-              ))}
-              {order.items.length > 3 && (
-                <Text className='order-card__goods-item' style={{ color: '#ccc' }}>
-                  等 {order.items.length} 件商品
-                </Text>
-              )}
-            </View>
-            <View className='order-card__footer'>
-              <Text className='order-card__time'>
-                {formatRelativeTime(order.createdAt)}
-              </Text>
-              <Text className='order-card__total'>
-                合计{' '}
-                <Text className='order-card__total-price'>
-                  {formatPriceWithSymbol(order.total)}
-                </Text>
-              </Text>
-            </View>
-          </View>
-        ))}
+      {orders.length === 0 ? (
+        <EmptyState
+          icon='📋'
+          title='暂无订单'
+          description='去点一份喜欢的吧'
+          actionText='去点餐'
+          onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
+        />
+      ) : (
+        <ScrollView
+          scrollY
+          style={{ height: 'calc(100vh - 48px)' }}
+          onScrollToLower={() => loadMore()}
+          enhanced
+          showScrollbar={false}
+        >
+          {orders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              shopName={shopName || '店铺'}
+              onClick={() => goToDetail(order.id)}
+            />
+          ))}
 
-        {loadingMore && (
-          <View className='load-more'>
-            <Text>加载中...</Text>
-          </View>
-        )}
+          {loadingMore && (
+            <View className='load-more'>
+              <Text>加载中...</Text>
+            </View>
+          )}
 
-        {!hasMore && orders.length > 0 && (
-          <View className='load-more'>
-            <Text>—— 没有更多了 ——</Text>
-          </View>
-        )}
-      </ScrollView>
+          {!hasMore && orders.length > 0 && (
+            <View className='load-more'>
+              <Text>—— 没有更多了 ——</Text>
+            </View>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 };
