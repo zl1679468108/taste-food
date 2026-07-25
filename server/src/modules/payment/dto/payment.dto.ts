@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, Min } from 'class-validator';
+import { IsString, IsOptional } from 'class-validator';
 
 export class PayOrderDto {
   @IsString()
@@ -10,8 +10,7 @@ export class PayOrderDto {
 }
 
 /**
- * 微信小程序支付参数（uni.requestPayment / Taro.requestPayment 需要）
- * 后端调用微信统一下单 API 后返回，前端透传给 requestPayment
+ * 微信小程序支付参数（Taro.requestPayment 需要）
  */
 export interface WxPayParams {
   timeStamp: string;
@@ -27,9 +26,10 @@ export class PaymentResponseDto {
   amount!: number;
   status!: string;
   paidAt!: string;
-  // 标注是否为模拟支付，真实微信支付时为 false 或不存在
+  /** 是否沙箱/模拟支付 */
   mock?: boolean;
-  // 真实微信支付参数：存在时前端需调起 Taro.requestPayment
-  // 仅当生产环境接入真实微信支付后返回
+  /** 支付渠道：sandbox | wechat | third_party */
+  provider?: 'sandbox' | 'wechat' | 'third_party';
+  /** 真实微信支付参数：存在时前端调起 Taro.requestPayment */
   wxPayParams?: WxPayParams;
 }

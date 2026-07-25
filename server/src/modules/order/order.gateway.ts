@@ -19,6 +19,16 @@ interface JoinRoomPayload {
   role?: string;
 }
 
+interface DeliveryTrackEventPayload {
+  orderId: string;
+  shopId: string;
+  userId: string;
+  riderId?: string;
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
+}
+
 @WebSocketGateway({
   namespace: '/orders',
   cors: {
@@ -68,6 +78,25 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return `shop:${shopId}`;
   }
 
+  private riderRoom(): string {
+    return 'role:rider';
+  }
+
+  /**
+   * 将外送订单事件发送给未绑定当前店铺的骑手。
+   * 店铺房间已经覆盖绑定该店铺的骑手，排除它可避免同一事件重复到达。
+   */
+  private emitToRidersOutsideShop(
+    shopId: string,
+    event: string,
+    payload: Record<string, unknown>,
+  ): void {
+    this.server
+      .to(this.riderRoom())
+      .except(this.shopRoom(shopId))
+      .emit(event, payload);
+  }
+
   async handleConnection(client: Socket): Promise<void> {
     const payload = await this.verifyClient(client);
     if (!payload) {
@@ -100,6 +129,12 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // 顾客额外加入个人房间（用于跨设备推送）
     if (payload.role === UserRole.CUSTOMER) {
       client.join(`user:${payload.userId}`);
+    }
+
+    // 骑手加入通用房间：无 shopId 也能收到外送池事件；有 shopId 时双收
+    if (payload.role === UserRole.RIDER) {
+      client.join(this.riderRoom());
+      this.logger.log(`客户端加入 role:rider 房间: ${client.id}`);
     }
   }
 
@@ -148,6 +183,9 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
       remark: order.remark,
       contactName: order.contactName,
       contactPhone: order.contactPhone,
+      invoiceNeeded: !!order.invoiceNeeded,
+      invoiceTitle: order.invoiceTitle,
+      invoiceTaxNo: order.invoiceTaxNo,
       items: (order.items || []).map((item) => ({
         id: item.id,
         orderId: item.orderId,
@@ -163,17 +201,52 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     };
   }
 
+  /**
+   * 商家提醒用摘要字段：保证客户端无需深挖 order 对象即可展示横幅/角标。
+   * 保留完整 order，兼容旧监听逻辑。
+   */
+  private buildOrderEventPayload(
+    order: OrderRecord,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const serialized = this.serializeOrder(order);
+    const items = order.items || [];
+    // 件数优先用数量合计，便于商家横幅展示；无明细时回退 0
+    const itemCount = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+    return {
+      // 商家提醒必填摘要字段（客户端可不依赖嵌套 order）
+      orderId: order.id || '',
+      shopId: order.shopId || '',
+      total: Number(order.total) || 0,
+      deliveryType: order.deliveryType || '',
+      status: order.status || '',
+      itemCount,
+      contactName: order.contactName || '',
+      contactPhone: order.contactPhone || '',
+      tableNo: order.tableNo || '',
+      address: order.address || '',
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      order: serialized,
+      ...extra,
+    };
+  }
+
   emitOrderCreated(order: OrderRecord): void {
     if (!this.server) {
       this.logger.warn('[WS] server 未初始化，跳过 order:created 推送');
       return;
     }
-    const serialized = this.serializeOrder(order);
+    const payload = this.buildOrderEventPayload(order, { event: 'created' });
     // 仅推送给该店铺房间，避免跨店铺数据泄露
-    this.server.to(this.shopRoom(order.shopId)).emit('order:created', {
-      order: serialized,
-    });
-    this.logger.log(`[WS] 新订单推送: orderId=${order.id}, shopId=${order.shopId}, total=${order.total}`);
+    this.server.to(this.shopRoom(order.shopId)).emit('order:created', payload);
+    // 外送单额外推到骑手通用房间
+    if (order.deliveryType === 'delivery') {
+      this.emitToRidersOutsideShop(order.shopId, 'order:created', payload);
+    }
+    this.logger.log(
+      `[WS] order:created orderId=${order.id}, shopId=${order.shopId}, total=${order.total}, deliveryType=${order.deliveryType}`,
+    );
   }
 
   emitOrderUpdated(order: OrderRecord, previousStatus: string): void {
@@ -181,22 +254,57 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.warn('[WS] server 未初始化，跳过 order:updated 推送');
       return;
     }
-    const serialized = this.serializeOrder(order);
+    const payload = this.buildOrderEventPayload(order, {
+      event: 'updated',
+      previousStatus,
+    });
 
     // 推送给店铺房间（包含 admin/rider/该店铺内顾客）
-    this.server.to(this.shopRoom(order.shopId)).emit('order:updated', {
-      order: serialized,
-      previousStatus,
-    });
+    this.server.to(this.shopRoom(order.shopId)).emit('order:updated', payload);
 
     // 同时推送给订单所属顾客的个人房间（跨设备同步）
-    this.server.to(`user:${order.userId}`).emit('order:updated', {
-      order: serialized,
-      previousStatus,
-    });
+    this.server.to(`user:${order.userId}`).emit('order:updated', payload);
+
+    // 外送单额外推到骑手通用房间
+    if (order.deliveryType === 'delivery') {
+      this.emitToRidersOutsideShop(order.shopId, 'order:updated', payload);
+    }
 
     this.logger.log(
-      `[WS] 订单状态推送: orderId=${order.id}, shopId=${order.shopId}, ${previousStatus} -> ${order.status}`,
+      `[WS] order:updated orderId=${order.id}, shopId=${order.shopId}, ${previousStatus} -> ${order.status}, total=${order.total}, deliveryType=${order.deliveryType}`,
+    );
+  }
+
+  /**
+   * 商家侧「新待处理订单」事件：订单进入 paid 时触发。
+   * 同时发 order:new 与 order:paid，便于前端只订一种或两种。
+   */
+  emitOrderNew(order: OrderRecord, previousStatus = 'pending_payment'): void {
+    if (!this.server) {
+      this.logger.warn('[WS] server 未初始化，跳过 order:new/paid 推送');
+      return;
+    }
+    const payload = this.buildOrderEventPayload(order, {
+      event: 'new',
+      previousStatus,
+    });
+    const room = this.shopRoom(order.shopId);
+    this.server.to(room).emit('order:new', payload);
+    this.server.to(room).emit('order:paid', payload);
+    this.logger.log(
+      `[WS] order:new/paid orderId=${order.id}, shopId=${order.shopId}, total=${order.total}, deliveryType=${order.deliveryType}`,
+    );
+  }
+
+  emitDeliveryTrackUpdated(payload: DeliveryTrackEventPayload): void {
+    if (!this.server) {
+      this.logger.warn('[WS] server 未初始化，跳过 delivery:track 推送');
+      return;
+    }
+    this.server.to(this.shopRoom(payload.shopId)).emit('delivery:track', payload);
+    this.server.to(`user:${payload.userId}`).emit('delivery:track', payload);
+    this.logger.log(
+      `[WS] delivery:track orderId=${payload.orderId}, shopId=${payload.shopId}, recordedAt=${payload.recordedAt}`,
     );
   }
 }

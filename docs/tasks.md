@@ -9,6 +9,260 @@
 
 ## 当前待办
 
+### P1 — 旧库 schema 漂移兼容与上线冒烟（T180）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T180.1 | 订单状态/取消 RPC 缺失直更回退 | server | §4.4 / §5.1 / §6 | P1 | ✅ done 2026-07-25 | atomic_update_order_status / atomic_cancel_order 缺失时直更 tf_orders，保留状态校验与 WS 推送 |
+| T180.2 | 沙箱支付缺 RPC 时落库支付+改状态 | server | §4.5 / §6 | P1 | ✅ done 2026-07-25 | atomic_pay_order 缺失时渐进写入 tf_payments 并 updateStatus→paid |
+| T180.3 | 抢单/送达/轨迹旧库兼容 | server | §4.4 / §3.12 / §6 | P1 | ✅ done 2026-07-25 | rider_id 缺列内存归属；tf_delivery_tracks 缺表内存轨迹；骑手权限兼容 delivering 外送单 |
+| T180.4 | 全链路冒烟与质量门禁验收 | 部署 | §3.10 / §6 | P1 | ✅ done 2026-07-25 | create→pay→accept→prepare→grab→track→deliver→review 通过；server 53/53；quality:check 全绿 |
+
+### P2 — server 促销服务测试与生效窗口修复（T179）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T179.1 | 促销 CRUD 与生效窗口测试 | server | §4.6 / §6 | P2 | ✅ done 2026-07-25 | 覆盖 active/status、startDate/endDate、店铺筛选、更新删除与 404 |
+| T179.2 | 订单促销折扣计算测试 | server | §4.4 / §4.6 / §6 | P2 | ✅ done 2026-07-25 | 覆盖满减最大优惠、未来活动不提前生效、首单优惠仅首单 |
+
+
+### P2 — server 门店服务测试与免配送费修复（T178）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T178.1 | 门店创建/营业时段测试 | server | §3.12 / §4.2 / §6 | P2 | ✅ done 2026-07-25 | 覆盖免配送费保留、营业时段规范化、营业状态与可下单标记 |
+| T178.2 | 门店更新/开关/删除测试 | server | §3.12 / §4.2 / §6 | P2 | ✅ done 2026-07-25 | 覆盖营业时段非法值、开关店、开放店铺筛选、删除后 404 |
+
+
+### P2 — server 桌台服务测试与校验补强（T177）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T177.1 | 桌台 seed/list/create 测试 | server | §3.14 / §4.2 / §6 | P2 | ✅ done 2026-07-25 | 覆盖默认 A01-A10、启用筛选、scanPath、排序与重复桌号 |
+| T177.2 | 桌台 update/delete 校验测试 | server | §3.14 / §4.2 / §6 | P2 | ✅ done 2026-07-25 | 覆盖更新字段、空白桌号拒绝、跨店/缺失桌台 404 与删除 |
+
+
+### P2 — server 审计日志服务测试（T176）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T176.1 | 审计写入与字段规范测试 | server | §3.16 / §4.11 / §6 | P2 | ✅ done 2026-07-25 | 覆盖内存回退写入、长字段截断、新日志倒序 |
+| T176.2 | 审计列表筛选与容量测试 | server | §3.16 / §4.11 / §6 | P2 | ✅ done 2026-07-25 | 覆盖 shop/method/action 筛选、分页边界、内存上限 |
+
+
+### P2 — server 评价服务测试（T175）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T175.1 | 评价提交与查询测试 | server | §3.12 / §4.10 / §6 | P2 | ✅ done 2026-07-25 | 覆盖 completed 本人提交、非本人/未完成/重复/非法载荷拒绝、查询本人评价 |
+| T175.2 | 评价列表与商家回复测试 | server | §3.15 / §4.10 / §6 | P2 | ✅ done 2026-07-25 | 覆盖店铺筛选分页、商家回复、缺失评价/空回复/跨店回复拒绝 |
+
+
+### P2 — server 地址簿服务测试（T174）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T174.1 | 地址簿默认地址与筛选测试 | server | §3.12 / §4.9 / §6 | P2 | ✅ done 2026-07-25 | 覆盖首条默认、默认互斥、删除默认迁移、按店铺筛选 |
+| T174.2 | 地址簿用户隔离与校验测试 | server | §3.12 / §4.9 / §6 | P2 | ✅ done 2026-07-25 | 覆盖跨用户访问/删除拒绝、空字段更新拒绝、缺失地址 404 |
+
+
+### P2 — 统一质量门禁脚本（T173）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T173.1 | 根级质量门禁脚本 | 部署 | §3.10 / §6 | P2 | ✅ done 2026-07-25 | npm run quality:check 串联 shared/server/client/admin typecheck/test/build；typecheck 固定使用各 workspace 本地 tsc，避免 npx 占位包误报；本地全量通过 |
+| T173.2 | CI 复用质量门禁 | 部署 | §3.10 / §6 | P2 | ✅ done 2026-07-25 | GitHub Actions 改为调用统一 quality gate，减少本地/CI 漂移 |
+
+
+### P2 — server 下单核价与门店约束测试（T172）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T172.1 | 下单服务端核价测试 | server | §4.4 / §5.1 / §6 | P2 | ✅ done 2026-07-25 | 覆盖忽略客户端价格、规格加价、非法规格拒绝 |
+| T172.2 | 门店与配送约束测试 | server | §4.4 / §5.1 / §6 | P2 | ✅ done 2026-07-25 | 覆盖配送费、起送价、关店/非营业、外送地址与堂食桌号必填 |
+
+
+### P2 — server 测试输出降噪（T171）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T171.1 | server 测试 setup 降噪 | server | §3.6 / §6 | P2 | ✅ done 2026-07-25 | 测试进程静音 Nest 正常日志与预期 Supabase 内存回退提示；npm test 输出干净 |
+
+
+### P2 — server 支付与订单状态测试（T170）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T170.1 | 沙箱支付服务测试 | server/payment | §4.5 / §5.2 / §6 | P2 | ✅ done 2026-07-25 | 覆盖支付成功、重复支付、他人订单支付、支付查询权限 |
+| T170.2 | 订单状态机服务测试 | server | §5.2 / §6 | P2 | ✅ done 2026-07-25 | 覆盖外卖完成路径、自取待取餐路径、禁止 preparing 直达 completed |
+
+
+### P2 — client 测试输出降噪（T169）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T169.1 | 测试环境日志收口 | client | §3.6 / §6 | P2 | ✅ done 2026-07-25 | 静音 env/cart/auth 正常路径日志；跳过测试环境 401 延迟 logout；全量 Jest 干净退出 |
+
+
+### P2 — client Sass 模块语法迁移（T168）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T168.1 | client SCSS @import 迁移 | client | §3.7 / §6 | P2 | ✅ done 2026-07-25 | 将 Dart Sass 弃用的 @import 替换为 @use；小程序构建无 Sass 弃用警告 |
+
+
+### P2 — server 测试基线补齐（T167）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T167.1 | server 测试命令接入 | server | §6 | P2 | ✅ done 2026-07-25 | 将占位 test script 替换为真实 Node test + ts-node 执行 |
+| T167.2 | 配送轨迹服务测试 | server | §3.17 / §6 | P2 | ✅ done 2026-07-25 | 覆盖外卖/配送中/骑手归属/轨迹写入与推送；4 tests passed |
+
+
+### P2 — admin 裸 TypeScript 门禁修复（T166）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T166.1 | Umi runtime 类型补齐 | admin | §6 | P2 | ✅ done 2026-07-25 | 补 @umijs/max runtime shim，裸 tsc 可识别 history/useModel/layout |
+| T166.2 | admin tsconfig monorepo 适配 | admin | §6 | P2 | ✅ done 2026-07-25 | rootDir 覆盖 workspace shared；关闭 side-effect CSS 严格误报 |
+| T166.3 | admin 显式类型收口 | admin | §6 | P2 | ✅ done 2026-07-25 | Login initialState 回调与 Category actionRef 类型补齐 |
+
+
+### P2 — 构建与测试基线修复（T165）— ✅ 2026-07-25
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T165.1 | client shared/asset/Jest/TS 配置修复 | client | §6 | P2 | ✅ done 2026-07-25 | 修复 @taste-food/shared alias、Jest 资源 mock、SCSS/图片声明、DEFAULT_PAGE_SIZE |
+| T165.2 | client 小程序构建修复 | client | §6 | P2 | ✅ done 2026-07-25 | shared 源码纳入 Taro compile；CSS 提取忽略顺序；补 design token 导入 |
+| T165.3 | admin 测试基线修复 | admin | §6 | P2 | ✅ done 2026-07-25 | Jest 映射 shared；admin shortOrderId 保持历史无 # 展示 |
+
+
+### P2 — 配送轨迹地图（T164）— ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T164.1 | 配送轨迹表与 API | server/database | §3.17 / §4.12 / §5.1 | P2 | ✅ done 2026-07-24 | tf_delivery_tracks；GET/POST /orders/:id/delivery-track；权限复用订单归属 |
+| T164.2 | 顾客订单详情地图 | client | §3.17 | P2 | ✅ done 2026-07-24 | 外卖订单展示 Taro Map、路线、骑手当前位置与最后更新时间 |
+| T164.3 | 骑手位置上报 | client | §3.17 | P2 | ✅ done 2026-07-24 | 配送中订单可上报定位；定位失败使用演示坐标兜底 |
+
+
+### P2 — 操作审计日志（T163）— ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T163.1 | 审计表与写入服务 | server | §3.16 | P2 | ✅ done 2026-07-24 | tf_audit_logs + AuditService 内存回退 |
+| T163.2 | 全局写操作拦截器 | server | §3.16 | P2 | ✅ done 2026-07-24 | Admin POST/PATCH/PUT/DELETE 成功后记录 |
+| T163.3 | 审计列表 API + admin 页 | server/admin | §3.16 | P2 | ✅ done 2026-07-24 | GET /audit-logs；/audit 列表筛选 |
+
+
+### P2 — 运营工具（导出/评价回复 T161-T162）— ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T161.1 | 订单 CSV 导出 API | server | §3.15 | P2 | ✅ done 2026-07-24 | GET /orders/export，最多 1000 条，含发票/备注/商品摘要 |
+| T161.2 | admin 导出按钮 | admin | §3.15 | P2 | ✅ done 2026-07-24 | 订单页导出当前筛选状态 CSV |
+| T162.1 | 评价商家回复字段与 API | server | §3.15 | P2 | ✅ done 2026-07-24 | reply_content/reply_at；PATCH /reviews/:id/reply |
+| T162.2 | 顾客端展示商家回复 | client | §3.15 | P2 | ✅ done 2026-07-24 | 订单详情只读评价展示回复 |
+| T162.3 | 商家端回复入口 | client | §3.15 | P2 | ✅ done 2026-07-24 | admin/reviews 回复弹窗 |
+
+
+### P2 — 桌号扫码入座（T160）— ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T160.1 | 桌台表与 CRUD API | server | §3.14 / §4.2 | P2 | ✅ done 2026-07-24 | tf_shop_tables；list/create/update/delete/seed；scanPath |
+| T160.2 | 扫码上下文与菜单横幅 | client | §3.14 | P2 | ✅ done 2026-07-24 | dine-context 解析 tableNo/scene；菜单横幅；确认页默认堂食 |
+| T160.3 | admin 桌台与二维码 | admin | §3.14 | P2 | ✅ done 2026-07-24 | /shop/tables 管理 + 打印辅助二维码 |
+
+
+### P2 — 体验收尾打磨（T159）— ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T159.1 | 收藏页一键加购 | client | §3.12 / §3.13 | P2 | ✅ done 2026-07-24 | 收藏卡片加购 + 去点餐 CTA；下架禁用 |
+| T159.2 | 菜单地址簿入口 | client | §3.12 / §3.13 | P2 | ✅ done 2026-07-24 | 菜单 header「地址」入口，登录校验 |
+| T159.3 | 新订单提示音资源 | client | §3.12 | P2 | ✅ done 2026-07-24 | assets/sounds/new-order.wav + socket 播放 |
+| T159.4 | server 构建 dist 可靠性 | server | §6 | P2 | ✅ done 2026-07-24 | tsconfig.build incremental=false，避免 dist 被删后不 emit |
+| T159.5 | 再来一单回填备注/规格 | client | §3.12 | P2 | ✅ done 2026-07-24 | reorder 回填 shopId/remark/specOptionIds |
+
+
+### P1 — 验收修复批次 — ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T158.1 | Public 路由可选 JWT，收藏回显 | server | §3.5 | P1 | ✅ done 2026-07-24 | Public 接口可选解析 JWT，登录用户菜单 isFavorite 可回显 |
+| T158.2 | 骑手 shopId/WS 房间 | server | §3.3 | P1 | ✅ done 2026-07-24 | rider mock 绑 shopId；join role:rider；外送事件双发 |
+| T158.3 | 抢单仅 PREPARING | server | §5.2 | P1 | ✅ done 2026-07-24 | 抢单池/grabOrder 仅 PREPARING 无骑手 |
+| T158.4 | 配送语义：自配送 vs 骑手池 | client/admin | §3.2 | P1 | ✅ done 2026-07-24 | 文案改为「开始配送（商家）」；delivering 不在抢单池 |
+| T158.5 | 关店禁下单 | server/client | §4.4 | P1 | ✅ done 2026-07-24 | 服务端 status/isOpenNow 拦截；菜单/确认页前端拦截 |
+| T158.6 | StatusTimeline ready_for_pickup | client | §5.2 | P1 | ✅ done 2026-07-24 | 按 deliveryType 区分外送/自取堂食进度 |
+| T158.7 | 订单 emit 状态时序 | server | §5.2 | P1 | ✅ done 2026-07-24 | cancelOrder 先改 status 再 emit |
+| T158.8 | 真机 env 注释/警告 | client | §6 | P1 | ✅ done 2026-07-24 | env 真机局域网 IP 说明 + dev console.warn |
+
+
+### P0 — 主路径阻断修复（验收回归）— ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T157.1 | 空 contactPhone 校验修复 | server/client | §4.4 | P0 | ✅ done 2026-07-24 | DTO ValidateIf 跳过空串；确认页空手机号不传字段 |
+| T157.2 | 规格加价服务端核价 | server/client | §4.4 | P0 | ✅ done 2026-07-24 | items.specOptionIds + 服务端累加 priceAdjust；下单透传 |
+| T157.3 | 堂食状态对齐 ready_for_pickup | client/admin | §5.2 | P0 | ✅ done 2026-07-24 | preparing 后自取/堂食均进 ready_for_pickup；禁止 preparing→completed |
+| T157.4 | 商家看板统计路径修复 | client | §4.4 | P0 | ✅ done 2026-07-24 | /orders/stats/:shopId → /orders/stats/today |
+| T157.5 | 订单 GET 禁用默认缓存 | client | §3.1 | P0 | ✅ done 2026-07-24 | request 对 /orders 默认不缓存，避免支付/接单后状态脏读 |
+
+
+### P2 — 体验增强（下一迭代）⏳
+
+> 对应 `prd.md` §3.12。支付/T43 不动。原子任务 15–60 分钟可完成。
+
+#### T151 商家新订单提醒强化 — §3.12
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T151.1 | 新订单实时事件补强 | server | §3.12 | P2 | ✅ done 2026-07-24 | WS order:new/paid + payload 摘要字段；支付成功路径 notifyPaid/updateStatus 双保险 |
+| T151.2 | 商家端提醒交互 | client | §3.12 | P2 | ✅ done 2026-07-24 | 振动 + 可选提示音；useDidShow 补拉 paid 待接单；商家页不在 tabBar 跳过角标 |
+| T151.3 | 新订单提醒 UI | client | §3.12 | P2 | ✅ done 2026-07-24 | 品牌色横幅：金额/配送/桌号地址摘要；查看 + 一键接单 |
+
+#### T152 营业时段管理 — §3.12
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T152.1 | 营业时段数据模型与 API | server | §3.12 / §5.1 | P2 | ✅ done 2026-07-24 | GET business-hours；PATCH business-hours；findById 返回 isOpenNow/nextOpenHint/businessHours；内存模式可用 |
+| T152.2 | 商家/admin 营业时段配置 | client/admin | §3.12 | P2 | ✅ done 2026-07-24 | PC admin 按星期编辑时段（每天一段）；start<end 校验；PATCH business-hours |
+| T152.3 | 顾客端非营业拦截 | client | §3.12 | P2 | ✅ done 2026-07-24 | 菜单页 isOpenNow=false 展示休息中+nextOpenHint；结算禁用兼容 status/isOpenNow |
+
+#### T153 顾客地址簿 — §3.12 — ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T153.1 | 地址簿表与 CRUD API | server | §3.12 / §4.9 | P2 | ✅ done 2026-07-24 | tf_addresses + list/create/update/delete/default；用户隔离 |
+| T153.2 | 地址簿列表与编辑页 | client | §3.12 | P2 | ✅ done 2026-07-24 | 列表/新增/编辑/删除/设默认；表单校验手机号 |
+| T153.3 | 确认订单接入地址簿 | client | §3.12 | P2 | ✅ done 2026-07-24 | 外卖单默认带出地址；可切换；无地址引导新增 |
+
+#### T154 订单评价 — §3.12 — ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T154.1 | 评价表与提交/查询 API | server | §3.12 / §4.10 | P2 | ✅ done 2026-07-24 | tf_reviews + POST/GET /orders/:id/reviews + GET /reviews |
+| T154.2 | 订单详情评价入口 | client | §3.12 | P2 | ✅ done 2026-07-24 | completed 评分+文字提交；已评只读 |
+| T154.3 | 商家端评价列表 | client | §3.12 | P2 | ✅ done 2026-07-24 | admin/reviews 列表（评分/内容/订单号） |
+
+#### T155 通用弱网/错误重试/空态引导 — §3.12 — ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T155.1 | 请求层弱网检测与统一重试 | client | §3.12 | P2 | ✅ done 2026-07-24 | 复用 request 弱网 toast/自动重试；增强 isRetryableError 注释 |
+| T155.2 | 页面错误态接入重试 | client | §3.12 | P2 | ✅ done 2026-07-24 | 菜单/订单列表/详情/骑手/收藏 失败展示重试 |
+| T155.3 | 空态引导文案与 CTA | client | §3.12 | P2 | ✅ done 2026-07-24 | 购物车空/订单空/收藏空 引导去点餐 |
+
+#### T156 下单备注与发票信息 — §3.12 — ✅ 2026-07-24
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T156.1 | 订单备注/发票字段扩展 | server | §3.12 / §5.1 | P2 | ✅ done 2026-07-24 | orders 增 remark/invoice_*；DTO 校验；创建订单持久化 |
+| T156.2 | 确认订单备注与发票表单 | client | §3.12 | P2 | ✅ done 2026-07-24 | 备注输入；是否开票开关；抬头/税号条件展示 |
+| T156.3 | 商家与 admin 展示备注发票 | client/admin | §3.12 | P2 | ✅ done 2026-07-24 | 订单详情展示备注与发票信息，便于出餐/开票 |
+
 ### P0 — 严重缺陷（安全/资金/构建，需优先修复）— ✅ 已全部完成
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
@@ -131,48 +385,67 @@
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T146 | client 菜单联动与虚拟滚动 | client | §3.1 | P2 | ⏳ todo | 菜单分类侧边栏点击→右侧列表滚动联动；右侧列表滚动→左侧分类高亮联动（scroll-into-view）；长列表（菜单/订单列表）引入 Taro VirtualList 虚拟滚动优化性能 |
-| T147 | client 内联样式抽离与无障碍 | client | §3.1 | P2 | ⏳ todo | order-confirm 内联 style（flex/gap/fontSize 等）抽离为 SCSS 类名；Image 组件添加 lazyLoad 属性；按钮添加 aria-label 无障碍属性；统一加载/空/错误状态使用 SkeletonLoader/EmptyState/ErrorState 组件 |
-| T148 | admin ProComponents 渐进式迁移 | admin | §3.4 | P2 | ⏳ todo | ProTable 替换普通 Table（自带分页/搜索/筛选，可替代 T137+T142 部分工作）；ProForm/ModalForm 替换 Form+Modal；PageContainer 替换 PageHeaderActions；已安装 @ant-design/pro-components 但全项目 0 处使用 |
-| T149 | 全局通用 mixin 与工具类 | 全局 | §3.1 | P2 | ⏳ todo | 抽取通用 SCSS mixin（ellipsis/flex-center/hairline/scrollbar-hide）；通用工具类（text-ellipsis/flex-center/safe-area-bottom）；admin 表格列宽规范化（所有列添加 width 属性）；admin 面包屑导航补全（所有页面添加 PageContainer title） |
+| T146 | client 菜单联动与虚拟滚动 | client | §3.1 | P2 | ✅ done 2026-07-24 | 分类点击↔列表滚动双向联动（scroll-spy + scrollIntoView 重置）；订单列表接入轻量 VirtualList 窗口化渲染 |
+| T147 | client 内联样式抽离与无障碍 | client | §3.1 | P2 | ✅ done 2026-07-24 | order-confirm 内联 style 抽离；MenuItemCard Image lazyLoad + aria-label；收藏/加购无障碍标签 |
+| T148 | admin ProComponents 渐进式迁移 | admin | §3.4 | P2 | ✅ done 2026-07-24 | Category 全面迁移 ProTable+ModalForm+PageContainer；Order/User/Item/Promotion/ShopManage 接入 PageContainer 面包屑 |
+| T149 | 全局通用 mixin 与工具类 | 全局 | §3.1 | P2 | ✅ done 2026-07-24 | client _mixins.scss + 工具类；admin global 工具类；表格列宽与 PageContainer 标题补全 |
+| T150 | 沙箱支付渠道化与第三方预留 | payment | §4.5 | P2 | ✅ done 2026-07-24 | PAYMENT_PROVIDER=sandbox/wechat/third_party；沙箱默认开发可用，生产需 ALLOW_SANDBOX_PAYMENT；响应含 provider；wechat/third_party 明确未配置报错；.env.example 补充说明 |
+
 
 ## 将来/暂缓
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
 | T43 | 真实微信支付集成 | payment | §3.5 | P2 | 📋 paused | 暂缓，需企业资质 |
+| T181 | 将 docs/database-init.sql 应用到线上 Supabase | database | §5.1 | P1 | 📋 paused | 补齐 RPC/缺列/tf_delivery_tracks/tf_refresh_tokens 后可去掉兼容回退 |
 
 ## 统计
 
 | 状态 | 数量 |
 |------|------|
-| ⏳ todo | 4 |
+| ⏳ todo | 0 |
 | 🔧 in_progress | 0 |
-| ✅ done | 56 |
+| ✅ done | 140 |
 | 🚫 blocked | 0 |
-| 📋 paused | 1 |
-| **总计** | **61** |
+| 📋 paused | 2 |
+| **总计** | **141** |
+
+> 说明：T151–T180 已完成；T43 仍为 paused。线上库 schema 落后于 database-init.sql，当前靠服务端兼容回退可演示上线。
 
 ### 按优先级分布
 
 | 优先级 | 数量 | 说明 |
 |--------|------|------|
-| P0 | 12 | ✅ 12 完成（T135/T136/T137 本轮完成） |
-| P1 | 36 | ✅ 36 完成 |
-| P2 | 13 | ✅ 8 完成 + ⏳ 4 待办（T146-T149）+ 📋 1 暂缓（真实微信支付） |
+| P0 | 17 | ✅ 17 完成 |
+| P1 | 44 | ✅ 44 完成 |
+| P2 | 80 | ✅ 79 完成 + 📋 1 暂缓（T43）；体验增强/质量基线 T151–T179 完成 |
 
 ### 按模块分布
 
 | 模块 | 数量 | 任务范围 |
 |------|------|----------|
-| server | 16 | T90, T91-T95, T100-T108, T127-T129 |
-| client | 14 | T109-T116, T130, T135, T138-T141, T146-T147 |
-| admin | 11 | T96-T97, T117-T122, T131, T137, T142-T144, T148 |
-| database | 3 | T123-T125 |
-| 部署 | 6 | T98-T99, T132-T134 |
+| server | 51 | 含安全、订单、营业、地址、评价、审计、配送轨迹、下单核价与测试基线 |
+| client | 44 | 含顾客/商家/骑手小程序体验、性能、测试基线、Sass 模块语法与测试降噪 |
+| admin | 20 | 含后台页面、ProComponents、测试与 TypeScript 门禁 |
+| client/admin | 4 | 小程序与后台共同完成项 |
+| server/client | 3 | 后端与小程序共同完成项 |
+| database | 3 | 基础数据一致性任务 |
+| 部署 | 7 | Docker/CI/依赖、构建配置与统一质量门禁 |
 | docs | 1 | T126 |
 | 全局 | 3 | T136, T145, T149 |
-| payment | 1 | T43 (paused) |
+| payment | 2 | T43 (paused), T150 |
+| server/database | 1 | T164.1 |
+| server/admin | 1 | T163.3 |
+| server/payment | 1 | T170.1 |
+
+### 体验增强批次执行建议
+
+| 阶段 | 任务 | 目标 |
+|------|------|------|
+| 1. 降漏单 | T151.1 → T151.2 → T151.3 | 商家新订单可感知、可跳转 |
+| 2. 可营业 | T152.1 → T152.2 → T152.3 | 营业时段配置 + 顾客端拦截 |
+| 3. 下单效率 | T153.1 → T155.1 → T156.1 | 地址簿/弱网/备注发票并行打底 |
+| 4. 闭环体验 | T154.x + 剩余前端接入 | 评价与页面态打磨 |
 
 ### UI 优化批次执行建议
 
@@ -182,8 +455,8 @@
 | 2. 组件基建 | T141, T144, T145 | ✅ 公共组件/hooks/tokens 已落地 |
 | 3. client 体验 | T138, T139, T140 | ✅ 全部完成 |
 | 4. admin 体验 | T142, T143 | ✅ 全部完成 |
-| 5. 性能优化 | T146, T147, T148, T149 | 虚拟滚动+无障碍+ProComponents+通用 mixin |
+| 5. 性能优化 | T146, T147, T148, T149, T150 | ✅ 虚拟滚动+无障碍+ProComponents+mixin+沙箱支付 |
 
 ---
 
-*最后更新: 2026-07-24（公共组件/hooks 复用批次）*
+*最后更新: 2026-07-25（T180 旧库 schema 兼容与全链路冒烟验收完成；个人主体可演示上线，T43 仍暂缓）*

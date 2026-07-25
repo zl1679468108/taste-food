@@ -60,8 +60,45 @@ components:
         deliveryRange: { type: integer, description: 配送范围（米） }
         deliveryFee: { type: integer, description: 配送费（分） }
         minOrderAmount: { type: integer, description: 起送价（分） }
+        businessHours:
+          $ref: '#/components/schemas/BusinessHours'
+        isOpenNow: { type: boolean, description: 当前是否可下单 }
+        nextOpenHint: { type: string, nullable: true, description: 下次营业提示 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    BusinessHours:
+      type: object
+      description: 按星期配置的营业时段；空数组表示当日休息
+      properties:
+        sun:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+        mon:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+        tue:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+        wed:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+        thu:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+        fri:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+        sat:
+          type: array
+          items: { $ref: '#/components/schemas/TimeRange' }
+
+    TimeRange:
+      type: object
+      required: [start, end]
+      properties:
+        start: { type: string, pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }
+        end: { type: string, pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }
 
     # --- 分类 ---
     Category:
@@ -150,11 +187,30 @@ components:
         remark: { type: string }
         contactName: { type: string }
         contactPhone: { type: string }
+        invoiceNeeded: { type: boolean }
+        invoiceTitle: { type: string }
+        invoiceTaxNo: { type: string }
         items:
           type: array
           items: { $ref: '#/components/schemas/OrderItem' }
+        estimatedCompletion: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+
+    DeliveryTrackPoint:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        riderId: { type: string }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        speed: { type: number }
+        accuracy: { type: number }
+        source: { type: string }
+        recordedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
 
     # --- 促销 ---
     Promotion:
@@ -202,8 +258,18 @@ components:
         transactionId: { type: string }
         amount: { type: integer, description: 单位：分 }
         method: { type: string, enum: [wechat, alipay, balance] }
-        status: { type: string, enum: [pending, paid, refunded, failed] }
+        status: { type: string, enum: [pending, success, paid, refunded, failed] }
         paidAt: { type: string, format: date-time }
+        mock: { type: boolean, description: 是否沙箱/模拟支付 }
+        provider: { type: string, enum: [sandbox, wechat, third_party] }
+        wxPayParams:
+          type: object
+          properties:
+            timeStamp: { type: string }
+            nonceStr: { type: string }
+            package: { type: string }
+            signType: { type: string, enum: [MD5, HMAC-SHA256, RSA] }
+            paySign: { type: string }
         createdAt: { type: string, format: date-time }
 
     # --- 收藏 ---
@@ -220,12 +286,11 @@ components:
     OrderStats:
       type: object
       properties:
-        total: { type: integer }
-        pending: { type: integer }
-        processing: { type: integer }
-        completed: { type: integer }
-        cancelled: { type: integer }
-        todayRevenue: { type: integer, description: 今日营收（分） }
+        totalOrders: { type: integer }
+        totalRevenue: { type: integer, description: 今日营收（分） }
+        pendingCount: { type: integer }
+        preparingCount: { type: integer }
+        completedCount: { type: integer }
 
     DailyStatsItem:
       type: object
@@ -239,6 +304,62 @@ components:
       properties:
         status: { type: string }
         count: { type: integer }
+
+    Address:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string }
+        shopId: { type: string, format: uuid, nullable: true }
+        contactName: { type: string }
+        contactPhone: { type: string }
+        detail: { type: string }
+        tag: { type: string }
+        isDefault: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Review:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        orderId: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        userId: { type: string }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        content: { type: string, maxLength: 500 }
+        replyContent: { type: string }
+        replyAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+
+    ShopTable:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid }
+        tableNo: { type: string, maxLength: 32 }
+        label: { type: string, maxLength: 64 }
+        sortOrder: { type: integer, minimum: 0 }
+        active: { type: boolean }
+        scanPath: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    AuditLog:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        shopId: { type: string, format: uuid, nullable: true }
+        userId: { type: string }
+        role: { type: string, enum: [customer, admin, rider] }
+        method: { type: string, enum: [POST, PUT, PATCH, DELETE] }
+        path: { type: string }
+        action: { type: string }
+        resource: { type: string }
+        resourceId: { type: string }
+        summary: { type: string, maxLength: 500 }
+        statusCode: { type: integer }
+        ip: { type: string }
+        createdAt: { type: string, format: date-time }
 
 # ============================================================
 # 路径定义
@@ -280,6 +401,8 @@ paths:
                           userId: { type: string }
                           openid: { type: string }
                           role: { type: string, enum: [customer, admin, rider] }
+                          shopId: { type: string, format: uuid }
+                          nickName: { type: string }
 
   /auth/refresh:
     post:
@@ -319,6 +442,7 @@ paths:
     get:
       summary: 获取店铺列表
       tags: [店铺]
+      security: []
       responses:
         '200':
           description: 成功
@@ -352,6 +476,7 @@ paths:
                 deliveryRange: { type: integer, description: 配送范围（米） }
                 deliveryFee: { type: integer, description: 配送费（分） }
                 minOrderAmount: { type: integer, description: 起送价（分） }
+                businessHours: { $ref: '#/components/schemas/BusinessHours' }
       responses:
         '201':
           description: 创建成功
@@ -368,6 +493,7 @@ paths:
     get:
       summary: 获取店铺详情
       tags: [店铺]
+      security: []
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -401,6 +527,7 @@ paths:
                 deliveryRange: { type: integer }
                 deliveryFee: { type: integer }
                 minOrderAmount: { type: integer }
+                businessHours: { $ref: '#/components/schemas/BusinessHours' }
       responses:
         '200':
           description: 更新成功
@@ -415,7 +542,42 @@ paths:
 
   /shops/{id}/status:
     patch:
-      summary: 更新店铺营业状态
+      summary: 切换店铺营业状态
+      tags: [店铺]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      description: 服务端读取当前状态并在 open/closed 之间切换，不需要请求体。
+      responses:
+        '200':
+          description: 更新成功
+
+  /shops/{id}/business-hours:
+    get:
+      summary: 获取店铺营业时段
+      tags: [店铺]
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          shopId: { type: string, format: uuid }
+                          status: { type: string, enum: [open, closed] }
+                          businessHours: { $ref: '#/components/schemas/BusinessHours' }
+                          isOpenNow: { type: boolean }
+                          nextOpenHint: { type: string, nullable: true }
+    patch:
+      summary: 更新店铺营业时段
       tags: [店铺]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
@@ -425,18 +587,155 @@ paths:
           application/json:
             schema:
               type: object
-              required: [status]
+              required: [businessHours]
               properties:
-                status: { type: string, enum: [open, closed] }
+                businessHours: { $ref: '#/components/schemas/BusinessHours' }
       responses:
         '200':
           description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Shop' }
+
+  /shops/{id}/tables:
+    get:
+      summary: 获取启用中的桌台
+      tags: [桌台]
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ShopTable' }
+    post:
+      summary: 新增桌台
+      tags: [桌台]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tableNo]
+              properties:
+                tableNo: { type: string, minLength: 1, maxLength: 32 }
+                label: { type: string, maxLength: 64 }
+                sortOrder: { type: integer, minimum: 0 }
+                active: { type: boolean }
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ShopTable' }
+
+  /shops/{id}/tables/manage:
+    get:
+      summary: 获取全部桌台（含停用）
+      tags: [桌台]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ShopTable' }
+
+  /shops/{id}/tables/seed:
+    post:
+      summary: 初始化默认桌台 A01-A10
+      tags: [桌台]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: 初始化成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ShopTable' }
+
+  /shops/{id}/tables/{tableId}:
+    patch:
+      summary: 更新桌台
+      tags: [桌台]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: tableId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tableNo: { type: string, minLength: 1, maxLength: 32 }
+                label: { type: string, maxLength: 64 }
+                sortOrder: { type: integer, minimum: 0 }
+                active: { type: boolean }
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ShopTable' }
+    delete:
+      summary: 删除桌台
+      tags: [桌台]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: tableId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 删除成功
 
   # ==================== 分类 ====================
   /categories:
     get:
       summary: 获取分类列表
       tags: [分类]
+      security: []
       parameters:
         - { name: shop_id, in: query, schema: { type: string, format: uuid } }
       responses:
@@ -505,6 +804,7 @@ paths:
     get:
       summary: 获取菜品列表
       tags: [菜品]
+      security: []
       parameters:
         - { name: shop_id, in: query, schema: { type: string, format: uuid } }
         - { name: category_id, in: query, schema: { type: string, format: uuid } }
@@ -551,6 +851,7 @@ paths:
     get:
       summary: 获取热门菜品
       tags: [菜品]
+      security: []
       parameters:
         - { name: shop_id, in: query, schema: { type: string, format: uuid } }
         - { name: limit, in: query, schema: { type: integer, default: 10 } }
@@ -572,6 +873,7 @@ paths:
     get:
       summary: 获取菜品详情
       tags: [菜品]
+      security: []
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -622,6 +924,7 @@ paths:
     get:
       summary: 获取菜品规格信息
       tags: [菜品]
+      security: []
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -637,28 +940,6 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/SpecGroup' }
-
-  /menu-items/{id}/favorite:
-    post:
-      summary: 切换菜品收藏状态
-      tags: [菜品]
-      description: 已收藏则取消，未收藏则添加（原子化 upsert）
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        properties:
-                          isFavorite: { type: boolean }
 
   # ==================== 订单 ====================
   /orders:
@@ -688,6 +969,9 @@ paths:
                           list:
                             type: array
                             items: { $ref: '#/components/schemas/Order' }
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Order' }
                           total: { type: integer }
                           page: { type: integer }
                           pageSize: { type: integer }
@@ -715,6 +999,9 @@ paths:
                 remark: { type: string }
                 contactName: { type: string }
                 contactPhone: { type: string }
+                invoiceNeeded: { type: boolean }
+                invoiceTitle: { type: string, maxLength: 100 }
+                invoiceTaxNo: { type: string, maxLength: 32 }
                 items:
                   type: array
                   items:
@@ -727,6 +1014,9 @@ paths:
                       price: { type: integer, description: 仅参考，服务端以数据库为准 }
                       specDesc: { type: string }
                       imageUrl: { type: string }
+                      specOptionIds:
+                        type: array
+                        items: { type: string }
       responses:
         '201':
           description: 创建成功
@@ -756,6 +1046,57 @@ paths:
                   - type: object
                     properties:
                       data: { $ref: '#/components/schemas/Order' }
+
+  /orders/{id}/delivery-track:
+    get:
+      summary: 查询订单配送轨迹
+      tags: [订单]
+      description: 订单本人、本店商家、接单骑手可查询。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DeliveryTrackPoint' }
+    post:
+      summary: 上报配送位置
+      tags: [订单]
+      description: Rider/Admin 可上报配送中外卖订单位置。
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [latitude, longitude]
+              properties:
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+                speed: { type: number, minimum: 0 }
+                accuracy: { type: number, minimum: 0 }
+                source: { type: string }
+      responses:
+        '200':
+          description: 上报成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DeliveryTrackPoint' }
 
   /orders/{id}/status:
     post:

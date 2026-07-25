@@ -114,6 +114,21 @@ export interface DeliveryInfo {
   contactPhone?: string;
 }
 
+/** 配送轨迹点 */
+export interface DeliveryTrackPoint {
+  id: string;
+  orderId: string;
+  shopId: string;
+  riderId?: string;
+  latitude: number;
+  longitude: number;
+  speed?: number;
+  accuracy?: number;
+  source: string;
+  recordedAt: string;
+  createdAt: string;
+}
+
 /** 订单 */
 export interface Order {
   id: string;
@@ -129,6 +144,9 @@ export interface Order {
   remark?: string;
   contactName?: string;
   contactPhone?: string;
+  invoiceNeeded?: boolean;
+  invoiceTitle?: string;
+  invoiceTaxNo?: string;
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
@@ -140,6 +158,16 @@ export interface OrderStatusHistoryItem {
   status: OrderStatus;
   time: string;
 }
+
+/** 营业日 key */
+export type BusinessDayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
+
+export interface BusinessTimeRange {
+  start: string; // HH:mm
+  end: string;   // HH:mm
+}
+
+export type BusinessHours = Record<BusinessDayKey, BusinessTimeRange[]>;
 
 /** 店铺 */
 export interface Shop {
@@ -153,6 +181,11 @@ export interface Shop {
   deliveryRange: number; // 单位：米
   deliveryFee: number; // 单位：分
   minOrderAmount: number; // 单位：分
+  businessHours?: BusinessHours;
+  /** 当前是否可下单（综合开关店 + 营业时段） */
+  isOpenNow?: boolean;
+  /** 非营业时的下次营业提示 */
+  nextOpenHint?: string | null;
   createdAt: string;
   updatedAt: string;
 }

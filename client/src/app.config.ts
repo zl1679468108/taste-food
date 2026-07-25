@@ -5,6 +5,9 @@ export default defineAppConfig({
     'pages/order-detail/index',
     'pages/order-list/index',
     'pages/auth/login',
+    'pages/favorites/index',
+    'pages/address/index',
+    'pages/address/edit',
   ],
   subpackages: [
     {
@@ -13,6 +16,7 @@ export default defineAppConfig({
         'index',
         'menu-manage',
         'user-manage',
+        'reviews',
       ],
     },
     {

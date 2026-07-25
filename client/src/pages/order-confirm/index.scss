@@ -1,4 +1,4 @@
-@import '../../styles/design-tokens';
+@use '../../styles/design-tokens' as *;
 
 .order-confirm {
   min-height: 100vh;
@@ -261,4 +261,147 @@
       transform: scale(0.96);
     }
   }
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.form-input--flex-1 {
+  flex: 1;
+}
+
+.form-input--flex-2 {
+  flex: 2;
+}
+
+.price-value--muted {
+  color: #999;
+  font-size: 24rpx;
+}
+
+.promotion-loading {
+  padding: 6px 0;
+  font-size: 24rpx;
+  color: $primary;
+}
+
+.price-value--muted {
+  margin-left: 8px;
+  color: #666;
+}
+
+.empty-cart-icon {
+  font-size: 40rpx;
+}
+
+/* 地址簿选择 */
+.address-book-block {
+  margin-bottom: 16rpx;
+}
+
+.address-book-block__hint {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.address-book-card {
+  background: #fff8f5;
+  border: 1px solid rgba(255, 107, 53, 0.25);
+  border-radius: 12rpx;
+  padding: 20rpx;
+  margin-bottom: 8rpx;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 12rpx;
+    margin-bottom: 8rpx;
+  }
+
+  &__name {
+    font-size: 28rpx;
+    font-weight: 600;
+    color: #333;
+  }
+
+  &__phone {
+    font-size: 24rpx;
+    color: #666;
+  }
+
+  &__badge {
+    font-size: 20rpx;
+    color: #fff;
+    background: $primary;
+    border-radius: 8rpx;
+    padding: 2rpx 10rpx;
+  }
+
+  &__detail {
+    font-size: 26rpx;
+    color: #444;
+    display: block;
+  }
+
+  &__switch {
+    margin-top: 10rpx;
+    font-size: 22rpx;
+    color: $primary;
+    display: block;
+  }
+}
+
+.address-book-empty {
+  background: #f9f9f9;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  margin-bottom: 8rpx;
+
+  &__text {
+    font-size: 26rpx;
+    color: #666;
+    display: block;
+    margin-bottom: 12rpx;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 20rpx;
+  }
+
+  &__btn {
+    font-size: 24rpx;
+    color: #fff;
+    background: $primary;
+    border-radius: 24rpx;
+    padding: 8rpx 24rpx;
+
+    &.ghost {
+      background: #fff;
+      color: $primary;
+      border: 1px solid $primary;
+    }
+  }
+}
+
+/* 发票 */
+.invoice-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12rpx;
+
+  &__label {
+    font-size: 26rpx;
+    color: #333;
+  }
+}
+
+.invoice-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
 }

@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Tag, Typography, Avatar, Card, Space, Button, Input, Select, message} from 'antd';
+import { Table, Tag, Typography, Avatar, Space, Button, message } from 'antd';
+import { PageContainer } from '@ant-design/pro-components';
 import { UserOutlined, TeamOutlined, ReloadOutlined } from '@ant-design/icons';
 import { getUsers, User } from '@/services/user';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { formatTime } from '@/utils/format';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
+import { DEFAULT_TABLE_LOCALE } from '@/utils/table';
 
 const { Title, Text } = Typography;
 
@@ -46,6 +48,7 @@ const UserPage: React.FC = () => {
       title: '头像',
       dataIndex: 'avatarUrl',
       key: 'avatarUrl',
+      width: 80,
       render: (url: string) => (
         <Avatar
           src={url}
@@ -59,12 +62,14 @@ const UserPage: React.FC = () => {
       title: '昵称',
       dataIndex: 'nickName',
       key: 'nickName',
+      width: 160,
       render: (name: string) => <Text strong>{name || '-'}</Text>,
     },
     {
       title: '角色',
       dataIndex: 'role',
       key: 'role',
+      width: 120,
       render: (role: string) => {
         const config = roleMap[role] || { color: 'default', text: role };
         return <Tag color={config.color}>{config.text}</Tag>;
@@ -74,6 +79,7 @@ const UserPage: React.FC = () => {
       title: '注册时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      width: 180,
       render: (time: string) => formatTime(time),
     },
   ];
@@ -88,6 +94,7 @@ const UserPage: React.FC = () => {
   }, [users, searchText, roleFilter]);
 
   return (
+    <PageContainer title="用户管理" subTitle="查看会员与角色">
     <div>
       <PageHeaderActions
       icon={<TeamOutlined style={{ marginRight: 8 }} />}
@@ -114,6 +121,8 @@ const UserPage: React.FC = () => {
           dataSource={filteredUsers}
           rowKey="id"
           loading={loading}
+          locale={DEFAULT_TABLE_LOCALE}
+          scroll={{ x: 720 }}
           pagination={{
             current: page,
             total,
@@ -126,6 +135,7 @@ const UserPage: React.FC = () => {
         />
       </TableCard>
     </div>
+    </PageContainer>
   );
 };
 

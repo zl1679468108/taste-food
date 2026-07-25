@@ -1,0 +1,95 @@
+.admin-reviews-page {
+  min-height: 100vh;
+  background: #f5f5f5;
+  padding: 12px;
+  box-sizing: border-box;
+
+  &__more {
+    text-align: center;
+    padding: 16px 0 24px;
+    color: #999;
+    font-size: 13px;
+  }
+}
+
+.review-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  &__stars {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  &__star {
+    font-size: 16px;
+    color: #ddd;
+
+    &--active {
+      color: #FFB400;
+    }
+  }
+
+  &__score {
+    margin-left: 6px;
+    font-size: 13px;
+    color: #FF6B35;
+    font-weight: 600;
+  }
+
+  &__time {
+    font-size: 12px;
+    color: #999;
+  }
+
+  &__content {
+    display: block;
+    font-size: 14px;
+    color: #333;
+    line-height: 1.5;
+    margin-bottom: 8px;
+  }
+
+  &__order {
+    display: block;
+    font-size: 12px;
+    color: #999;
+  }
+}
+
+.review-card__reply {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #f7f8fa;
+  border-radius: 8px;
+}
+.review-card__reply-label {
+  display: block;
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 4px;
+}
+.review-card__reply-text {
+  font-size: 13px;
+  color: #333;
+}
+.review-card__reply-btn {
+  margin-top: 10px;
+  display: inline-flex;
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: #ff6b00;
+  color: #fff;
+  font-size: 12px;
+}

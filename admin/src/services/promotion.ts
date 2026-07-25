@@ -14,8 +14,9 @@ export interface Promotion {
   updatedAt: string;
 }
 
-export const getPromotions = (shopId: string) =>
-  request.get('/api/promotions', { params: { shopId } }) as Promise<Promotion[]>;
+/** 管理端读取本店全部活动，店铺归属由服务端 JWT 决定。 */
+export const getPromotions = (_shopId?: string) =>
+  request.get('/api/promotions/manage') as Promise<Promotion[]>;
 
 export const createPromotion = (data: Partial<Promotion>) =>
   request.post('/api/promotions', data) as Promise<Promotion>;

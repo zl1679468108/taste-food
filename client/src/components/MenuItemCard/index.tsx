@@ -1,7 +1,8 @@
 import { memo, useCallback } from 'react';
-import { View, Text } from '@tarojs/components';
+import { View, Text, Image } from '@tarojs/components';
 import { MenuItem } from '../../types/menu';
 import { formatPriceWithSymbol } from '../../utils/format';
+import './index.scss';
 
 interface MenuItemCardProps {
   item: MenuItem;
@@ -26,9 +27,19 @@ function MenuItemCardInner({
   );
 
   return (
-    <View className='menu-item-card' onClick={handleClick}>
+    <View className='menu-item-card' onClick={handleClick} aria-label={`菜品 ${item.name}`}>
       <View className={`menu-item-card__image ${getItemBgColor(categoryIndex)}`}>
-        <Text>{getItemEmoji(item.name)}</Text>
+        {item.imageUrl ? (
+          <Image
+            className='menu-item-card__img'
+            src={item.imageUrl}
+            mode='aspectFill'
+            lazyLoad
+            aria-label={item.name}
+          />
+        ) : (
+          <Text>{getItemEmoji(item.name)}</Text>
+        )}
       </View>
       <View className='menu-item-card__info'>
         <View>
@@ -47,12 +58,16 @@ function MenuItemCardInner({
             <View
               className='menu-item-card__favorite'
               onClick={handleFavClick}
-              style={{ display: 'inline-block', marginLeft: '8px', fontSize: '14px' }}
+              aria-label={item.isFavorite ? '取消收藏' : '收藏菜品'}
             >
               {item.isFavorite ? '❤️' : '🤍'}
             </View>
           </View>
-          <View className='menu-item-card__add-btn' onClick={handleAddClick}>
+          <View
+            className='menu-item-card__add-btn'
+            onClick={handleAddClick}
+            aria-label={`添加 ${item.name} 到购物车`}
+          >
             +
           </View>
         </View>

@@ -10,6 +10,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PromotionService } from './promotion.service';
 import { CreatePromotionDto, UpdatePromotionDto, PromotionResponseDto } from './dto/promotion.dto';
@@ -23,6 +24,28 @@ import { success, ApiResponse } from '../../common/interfaces/api-response.inter
 @Controller('promotions')
 export class PromotionController {
   constructor(private readonly promotionService: PromotionService) {}
+
+  private requireAdminShopId(shopId?: string): string {
+    if (!shopId) {
+      throw new ForbiddenException('管理员账号未绑定店铺');
+    }
+    return shopId;
+  }
+
+  /**
+   * GET /api/promotions/manage
+   * 管理端查询本店全部活动，包含未生效、已过期和已停用记录。
+   */
+  @Get('manage')
+  @Roles(UserRole.ADMIN)
+  async findAllForManagement(
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<PromotionResponseDto[]>> {
+    const promotions = await this.promotionService.findAllForManagement(
+      this.requireAdminShopId(userShopId),
+    );
+    return success(promotions);
+  }
 
   /**
    * GET /api/promotions?shopId=xxx
@@ -64,8 +87,13 @@ export class PromotionController {
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePromotionDto,
+    @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<PromotionResponseDto>> {
-    const promotion = await this.promotionService.update(id, dto);
+    const promotion = await this.promotionService.update(
+      id,
+      dto,
+      this.requireAdminShopId(userShopId),
+    );
     return success(promotion, '促销更新成功');
   }
 
@@ -75,8 +103,11 @@ export class PromotionController {
    */
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async remove(@Param('id') id: string): Promise<ApiResponse<null>> {
-    await this.promotionService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<null>> {
+    await this.promotionService.remove(id, this.requireAdminShopId(userShopId));
     return success(null, '促销删除成功');
   }
 }

@@ -19,7 +19,7 @@
       "@taste-food/shared": ["../packages/shared/src/index.ts"],
       "@taste-food/shared/*": ["../packages/shared/src/*"]
     },
-    "types": ["@tarojs/taro/types", "@types/webpack-env"],
+    "types": ["@tarojs/taro/types", "@types/webpack-env", "jest"],
     "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*", "config/**/*"],

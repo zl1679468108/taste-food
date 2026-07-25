@@ -1,4 +1,5 @@
-@import './styles/design-tokens';
+@use './styles/design-tokens' as *;
+@use './styles/mixins' as *;
 
 /* 全局样式 */
 page {
@@ -45,4 +46,27 @@ scroll-view {
 /* 安全区域 */
 .safe-area-bottom {
   @include safe-area-bottom;
+}
+
+
+/* 通用工具类 */
+.text-ellipsis {
+  @include ellipsis(1);
+}
+
+.text-ellipsis-2 {
+  @include ellipsis(2);
+}
+
+.flex-center {
+  @include flex-center;
+}
+
+.flex-between {
+  @include flex-between;
+}
+
+
+.scrollbar-hide {
+  @include scrollbar-hide;
 }

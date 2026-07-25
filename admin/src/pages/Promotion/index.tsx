@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker, Card } from 'antd';
+import { PageContainer } from '@ant-design/pro-components';
 import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promotion } from '@/services/promotion';
 import SearchFilterBar from '@/components/SearchFilterBar';
-import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import { formatTime } from '@/utils/format';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 import PageHeaderActions from '@/components/PageHeaderActions';
@@ -35,10 +36,6 @@ const RULE_FIELDS_BY_TYPE: Record<string, RuleFieldDef[]> = {
   first_order: [
     { name: 'discount', label: '首单立减（元）', required: true, hint: '新用户首单减免的金额', unit: 'yuan' },
   ],
-  // 折扣：减 discount 元（与首单类似，但所有订单可用）
-  discount: [
-    { name: 'discount', label: '立减（元）', required: true, hint: '每单减免的金额', unit: 'yuan' },
-  ],
 };
 
 const PromotionPage: React.FC = () => {
@@ -49,7 +46,7 @@ const PromotionPage: React.FC = () => {
   const loadPromotions = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getPromotions(DEFAULT_SHOP_ID);
+      const res = await getPromotions();
       setPromotions(res || []);
     } catch (error) {
       console.error('加载促销失败:', error);
@@ -107,17 +104,20 @@ const PromotionPage: React.FC = () => {
 
   const handleSubmit = () =>
     submitModal({
-      transformValues: (values) => {
+      transformValues: (values, editing) => {
         const { dateRange, type, threshold, discount, ...rest } = values as any;
         const rule: Record<string, number> = {};
         if (typeof threshold === 'number') rule.threshold = Math.round(threshold * 100);
         if (typeof discount === 'number') rule.discount = Math.round(discount * 100);
         const data: Record<string, unknown> = {
           ...rest,
-          type,
-          shopId: DEFAULT_SHOP_ID,
           rule,
         };
+        // 类型和店铺只在创建时提交；更新接口以资源现有值和 JWT 店铺为准。
+        if (!editing) {
+          data.type = type;
+          data.shopId = DEFAULT_SHOP_ID;
+        }
         if (dateRange && dateRange[0] && dateRange[1]) {
           data.startDate = (dateRange[0] as dayjs.Dayjs).toISOString();
           data.endDate = (dateRange[1] as dayjs.Dayjs).toISOString();
@@ -131,7 +131,6 @@ const PromotionPage: React.FC = () => {
   const promotionTypeMap: Record<string, { color: string; text: string }> = {
     full_discount: { color: 'orange', text: '满减' },
     first_order: { color: 'green', text: '首单立减' },
-    discount: { color: 'blue', text: '折扣' },
   };
 
   // 渲染 rule 字段摘要（列表展示用）
@@ -142,7 +141,7 @@ const PromotionPage: React.FC = () => {
       const d = rule.discount ? (rule.discount / 100).toFixed(2) : '-';
       return `满 ¥${t} 减 ¥${d}`;
     }
-    if (record.type === 'first_order' || record.type === 'discount') {
+    if (record.type === 'first_order') {
       const d = rule.discount ? (rule.discount / 100).toFixed(2) : '-';
       return `减 ¥${d}`;
     }
@@ -150,11 +149,12 @@ const PromotionPage: React.FC = () => {
   };
 
   const columns = [
-    { title: '活动名称', dataIndex: 'name', key: 'name' },
+    { title: '活动名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
     {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
+      width: 100,
       render: (type: string) => {
         const config = promotionTypeMap[type] || { color: 'default', text: type };
         return <Tag color={config.color}>{config.text}</Tag>;
@@ -163,21 +163,22 @@ const PromotionPage: React.FC = () => {
     {
       title: '优惠规则',
       key: 'rule',
+      width: 180,
+      ellipsis: true,
       render: (_: Promotion, record: Promotion) => renderRuleSummary(record),
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 90,
       render: (status: string) => (
         <Tag color={status === 'active' ? 'green' : 'default'}>
           {status === 'active' ? '启用' : '禁用'}
         </Tag>
       ),
     },
-    {
-      title: '有效期',
-      key: 'dateRange',
+    { title: '有效期', key: 'dateRange', width: 200,
       render: (_: Promotion, record: Promotion) => {
         if (record.startDate && record.endDate) {
           return `${formatTime(record.startDate, 'MM-DD')} ~ ${formatTime(record.endDate, 'MM-DD')}`;
@@ -185,10 +186,7 @@ const PromotionPage: React.FC = () => {
         return '永久';
       },
     },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: Promotion, record: Promotion) => (
+    { title: '操作', key: 'action', width: 160, render: (_: Promotion, record: Promotion) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
@@ -212,6 +210,7 @@ const PromotionPage: React.FC = () => {
   }, [promotions, searchText]);
 
   return (
+    <PageContainer title="促销管理" subTitle="满减/首单活动">
     <div>
       <PageHeaderActions
       icon={<GiftOutlined style={{ marginRight: 8 }} />}
@@ -227,8 +226,10 @@ const PromotionPage: React.FC = () => {
         onSearch={setSearchText}
         onSearchClear={() => setSearchText('')}
       />
-      <Table columns={columns} dataSource={filteredPromotions} rowKey="id" loading={loading} 
+      <Table columns={columns} dataSource={filteredPromotions} rowKey="id" loading={loading}
         pagination={DEFAULT_TABLE_PAGINATION}
+        locale={DEFAULT_TABLE_LOCALE}
+        scroll={{ x: 900 }}
       />
       </TableCard>
 
@@ -246,10 +247,9 @@ const PromotionPage: React.FC = () => {
             <Input />
           </Form.Item>
           <Form.Item name="type" label="活动类型" rules={[{ required: true, message: '请选择活动类型' }]}>
-            <Select>
+            <Select disabled={!!editingPromotion}>
               <Select.Option value="full_discount">满减</Select.Option>
               <Select.Option value="first_order">首单立减</Select.Option>
-              <Select.Option value="discount">折扣</Select.Option>
             </Select>
           </Form.Item>
 
@@ -286,6 +286,7 @@ const PromotionPage: React.FC = () => {
         </Form>
       </Modal>
     </div>
+    </PageContainer>
   );
 };
 

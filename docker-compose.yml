@@ -17,6 +17,8 @@ services:
       - WX_APPID=${WX_APPID:-}
       - WX_SECRET=${WX_SECRET:-}
       - ALLOW_MEMORY_FALLBACK=false
+      - PAYMENT_PROVIDER=${PAYMENT_PROVIDER:-sandbox}
+      - ALLOW_SANDBOX_PAYMENT=${ALLOW_SANDBOX_PAYMENT:-true}
     restart: unless-stopped
     networks:
       - app-network

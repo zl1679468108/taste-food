@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text, ScrollView } from '@tarojs/components';
+import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { get } from '../../utils/request';
+import { get, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { Order, OrderStatus } from '../../types/order';
 import { PaginatedData } from '../../types/api';
@@ -11,7 +11,10 @@ import FilterTabs from '../../components/FilterTabs';
 import OrderCard from '../../components/OrderCard';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import VirtualList from '../../components/VirtualList';
 import './index.scss';
+
+const ORDER_CARD_HEIGHT = 148;
 
 const FILTER_TABS = [
   { key: '', label: '全部' },
@@ -39,6 +42,8 @@ const OrderListPage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [activeFilter, setActiveFilter] = useState('');
   const [shopName, setShopName] = useState('');
+  const [loadError, setLoadError] = useState(false);
+  const [canRetry, setCanRetry] = useState(false);
 
   /** 加载店铺名称 */
   const loadShopName = async () => {
@@ -61,6 +66,8 @@ const OrderListPage = () => {
 
     if (pageNum === 1) {
       setLoading(true);
+      setLoadError(false);
+      setCanRetry(false);
     } else {
       setLoadingMore(true);
     }
@@ -80,6 +87,8 @@ const OrderListPage = () => {
       const maxPage = Math.ceil(total / pageSize);
 
       setOrders((prev) => (pageNum === 1 ? items : [...prev, ...items]));
+      setLoadError(false);
+      setCanRetry(false);
       setLoading(false);
       setLoadingMore(false);
       setPage(pageNum);
@@ -87,6 +96,11 @@ const OrderListPage = () => {
     } catch (error: any) {
       setLoading(false);
       setLoadingMore(false);
+      if (pageNum === 1) {
+        setLoadError(true);
+        setCanRetry(isRetryableError(error));
+        setOrders([]);
+      }
       console.error('加载订单列表失败:', error);
     }
   };
@@ -169,7 +183,21 @@ const OrderListPage = () => {
         onChange={switchFilter}
       />
 
-      {orders.length === 0 ? (
+      {loadError ? (
+        <EmptyState
+          icon='⚠️'
+          title='加载失败'
+          description={canRetry ? '网络不稳定，请重试' : '订单列表暂时无法获取'}
+          actionText={canRetry ? '点击重试' : '去点餐'}
+          onAction={() => {
+            if (canRetry) {
+              loadOrders(1);
+            } else {
+              Taro.switchTab({ url: '/pages/menu/index' });
+            }
+          }}
+        />
+      ) : orders.length === 0 ? (
         <EmptyState
           icon='📋'
           title='暂无订单'
@@ -178,34 +206,32 @@ const OrderListPage = () => {
           onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
         />
       ) : (
-        <ScrollView
-          scrollY
-          style={{ height: 'calc(100vh - 48px)' }}
-          onScrollToLower={() => loadMore()}
-          enhanced
-          showScrollbar={false}
-        >
-          {orders.map((order) => (
-            <OrderCard
-              key={order.id}
-              order={order}
-              shopName={shopName || '店铺'}
-              onClick={() => goToDetail(order.id)}
-            />
-          ))}
-
+        <View className='order-list-page__list'>
+          <VirtualList
+            data={orders}
+            itemHeight={ORDER_CARD_HEIGHT}
+            height='calc(100vh - 48px)'
+            keyExtractor={(order) => order.id}
+            onScrollToLower={() => loadMore()}
+            renderItem={(order) => (
+              <OrderCard
+                order={order}
+                shopName={shopName || '店铺'}
+                onClick={() => goToDetail(order.id)}
+              />
+            )}
+          />
           {loadingMore && (
             <View className='load-more'>
               <Text>加载中...</Text>
             </View>
           )}
-
           {!hasMore && orders.length > 0 && (
             <View className='load-more'>
               <Text>—— 没有更多了 ——</Text>
             </View>
           )}
-        </ScrollView>
+        </View>
       )}
     </View>
   );

@@ -1,5 +1,6 @@
-import { IsString, IsOptional, IsEnum, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsObject } from 'class-validator';
 import { ShopStatus } from '../../../common/constants/enums';
+import { BusinessHours } from '../business-hours.util';
 
 export class CreateShopDto {
   @IsString()
@@ -36,6 +37,10 @@ export class CreateShopDto {
   @IsNumber()
   @IsOptional()
   minOrderAmount?: number;
+
+  @IsObject()
+  @IsOptional()
+  businessHours?: BusinessHours;
 }
 
 export class UpdateShopDto {
@@ -70,6 +75,10 @@ export class UpdateShopDto {
   @IsNumber()
   @IsOptional()
   minOrderAmount?: number;
+
+  @IsObject()
+  @IsOptional()
+  businessHours?: BusinessHours;
 }
 
 export class ShopResponseDto {
@@ -83,6 +92,24 @@ export class ShopResponseDto {
   deliveryRange!: number;
   deliveryFee!: number;
   minOrderAmount!: number;
+  businessHours?: BusinessHours;
+  /** 当前是否可下单（综合开关店 + 营业时段） */
+  isOpenNow?: boolean;
+  /** 非营业时的下次营业提示 */
+  nextOpenHint?: string | null;
   createdAt!: string;
   updatedAt!: string;
+}
+
+export class UpdateBusinessHoursDto {
+  @IsObject()
+  businessHours!: BusinessHours;
+}
+
+export class BusinessHoursResponseDto {
+  shopId!: string;
+  status!: ShopStatus;
+  businessHours!: BusinessHours;
+  isOpenNow!: boolean;
+  nextOpenHint!: string | null;
 }

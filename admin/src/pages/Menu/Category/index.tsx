@@ -1,16 +1,13 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm } from 'antd';
-import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
+import React, { useRef, useCallback } from 'react';
+import type { ActionType, ProColumns } from '@ant-design/pro-components';
+import { PageContainer, ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
+import { Button, Popconfirm, Space, message } from 'antd';
+import { EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { getCategories, createCategory, updateCategory, deleteCategory, getMenuItems, Category } from '@/services/menu';
-import PageHeaderActions from '@/components/PageHeaderActions';
-import TableCard from '@/components/TableCard';
-import SearchFilterBar from '@/components/SearchFilterBar';
-import { useCrudModal } from '@/hooks/useCrudModal';
-import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { DEFAULT_TABLE_LOCALE } from '@/utils/table';
 
-// 与小程序 client/src/utils/iconMap.ts 中的 CATEGORY_ICONS 对齐
-const CATEGORY_ICON_OPTIONS: { value: string; label: string }[] = [
+const CATEGORY_ICON_OPTIONS = [
   { value: 'star', label: '🌟 推荐' },
   { value: 'meat', label: '🥩 荤菜' },
   { value: 'vegetable', label: '🥬 素菜' },
@@ -19,41 +16,14 @@ const CATEGORY_ICON_OPTIONS: { value: string; label: string }[] = [
 ];
 
 const CategoryPage: React.FC = () => {
-  const [searchText, setSearchText] = useState('');
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const actionRef = useRef<ActionType | undefined>(undefined);
+  const [modalOpen, setModalOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<Category | null>(null);
 
-  const loadCategories = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getCategories(DEFAULT_SHOP_ID);
-      setCategories(res || []);
-    } catch (error) {
-      console.error('加载分类失败:', error);
-      message.error('加载分类失败');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const {
-    form,
-    visible: modalVisible,
-    submitting,
-    editing: editingCategory,
-    openCreate: handleAdd,
-    openEdit: handleEdit,
-    close: closeModal,
-    submit: submitModal,
-  } = useCrudModal<Category>({ onSuccess: loadCategories });
-
-  useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
+  const reload = useCallback(() => actionRef.current?.reload(), []);
 
   const handleDelete = async (id: string) => {
     try {
-      // 删除前检查该分类下是否还有菜品，避免误删导致菜品成为孤儿
       const items = await getMenuItems({ shop_id: DEFAULT_SHOP_ID, category_id: id });
       if (items && items.length > 0) {
         message.warning(`该分类下还有 ${items.length} 个菜品，请先迁移或删除菜品后再删除分类`);
@@ -61,36 +31,50 @@ const CategoryPage: React.FC = () => {
       }
       await deleteCategory(id);
       message.success('删除成功');
-      loadCategories();
-    } catch (error) {
+      reload();
+    } catch {
       message.error('删除失败');
     }
   };
 
-  const handleSubmit = () =>
-    submitModal({
-      create: (values) => createCategory({ ...values, shopId: DEFAULT_SHOP_ID } as any),
-      update: (id, values) => updateCategory(id, values as any),
-    });
-
-  const columns = [
-    { title: '分类名称', dataIndex: 'name', key: 'name' },
-    { title: '排序', dataIndex: 'sortOrder', key: 'sortOrder' },
+  const columns: ProColumns<Category>[] = [
+    {
+      title: '分类名称',
+      dataIndex: 'name',
+      width: 180,
+      fieldProps: { placeholder: '搜索分类名称' },
+    },
+    {
+      title: '排序',
+      dataIndex: 'sortOrder',
+      width: 100,
+      search: false,
+      sorter: (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0),
+    },
     {
       title: '图标',
       dataIndex: 'iconKey',
-      key: 'iconKey',
-      render: (iconKey: string) => {
-        const opt = CATEGORY_ICON_OPTIONS.find(o => o.value === iconKey);
-        return opt ? opt.label : iconKey || '-';
+      width: 140,
+      search: false,
+      render: (_, record) => {
+        const opt = CATEGORY_ICON_OPTIONS.find((o) => o.value === record.iconKey);
+        return opt ? opt.label : record.iconKey || '-';
       },
     },
     {
       title: '操作',
-      key: 'action',
-      render: (_: Category, record: Category) => (
+      valueType: 'option',
+      width: 180,
+      render: (_, record) => (
         <Space>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+          <Button
+            type="link"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setEditing(record);
+              setModalOpen(true);
+            }}
+          >
             编辑
           </Button>
           <Popconfirm
@@ -110,57 +94,106 @@ const CategoryPage: React.FC = () => {
     },
   ];
 
-  const filteredCategories = useMemo(() => {
-    if (!searchText.trim()) return categories;
-    return categories.filter((c) => c.name?.includes(searchText.trim()));
-  }, [categories, searchText]);
-
   return (
-    <div >
-      <PageHeaderActions
-        icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
-        title="分类管理"
-        addText="新增分类"
-        onAdd={handleAdd}
-        onRefresh={loadCategories}
+    <PageContainer title="分类管理" subTitle="管理菜品分类与排序">
+      <ProTable<Category>
+        locale={DEFAULT_TABLE_LOCALE}
+        rowKey="id"
+        actionRef={actionRef}
+        columns={columns}
+        cardBordered
+        search={{ labelWidth: 'auto' }}
+        pagination={{
+          defaultPageSize: 10,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+        toolBarRender={() => [
+          <Button
+            key="add"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+          >
+            新增分类
+          </Button>,
+        ]}
+        request={async (params) => {
+          try {
+            const list = (await getCategories(DEFAULT_SHOP_ID)) || [];
+            const keyword = (params.name || '').trim();
+            const filtered = keyword
+              ? list.filter((c) => c.name?.includes(keyword))
+              : list;
+            return { data: filtered, success: true, total: filtered.length };
+          } catch {
+            message.error('加载分类失败');
+            return { data: [], success: false, total: 0 };
+          }
+        }}
       />
 
-      <SearchFilterBar
-        searchPlaceholder="搜索分类名称"
-        onSearch={setSearchText}
-        onSearchClear={() => setSearchText('')}
-      />
-      <TableCard>
-        <Table columns={columns} dataSource={filteredCategories} rowKey="id" loading={loading} 
-        pagination={DEFAULT_TABLE_PAGINATION}
-      />
-      </TableCard>
-
-      <Modal
-        title={editingCategory ? '编辑分类' : '新增分类'}
-        open={modalVisible}
-        onOk={handleSubmit}
-        onCancel={closeModal}
-        confirmLoading={submitting}
-        okText="保存"
+      <ModalForm
+        title={editing ? '编辑分类' : '新增分类'}
+        open={modalOpen}
+        modalProps={{
+          destroyOnClose: true,
+          onCancel: () => setModalOpen(false),
+        }}
+        initialValues={
+          editing
+            ? {
+                name: editing.name,
+                sortOrder: editing.sortOrder ?? 0,
+                iconKey: editing.iconKey,
+              }
+            : { sortOrder: 0 }
+        }
+        onFinish={async (values) => {
+          try {
+            if (editing) {
+              await updateCategory(editing.id, values as any);
+              message.success('更新成功');
+            } else {
+              await createCategory({ ...values, shopId: DEFAULT_SHOP_ID } as any);
+              message.success('创建成功');
+            }
+            setModalOpen(false);
+            reload();
+            return true;
+          } catch {
+            message.error('保存失败');
+            return false;
+          }
+        }}
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="分类名称" rules={[{ required: true, message: '请输入分类名称' }, { max: 20, message: '分类名称不超过 20 字' }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="sortOrder" label="排序" initialValue={0} rules={[{ type: 'number', min: 0, message: '排序必须为非负数' }]}>
-            <InputNumber min={0} />
-          </Form.Item>
-          <Form.Item name="iconKey" label="图标">
-            <Select allowClear placeholder="请选择图标">
-              {CATEGORY_ICON_OPTIONS.map(opt => (
-                <Select.Option key={opt.value} value={opt.value}>{opt.label}</Select.Option>
-              ))}
-            </Select>
-          </Form.Item>
-        </Form>
-      </Modal>
-    </div>
+        <ProFormText
+          name="name"
+          label="分类名称"
+          rules={[
+            { required: true, message: '请输入分类名称' },
+            { max: 20, message: '分类名称不超过 20 字' },
+          ]}
+        />
+        <ProFormDigit
+          name="sortOrder"
+          label="排序"
+          min={0}
+          fieldProps={{ precision: 0 }}
+          rules={[{ required: true, message: '请输入排序' }]}
+        />
+        <ProFormSelect
+          name="iconKey"
+          label="图标"
+          allowClear
+          options={CATEGORY_ICON_OPTIONS}
+          placeholder="请选择图标"
+        />
+      </ModalForm>
+    </PageContainer>
   );
 };
 

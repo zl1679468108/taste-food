@@ -1,4 +1,5 @@
 import { get, post, patch, RequestError } from '../../src/utils/request';
+import { clearCache } from '../../src/utils/cache';
 
 jest.mock('@tarojs/taro', () => ({
   __esModule: true,
@@ -23,6 +24,7 @@ describe('request utils', () => {
   };
 
   beforeEach(() => {
+    clearCache();
     jest.clearAllMocks();
     mockTaro.request.mockResolvedValue(mockResponse);
   });

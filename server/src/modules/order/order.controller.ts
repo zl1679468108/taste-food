@@ -16,9 +16,10 @@ import { UserRole, OrderStatus } from '../../common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
-import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem } from './order.service';
+import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem, DeliveryTrackPointRecord } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto, OrderQueryDto } from './dto/update-order.dto';
+import { DeliveryTrackPointDto } from './dto/delivery-track.dto';
 
 @Controller('orders')
 export class OrderController {
@@ -33,7 +34,17 @@ export class OrderController {
       return;
     }
     if (user.role === UserRole.CUSTOMER && order.userId === user.userId) return;
-    if (user.role === UserRole.RIDER && order.riderId === user.userId) return;
+    // 旧库可能无 rider_id：骑手可访问配送中/已完成的外送单（演示兼容）
+    if (user.role === UserRole.RIDER) {
+      if (order.riderId === user.userId) return;
+      if (
+        !order.riderId &&
+        order.deliveryType === 'delivery' &&
+        (order.status === 'delivering' || order.status === 'completed')
+      ) {
+        return;
+      }
+    }
     throw new ForbiddenException('无权访问该订单');
   }
 
@@ -84,6 +95,22 @@ export class OrderController {
     return success(result);
   }
 
+  @Get('export')
+  @Roles(UserRole.ADMIN)
+  async exportOrders(
+    @Query('status') status: string | undefined,
+    @Query('maxRows') maxRowsRaw: string | undefined,
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<{ csv: string; count: number; filename: string }>> {
+    const shopId = userShopId || DEFAULT_SHOP_ID;
+    const maxRows = maxRowsRaw ? parseInt(maxRowsRaw, 10) : 1000;
+    const data = await this.orderService.exportOrdersCsv(shopId, {
+      status: status || undefined,
+      maxRows: Number.isFinite(maxRows) ? maxRows : 1000,
+    });
+    return success(data, '导出成功');
+  }
+
   @Get('stats/today')
   @Roles(UserRole.ADMIN)
   async getOrderStats(
@@ -115,6 +142,31 @@ export class OrderController {
     const shopId = userShopId || DEFAULT_SHOP_ID;
     const dist = await this.orderService.getStatusDistribution(shopId);
     return success(dist);
+  }
+
+  @Get(':id/delivery-track')
+  async getDeliveryTrack(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<DeliveryTrackPointRecord[]>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const track = await this.orderService.listDeliveryTrack(id);
+    return success(track);
+  }
+
+  @Post(':id/delivery-track')
+  @Roles(UserRole.ADMIN, UserRole.RIDER)
+  async appendDeliveryTrack(
+    @Param('id') id: string,
+    @Body() dto: DeliveryTrackPointDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<DeliveryTrackPointRecord>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const reporterId = user.role === UserRole.ADMIN ? (order.riderId || user.userId) : user.userId;
+    const point = await this.orderService.appendDeliveryTrackPoint(id, reporterId, dto);
+    return success(point, '配送位置已更新');
   }
 
   @Get(':id')

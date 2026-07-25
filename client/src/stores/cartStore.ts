@@ -6,6 +6,7 @@ const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport })
 
 const CART_STORAGE_KEY = 'taste_food_cart';
 const CART_PERSIST_DEBOUNCE_MS = 1000;
+const isTestEnv = process.env.NODE_ENV === 'test';
 
 /**
  * 生成购物车商品唯一标识
@@ -46,7 +47,9 @@ function persistCart(state: { items: CartItem[]; shopId: string | null; remarks:
     try {
       if (persistState) {
         Taro.setStorageSync(CART_STORAGE_KEY, persistState);
-        console.log('[Cart] Shopping cart persisted successfully');
+        if (!isTestEnv) {
+          console.log('[Cart] Shopping cart persisted successfully');
+        }
       }
     } catch (error) {
       console.error('[Cart] Failed to persist shopping cart:', error);
@@ -67,7 +70,9 @@ function persistCartImmediate(state: { items: CartItem[]; shopId: string | null;
   persistState = state;
   try {
     Taro.setStorageSync(CART_STORAGE_KEY, state);
-    console.log('[Cart] Shopping cart persisted immediately');
+    if (!isTestEnv) {
+      console.log('[Cart] Shopping cart persisted immediately');
+    }
   } catch (error) {
     console.error('[Cart] Failed to persist shopping cart:', error);
   }
@@ -81,7 +86,9 @@ function loadCart(): { items: CartItem[]; shopId: string | null; remarks: string
   try {
     const data = Taro.getStorageSync(CART_STORAGE_KEY);
     if (data && Array.isArray(data.items)) {
-      console.log('[Cart] Shopping cart loaded from storage:', data.items.length, 'items');
+      if (!isTestEnv) {
+        console.log('[Cart] Shopping cart loaded from storage:', data.items.length, 'items');
+      }
       return { items: data.items, shopId: data.shopId || null, remarks: data.remarks || '' };
     }
   } catch (error) {

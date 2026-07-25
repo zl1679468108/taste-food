@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, message, Space, Popconfirm, Typography, Card, Tag, Switch } from 'antd';
+import { PageContainer } from '@ant-design/pro-components';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
   getShops,
@@ -10,7 +11,7 @@ import {
   Shop as ShopModel,
 } from '@/services/shop';
 import { formatTime, formatPrice } from '@/utils/format';
-import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
@@ -100,12 +101,15 @@ const ShopManagePage: React.FC = () => {
       title: '店铺名称',
       dataIndex: 'name',
       key: 'name',
+      width: 160,
+      ellipsis: true,
       render: (name: string) => <Text strong>{name}</Text>,
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 120,
       render: (status: string, record: ShopModel) => (
         <Switch
           checked={status === 'open'}
@@ -119,29 +123,34 @@ const ShopManagePage: React.FC = () => {
       title: '配送范围',
       dataIndex: 'deliveryRange',
       key: 'deliveryRange',
+      width: 110,
       render: (range: number) => `${(range / 1000).toFixed(1)} km`,
     },
     {
       title: '配送费',
       dataIndex: 'deliveryFee',
       key: 'deliveryFee',
+      width: 100,
       render: (fee: number) => formatPrice(fee),
     },
     {
       title: '起送价',
       dataIndex: 'minOrderAmount',
       key: 'minOrderAmount',
+      width: 100,
       render: (amount: number) => formatPrice(amount),
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      width: 160,
       render: (time: string) => formatTime(time, 'YYYY-MM-DD HH:mm'),
     },
     {
       title: '操作',
       key: 'action',
+      width: 160,
       render: (_: ShopModel, record: ShopModel) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
@@ -165,6 +174,7 @@ const ShopManagePage: React.FC = () => {
   ];
 
   return (
+    <PageContainer title="多店铺管理" subTitle="店铺信息维护">
     <div>
       <PageHeaderActions
       icon={<ShopOutlined style={{ marginRight: 8 }} />}
@@ -175,8 +185,10 @@ const ShopManagePage: React.FC = () => {
     />
 
       <TableCard>
-        <Table columns={columns} dataSource={shops} rowKey="id" loading={loading} 
+        <Table columns={columns} dataSource={shops} rowKey="id" loading={loading}
         pagination={DEFAULT_TABLE_PAGINATION}
+        locale={DEFAULT_TABLE_LOCALE}
+        scroll={{ x: 900 }}
       />
       </TableCard>
 
@@ -217,6 +229,7 @@ const ShopManagePage: React.FC = () => {
         </Form>
       </Modal>
     </div>
+    </PageContainer>
   );
 };
 

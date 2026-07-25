@@ -11,6 +11,8 @@ interface PageHeaderActionsProps {
   addText?: string;
   onAdd?: () => void;
   onRefresh?: () => void;
+  /** 额外操作按钮 */
+  extra?: React.ReactNode;
 }
 
 const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
@@ -19,6 +21,7 @@ const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
   addText,
   onAdd,
   onRefresh,
+  extra,
 }) => (
   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, color: brand.textPrimary }}>
     <Title level={4} style={{ margin: 0 }}>
@@ -26,6 +29,7 @@ const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
       {title}
     </Title>
     <Space>
+      {extra}
       {onRefresh && (
         <Button icon={<ReloadOutlined />} onClick={onRefresh}>
           刷新

@@ -7,6 +7,7 @@
 export type {
   OrderItem,
   DeliveryInfo,
+  DeliveryTrackPoint,
   Order,
   OrderStatusHistoryItem,
 } from '@taste-food/shared/types';

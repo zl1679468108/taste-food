@@ -38,7 +38,7 @@ const refreshTokenStore: Map<string, string> = new Map(); // refresh_token -> us
 const DEV_MOCK_USERS: Record<string, { openid: string; role: UserRole; nickName: string; shopId?: string }> = {
   admin_code: { openid: 'mock_admin_openid_001', role: UserRole.ADMIN, nickName: '商家管理员', shopId: DEFAULT_SHOP_ID },
   customer_code: { openid: 'mock_customer_openid_001', role: UserRole.CUSTOMER, nickName: '测试顾客' },
-  rider_code: { openid: 'mock_rider_openid_001', role: UserRole.RIDER, nickName: '测试骑手' },
+  rider_code: { openid: 'mock_rider_openid_001', role: UserRole.RIDER, nickName: '测试骑手', shopId: DEFAULT_SHOP_ID },
 };
 
 const isProduction = process.env.NODE_ENV === 'production';
@@ -71,6 +71,7 @@ const initMemoryUsers = () => {
   const riderOpenid = 'mock_rider_openid_001';
   const rider: UserRecord = {
     id: riderId, openid: riderOpenid, role: UserRole.RIDER,
+    shopId: DEFAULT_SHOP_ID,
     nickName: '测试骑手', avatarUrl: '',
     createdAt: '2025-06-01T00:00:00Z',
   };

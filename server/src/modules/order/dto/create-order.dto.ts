@@ -4,9 +4,12 @@ import {
   IsEnum,
   IsOptional,
   IsArray,
+  IsBoolean,
   ValidateNested,
+  ValidateIf,
   Min,
   MinLength,
+  MaxLength,
   Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -17,9 +20,11 @@ export class CreateOrderItemDto {
   @MinLength(1)
   menuItemId!: string;
 
+  // 展示名可选：服务端以菜单库菜名为准，不信任客户端传值
   @IsString()
+  @IsOptional()
   @MinLength(1)
-  name!: string;
+  name?: string;
 
   @IsNumber()
   @Min(1)
@@ -38,6 +43,12 @@ export class CreateOrderItemDto {
   @IsString()
   @IsOptional()
   imageUrl?: string;
+
+  // 选中的规格选项 ID 列表，服务端据此累加 priceAdjust 核价
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  specOptionIds?: string[];
 }
 
 export class CreateOrderDto {
@@ -73,10 +84,26 @@ export class CreateOrderDto {
   @IsOptional()
   contactName?: string;
 
+  // 空字符串 '' 不触发 Matches；仅在有非空内容时校验手机号格式
+  @ValidateIf((_o, v) => v !== undefined && v !== null && String(v).trim() !== '')
   @IsString()
-  @IsOptional()
   @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
   contactPhone?: string;
 
   // deliveryFee 由服务端从店铺配置获取，不接受客户端传值
+
+  @IsBoolean()
+  @IsOptional()
+  invoiceNeeded?: boolean;
+
+  @ValidateIf((o) => o.invoiceNeeded === true)
+  @IsString()
+  @MinLength(1, { message: '开票时必须填写发票抬头' })
+  @MaxLength(100)
+  invoiceTitle?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(32)
+  invoiceTaxNo?: string;
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, Input } from '@tarojs/components';
 import Taro, { createSelectorQuery } from '@tarojs/taro';
-import { get, post } from '../../utils/request';
+import { get, post, isRetryableError } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
@@ -9,6 +9,12 @@ import { getCategoryIcon } from '../../utils/iconMap';
 import { Shop } from '../../types/shop';
 import { Category, MenuItem, SpecGroup, SpecOption } from '../../types/menu';
 import { DEFAULT_SHOP_ID } from '../../env';
+import {
+  applyDineParamsFromRouter,
+  clearDineContext,
+  loadDineContext,
+  type DineContext,
+} from '../../utils/dine-context';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import BottomSheet from '../../components/BottomSheet';
 import EmptyState from '../../components/EmptyState';
@@ -41,6 +47,9 @@ export default function MenuPage() {
   const [categories, setCategories] = useState<CategoryItemData[]>([]);
   const [activeCategoryIndex, setActiveCategoryIndex] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [dineContext, setDineContext] = useState<DineContext | null>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const [cartPopupVisible, setCartPopupVisible] = useState(false);
   const [specPopupVisible, setSpecPopupVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null);
@@ -58,6 +67,9 @@ export default function MenuPage() {
   const [addingToCart, setAddingToCart] = useState(false);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchRequestRef = useRef(0); // 搜索请求序号，防止慢响应覆盖新结果
+  const categoryOffsetsRef = useRef<number[]>([]);
+  const scrollLockRef = useRef(false); // 点击分类滚动时锁定 scroll-spy，避免抖动
+  const [sidebarScrollIntoView, setSidebarScrollIntoView] = useState('');
 
   // Refs to avoid stale closures in callbacks
   const categoriesRef = useRef(categories);
@@ -73,6 +85,18 @@ export default function MenuPage() {
   const quantityRef = useRef(quantity);
   quantityRef.current = quantity;
 
+
+  // 扫码入座：解析 tableNo / scene，持久化堂食上下文
+  useEffect(() => {
+    try {
+      const params = (Taro.getCurrentInstance().router?.params || {}) as Record<string, string | undefined>;
+      const ctx = applyDineParamsFromRouter(params);
+      setDineContext(ctx);
+    } catch {
+      setDineContext(loadDineContext());
+    }
+  }, []);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -81,6 +105,8 @@ export default function MenuPage() {
 
   async function loadData() {
     setLoading(true);
+    setLoadError(false);
+    setCanRetry(false);
     try {
       const [shopRes, categoriesRes, menuItemsRes, popularRes] = await Promise.all([
         get<Shop>(`/shops/${DEFAULT_SHOP_ID}`),
@@ -112,10 +138,16 @@ export default function MenuPage() {
 
       setShop(shopData);
       setCategories(categoryItems);
+      setLoadError(false);
+      setCanRetry(false);
       setLoading(false);
     } catch (error: any) {
       setLoading(false);
+      setCategories([]);
+      setLoadError(true);
+      setCanRetry(isRetryableError(error));
       console.error('加载菜单失败:', error);
+      Taro.showToast({ title: '加载菜单失败', icon: 'none' });
     }
   }
 
@@ -124,8 +156,71 @@ export default function MenuPage() {
     if (index < 0 || index >= cats.length) return;
     const catId = cats[index].id;
     setActiveCategoryIndex(index);
-    setScrollIntoView(`cat-${catId}`);
+    // 微信 scroll-into-view 需先清空再设置才能重复触发
+    setScrollIntoView('');
+    scrollLockRef.current = true;
+    setTimeout(() => {
+      setScrollIntoView(`cat-${catId}`);
+      setTimeout(() => {
+        scrollLockRef.current = false;
+      }, 360);
+    }, 16);
   }
+
+  /** 测量各分类区块相对菜单列表顶部的偏移，用于右侧滚动 → 左侧高亮 */
+  const measureCategoryOffsets = useCallback(() => {
+    const cats = categoriesRef.current;
+    if (!cats.length) return;
+    const query = createSelectorQuery();
+    query.select('.menu-items').boundingClientRect();
+    cats.forEach((cat) => {
+      query.select(`#cat-${cat.id}`).boundingClientRect();
+    });
+    query.exec((res) => {
+      if (!res || !res[0]) return;
+      const listTop = res[0].top || 0;
+      const offsets: number[] = [];
+      for (let i = 1; i < res.length; i += 1) {
+        const rect = res[i];
+        if (!rect) {
+          offsets.push(offsets[offsets.length - 1] || 0);
+          continue;
+        }
+        offsets.push((rect.top || 0) - listTop);
+      }
+      categoryOffsetsRef.current = offsets;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loading || categories.length === 0) return;
+    const timer = setTimeout(() => measureCategoryOffsets(), 80);
+    return () => clearTimeout(timer);
+  }, [loading, categories, measureCategoryOffsets]);
+
+  const handleMenuScroll = useCallback((e: any) => {
+    if (scrollLockRef.current) return;
+    const scrollTop = e?.detail?.scrollTop || 0;
+    const offsets = categoryOffsetsRef.current;
+    if (!offsets.length) return;
+
+    // 找到最后一个 offset <= scrollTop + 缓冲 的分类
+    let nextIndex = 0;
+    const threshold = scrollTop + 24;
+    for (let i = 0; i < offsets.length; i += 1) {
+      if (offsets[i] <= threshold) nextIndex = i;
+      else break;
+    }
+    setActiveCategoryIndex((prev) => {
+      if (prev === nextIndex) return prev;
+      const catId = categoriesRef.current[nextIndex]?.id;
+      if (catId) {
+        setSidebarScrollIntoView('');
+        setTimeout(() => setSidebarScrollIntoView(`side-cat-${catId}`), 16);
+      }
+      return nextIndex;
+    });
+  }, []);
 
   async function handleItemClick(item: MenuItem) {
     // 重置规格加价，避免新商品残留上一商品的加价
@@ -336,6 +431,7 @@ export default function MenuPage() {
     } catch (error) {
       if (requestId !== searchRequestRef.current) return;
       console.error('搜索失败:', error);
+      Taro.showToast({ title: '搜索失败，请稍后重试', icon: 'none' });
     }
   }
 
@@ -347,13 +443,17 @@ export default function MenuPage() {
     }
 
     try {
-      await post<any>(`/menu-items/${item.id}/favorite`);
-      Taro.showToast({ title: item.isFavorite ? '已取消收藏' : '已收藏', icon: 'success' });
+      const res = await post<{ isFavorite: boolean }>('/favorites/toggle', {
+        menuItemId: item.id,
+        shopId: DEFAULT_SHOP_ID,
+      });
+      const nextFavorite = res.data?.isFavorite ?? !item.isFavorite;
+      Taro.showToast({ title: nextFavorite ? '已收藏' : '已取消收藏', icon: 'success' });
 
       const cats = categoriesRef.current;
       const newCategories = cats.map(cat => ({
         ...cat,
-        items: cat.items.map(i => i.id === item.id ? { ...i, isFavorite: !i.isFavorite } : i)
+        items: cat.items.map(i => i.id === item.id ? { ...i, isFavorite: nextFavorite } : i)
       }));
       setCategories(newCategories);
     } catch (e) {
@@ -410,6 +510,9 @@ export default function MenuPage() {
   const cartItems = cartStore.items;
   const cartTotal = cartStore.getTotalPrice();
   const cartCount = cartStore.items.reduce((s, i) => s + i.quantity, 0);
+  // 兼容旧逻辑：显式 isOpenNow 优先，否则回退 status
+  const shopOpen =
+    typeof shop?.isOpenNow === 'boolean' ? shop.isOpenNow : shop?.status === 'open';
 
   return (
     <View className='page menu-page'>
@@ -418,15 +521,58 @@ export default function MenuPage() {
         <View className='menu-header__avatar'>🏪</View>
         <View className='menu-header__info'>
           <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text className='menu-header__name'>{shop?.name || '小买卖烧烤'}</Text>
-            <View
-              className='menu-header__status'
-              onClick={() => setShowSearch(!showSearch)}
-            >
-              <Text>{showSearch ? '✕ 搜索' : '🔍 搜索'}</Text>
+            <View className='menu-header__title-row'>
+              <Text className='menu-header__name'>{shop?.name || '小买卖烧烤'}</Text>
+              <View
+                className={`menu-header__open-badge${shopOpen ? '' : ' menu-header__open-badge--closed'}`}
+              >
+                <Text>{shopOpen ? '营业中' : '休息中'}</Text>
+              </View>
+            </View>
+            <View className='menu-header__actions'>
+              <View
+                className='menu-header__status'
+                onClick={() => {
+                  const authState = useAuthStore.getState();
+                  if (!authState.isLoggedIn) {
+                    Taro.showToast({ title: '请先登录', icon: 'none' });
+                    return;
+                  }
+                  Taro.navigateTo({ url: '/pages/favorites/index' });
+                }}
+                aria-label='我的收藏'
+              >
+                <Text>❤️ 收藏</Text>
+              </View>
+              <View
+                className='menu-header__status'
+                onClick={() => {
+                  const authState = useAuthStore.getState();
+                  if (!authState.isLoggedIn) {
+                    Taro.showToast({ title: '请先登录', icon: 'none' });
+                    return;
+                  }
+                  Taro.navigateTo({ url: '/pages/address/index' });
+                }}
+                aria-label='地址簿'
+              >
+                <Text>📍 地址</Text>
+              </View>
+              <View
+                className='menu-header__status'
+                onClick={() => setShowSearch(!showSearch)}
+                aria-label={showSearch ? '关闭搜索' : '打开搜索'}
+              >
+                <Text>{showSearch ? '✕ 搜索' : '🔍 搜索'}</Text>
+              </View>
             </View>
           </View>
           <Text className='menu-header__desc'>{shop?.description || '秘制烤肉，真材实料'}</Text>
+          {!shopOpen && (
+            <Text className='menu-header__rest-hint'>
+              {shop?.nextOpenHint || '店铺休息中，暂不可下单'}
+            </Text>
+          )}
         </View>
       </View>
 
@@ -438,23 +584,75 @@ export default function MenuPage() {
             value={searchKeyword}
             onInput={(e) => handleSearch(e.detail.value)}
             confirm-type='search'
+            aria-label='搜索菜品'
           />
         </View>
       )}
 
       {loading ? (
         <SkeletonLoader mode='list' count={5} />
+      ) : loadError ? (
+        <EmptyState
+          icon='⚠️'
+          title='加载失败'
+          description={canRetry ? '网络不稳定，请重试' : '菜单暂时无法获取'}
+          actionText={canRetry ? '点击重试' : '重新加载'}
+          onAction={() => loadData()}
+        />
       ) : categories.length === 0 ? (
-        <EmptyState icon='🍽️' title='暂无菜品' description='商家正在准备菜单，请稍后再来' />
+        <EmptyState
+          icon={searchKeyword.trim() ? '🔍' : '🍽️'}
+          title={searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
+          description={searchKeyword.trim() ? '换个关键词试试吧' : '商家正在准备菜单，请稍后再来'}
+          actionText={searchKeyword.trim() ? '清空搜索' : undefined}
+          onAction={searchKeyword.trim() ? clearSearch : undefined}
+        />
+      ) : !categories.some((cat) => cat.items.length > 0) ? (
+        <EmptyState
+          icon={searchKeyword.trim() ? '🔍' : '🍽️'}
+          title={searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
+          description={searchKeyword.trim() ? '换个关键词试试吧' : '商家正在准备菜单，请稍后再来'}
+          actionText={searchKeyword.trim() ? '清空搜索' : undefined}
+          onAction={searchKeyword.trim() ? clearSearch : undefined}
+        />
       ) : (
-        <View className='menu-body'>
+        <>
+      {dineContext?.tableNo ? (
+        <View className='dine-banner' aria-label={`当前桌号 ${dineContext.tableNo}`}>
+          <View className='dine-banner__text'>
+            <Text className='dine-banner__title'>🍽️ 堂食桌号 {dineContext.tableNo}</Text>
+            <Text className='dine-banner__sub'>扫码入座已识别，结算将默认堂食</Text>
+          </View>
+          <Text
+            className='dine-banner__clear'
+            onClick={() => {
+              clearDineContext();
+              setDineContext(null);
+              Taro.showToast({ title: '已清除桌号', icon: 'none' });
+            }}
+          >
+            清除
+          </Text>
+        </View>
+      ) : null}
+
+      <View className='menu-body'>
           {/* 左侧分类侧边栏 */}
-          <ScrollView className='category-sidebar' scrollY>
+          <ScrollView
+            className='category-sidebar'
+            scrollY
+            scrollIntoView={sidebarScrollIntoView}
+            scrollWithAnimation
+            enhanced
+            showScrollbar={false}
+          >
             {categories.map((cat, index) => (
               <View
                 key={cat.id}
+                id={`side-cat-${cat.id}`}
                 className={`category-sidebar__item ${index === activeCategoryIndex ? 'category-sidebar__item--active' : ''}`}
                 onClick={() => switchCategory(index)}
+                aria-label={`分类 ${cat.name}`}
               >
                 <Text className='category-sidebar__icon'>
                   {getCategoryIcon(cat.iconKey || cat.name)}
@@ -469,15 +667,20 @@ export default function MenuPage() {
             className='menu-items'
             scrollY
             scrollIntoView={scrollIntoView}
+            scrollWithAnimation
             enhanced
             showScrollbar={false}
+            onScroll={handleMenuScroll}
+            onScrollToUpper={() => !scrollLockRef.current && setActiveCategoryIndex(0)}
           >
             <View className='menu-items__content'>
               {categories.map((cat, index) => (
                 <View key={cat.id} id={`cat-${cat.id}`}>
                   <Text className='category-title'>{cat.name}</Text>
                   {cat.items.length === 0 ? (
-                    <View className='menu-page__empty-item'>暂无菜品</View>
+                    <View className='menu-page__empty-item' aria-label='该分类暂无菜品'>
+                      {searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
+                    </View>
                   ) : (
                     cat.items.map((item) => (
                       <MenuItemCard
@@ -496,6 +699,7 @@ export default function MenuPage() {
             </View>
           </ScrollView>
         </View>
+        </>
       )}
 
       {/* 购物车弹出层（公共 BottomSheet） */}
@@ -512,7 +716,13 @@ export default function MenuPage() {
           </View>
           <View className='cart-popup__body'>
             {cartItems.length === 0 ? (
-              <EmptyState icon='🛒' title='购物车空空如也' description='去挑选几道好菜吧' />
+              <EmptyState
+                icon='🛒'
+                title='购物车空空如也'
+                description='去挑选几道好菜吧'
+                actionText='去点餐'
+                onAction={() => setCartPopupVisible(false)}
+              />
             ) : (
               cartItems.map((item) => (
                 <CartItemRow
@@ -658,13 +868,20 @@ export default function MenuPage() {
               </Text>
             </View>
             <View
-              className='cart-bar__btn'
+              className={`cart-bar__btn${!shopOpen ? ' cart-bar__btn--disabled' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
+                if (!shopOpen) {
+                  Taro.showToast({
+                    title: shop?.nextOpenHint || '店铺休息中，暂不可下单',
+                    icon: 'none',
+                  });
+                  return;
+                }
                 Taro.navigateTo({ url: '/pages/order-confirm/index' });
               }}
             >
-              去结算
+              {shopOpen ? '去结算' : '休息中'}
             </View>
           </View>
         </View>

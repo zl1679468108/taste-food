@@ -6,7 +6,7 @@
 
 **taste_food_order** — 面向线下小餐饮店的扫码点餐微信小程序系统。
 
-- AppID: `wx93c168508eff05096`（个人主体）
+- AppID: `wx93c16508eff05096`（个人主体）
 - 根目录: `/Users/zhaolong/前端/vibe-coding-project/taste-food`
 
 ## 文档体系

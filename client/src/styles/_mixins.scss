@@ -1,0 +1,70 @@
+/* 通用 SCSS mixin */
+
+@mixin ellipsis($lines: 1) {
+  @if $lines == 1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  } @else {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: $lines;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@mixin hairline($color: #e0e0e0, $direction: bottom) {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    background: $color;
+    @if $direction == bottom {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 1px;
+      transform: scaleY(0.5);
+      transform-origin: 0 100%;
+    } @else if $direction == top {
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 1px;
+      transform: scaleY(0.5);
+      transform-origin: 0 0;
+    } @else if $direction == right {
+      top: 0;
+      bottom: 0;
+      right: 0;
+      width: 1px;
+      transform: scaleX(0.5);
+      transform-origin: 100% 0;
+    }
+  }
+}
+
+@mixin scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}

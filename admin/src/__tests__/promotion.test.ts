@@ -24,7 +24,7 @@ describe('Promotion API 服务', () => {
 
       await getPromotions('shop001');
 
-      expect(request.get).toHaveBeenCalledWith('/api/promotions', { params: { shopId: 'shop001' } });
+      expect(request.get).toHaveBeenCalledWith('/api/promotions/manage');
     });
   });
 

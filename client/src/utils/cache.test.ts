@@ -8,6 +8,8 @@ jest.mock('@tarojs/taro', () => ({
   removeStorageSync: jest.fn(),
 }));
 
+const mockTaro = Taro as any;
+
 describe('cache utils', () => {
   beforeEach(() => {
     // Clear in-memory cache
@@ -49,21 +51,21 @@ describe('cache utils', () => {
     const testData = { id: 1, name: 'storage test' };
     setStorageCache('storage-key', testData);
     
-    Taro.getStorageSync.mockReturnValueOnce(JSON.stringify({ data: testData, timestamp: Date.now() }));
+    mockTaro.getStorageSync.mockReturnValueOnce(JSON.stringify({ data: testData, timestamp: Date.now() }));
     const cached = getStorageCache('storage-key');
     expect(cached).toEqual(testData);
   });
 
   test('getStorageCache should return null for expired cache', () => {
     const expiredEntry = { data: 'expired', timestamp: Date.now() - 10 * 60 * 1000 };
-    Taro.getStorageSync.mockReturnValueOnce(JSON.stringify(expiredEntry));
+    mockTaro.getStorageSync.mockReturnValueOnce(JSON.stringify(expiredEntry));
     const cached = getStorageCache('expired-key');
     expect(cached).toBeNull();
-    expect(Taro.removeStorageSync).toHaveBeenCalledWith('cache_expired-key');
+    expect(mockTaro.removeStorageSync).toHaveBeenCalledWith('cache_expired-key');
   });
 
   test('getStorageCache should handle parsing errors', () => {
-    Taro.getStorageSync.mockReturnValueOnce('invalid json');
+    mockTaro.getStorageSync.mockReturnValueOnce('invalid json');
     const cached = getStorageCache('invalid-key');
     expect(cached).toBeNull();
   });

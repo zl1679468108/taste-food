@@ -1,7 +1,7 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: v10.0 (与代码实现同步)
--- 更新日期: 2026-07-12
+-- 版本: v15.2 (与代码实现同步)
+-- 更新日期: 2026-07-25
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
 -- v10.0 变更：
@@ -12,6 +12,18 @@
 --   5. 多租户表补充 shop_id（tf_order_items/tf_delivery_info/tf_payments）
 --   6. tf_users.userId 重命名为 user_id 符合 snake_case 规范
 --   7. atomic_create_order p_user_id 类型从 uuid 改为 text 匹配 user_id 列
+-- v11.0 变更：
+--   1. tf_shops 增加 business_hours jsonb（营业时段）
+-- v12.0 变更：
+--   1. tf_addresses 顾客地址簿表
+-- v13.0
+--   1. tf_shop_tables 桌台扫码入座
+-- v14.0
+--   1. tf_audit_logs 操作审计日志
+--   2. tf_orders 增加 invoice_needed / invoice_title / invoice_tax_no
+--   3. atomic_create_order 同步发票字段
+-- v15.0
+--   1. tf_delivery_tracks 配送轨迹点表
 -- ============================================================
 
 -- 1. 店铺表
@@ -27,10 +39,33 @@ CREATE TABLE IF NOT EXISTS "tf_shops" (
   "delivery_range" integer DEFAULT 3000, -- 配送范围（米），默认3km
   "delivery_fee" integer DEFAULT 500, -- 配送费（分），默认5元
   "min_order_amount" integer DEFAULT 0, -- 起送价（分）
+  "business_hours" jsonb DEFAULT NULL, -- 营业时段 {mon:[{start,end}],...}；null 表示仅看 status
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_shops" DISABLE ROW LEVEL SECURITY;
+
+-- 兼容已有库的增量迁移（幂等）
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "business_hours" jsonb DEFAULT NULL;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "logo_url" text;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "avatar_url" text; -- 兼容旧字段，业务以 logo_url 为准
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_range" integer DEFAULT 3000;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_fee" integer DEFAULT 500;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "min_order_amount" integer DEFAULT 0;
+
+-- v15.2 兼容旧线上库：补齐主路径缺失列
+ALTER TABLE "tf_menu_items" ADD COLUMN IF NOT EXISTS "monthly_sales" integer DEFAULT 0;
+ALTER TABLE "tf_menu_items" ADD COLUMN IF NOT EXISTS "spec_group_ids" uuid[] DEFAULT '{}';
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_fee" integer DEFAULT 0;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "rider_id" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_needed" boolean DEFAULT false;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_title" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_tax_no" text;
+ALTER TABLE "tf_order_items" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
+ALTER TABLE "tf_payments" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
+ALTER TABLE "tf_payments" ADD COLUMN IF NOT EXISTS "user_id" text;
+ALTER TABLE "tf_payments" ADD COLUMN IF NOT EXISTS "paid_at" timestamptz;
+ALTER TABLE "tf_users" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
 
 -- 2. 菜品分类表
 CREATE TABLE IF NOT EXISTS "tf_categories" (
@@ -106,11 +141,19 @@ CREATE TABLE IF NOT EXISTS "tf_orders" (
   "remark" text,
   "contact_name" text,
   "contact_phone" text,
+  "invoice_needed" boolean DEFAULT false, -- 是否需要发票
+  "invoice_title" text, -- 发票抬头
+  "invoice_tax_no" text, -- 税号
   "delivery_fee" integer DEFAULT 0,
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_orders" DISABLE ROW LEVEL SECURITY;
+
+-- 兼容已有库：订单发票字段增量迁移（幂等）
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_needed" boolean DEFAULT false;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_title" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_tax_no" text;
 
 -- 7. 订单明细表
 -- shop_id 多租户字段，便于按店铺维度统计订单明细
@@ -143,6 +186,22 @@ CREATE TABLE IF NOT EXISTS "tf_delivery_info" (
   "updated_at" timestamptz DEFAULT now()
 );
 ALTER TABLE "tf_delivery_info" DISABLE ROW LEVEL SECURITY;
+
+-- 8.1 配送轨迹点表
+CREATE TABLE IF NOT EXISTS "tf_delivery_tracks" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "order_id" uuid NOT NULL REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE RESTRICT,
+  "rider_id" text,
+  "latitude" numeric(10, 7) NOT NULL CHECK (latitude >= -90 AND latitude <= 90),
+  "longitude" numeric(10, 7) NOT NULL CHECK (longitude >= -180 AND longitude <= 180),
+  "speed" numeric(8, 2),
+  "accuracy" numeric(8, 2),
+  "source" text DEFAULT 'rider',
+  "recorded_at" timestamptz DEFAULT now(),
+  "created_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_delivery_tracks" DISABLE ROW LEVEL SECURITY;
 
 -- 9. 营销/促销表
 -- 注意：代码中使用 name, rule(jsonb), status, start_date, end_date
@@ -224,6 +283,47 @@ ALTER TABLE "tf_favorites" DISABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_favorites_user_id ON tf_favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_favorites_menu_item_id ON tf_favorites(menu_item_id);
 
+-- 13. 订单评价表（一单一评）
+CREATE TABLE IF NOT EXISTS "tf_reviews" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "order_id" uuid NOT NULL REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "user_id" text NOT NULL,
+  "rating" integer NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  "content" text DEFAULT '',
+  "reply_content" text DEFAULT '',
+  "reply_at" timestamptz,
+  "created_at" timestamptz DEFAULT now(),
+  UNIQUE("order_id")
+);
+ALTER TABLE "tf_reviews" DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE "tf_reviews" ADD COLUMN IF NOT EXISTS "reply_content" text DEFAULT '';
+ALTER TABLE "tf_reviews" ADD COLUMN IF NOT EXISTS "reply_at" timestamptz;
+
+CREATE INDEX IF NOT EXISTS idx_reviews_shop_id ON tf_reviews(shop_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON tf_reviews(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_created_at ON tf_reviews(created_at);
+
+-- 12.x 顾客地址簿
+CREATE TABLE IF NOT EXISTS "tf_addresses" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "user_id" text NOT NULL,
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "contact_name" text NOT NULL,
+  "contact_phone" text NOT NULL,
+  "detail" text NOT NULL,
+  "tag" text, -- 家/公司/学校 等标签
+  "is_default" boolean DEFAULT false,
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_addresses" DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_addresses_user_id ON tf_addresses(user_id);
+CREATE INDEX IF NOT EXISTS idx_addresses_shop_id ON tf_addresses(shop_id);
+CREATE INDEX IF NOT EXISTS idx_addresses_user_default ON tf_addresses(user_id, is_default);
+
 -- ============================================================
 -- 以下为索引优化（提升查询性能）
 -- ============================================================
@@ -266,6 +366,9 @@ CREATE INDEX IF NOT EXISTS idx_promotions_status ON tf_promotions(status);
 
 -- 配送信息索引
 CREATE INDEX IF NOT EXISTS idx_delivery_info_order_id ON tf_delivery_info(order_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_tracks_order_time ON tf_delivery_tracks(order_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_delivery_tracks_shop_id ON tf_delivery_tracks(shop_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_tracks_rider_id ON tf_delivery_tracks(rider_id);
 
 -- ============================================================
 -- 数据一致性优化（v9.2）
@@ -369,15 +472,18 @@ CREATE OR REPLACE FUNCTION atomic_create_order(
   p_contact_name text,
   p_contact_phone text,
   p_items jsonb,
-  p_order_date date
+  p_order_date date,
+  p_invoice_needed boolean DEFAULT false,
+  p_invoice_title text DEFAULT NULL,
+  p_invoice_tax_no text DEFAULT NULL
 ) RETURNS jsonb AS $$
 DECLARE
   v_item jsonb;
   v_order_id uuid;
 BEGIN
   -- Step 1: Insert order
-  INSERT INTO tf_orders (id, shop_id, user_id, status, total, delivery_fee, delivery_type, address, table_no, remark, contact_name, contact_phone, created_at, updated_at)
-  VALUES (p_order_id, p_shop_id, p_user_id, 'pending_payment', p_total, p_delivery_fee, p_delivery_type, p_address, p_table_no, p_remark, p_contact_name, p_contact_phone, now(), now())
+  INSERT INTO tf_orders (id, shop_id, user_id, status, total, delivery_fee, delivery_type, address, table_no, remark, contact_name, contact_phone, invoice_needed, invoice_title, invoice_tax_no, created_at, updated_at)
+  VALUES (p_order_id, p_shop_id, p_user_id, 'pending_payment', p_total, p_delivery_fee, p_delivery_type, p_address, p_table_no, p_remark, p_contact_name, p_contact_phone, COALESCE(p_invoice_needed, false), p_invoice_title, p_invoice_tax_no, now(), now())
   RETURNING id INTO v_order_id;
 
   -- Step 2: Insert order items and increment sales atomically
@@ -669,3 +775,46 @@ USING (bucket_id = 'menu-images');
 -- 可选校验：
 -- SELECT id, name, public, file_size_limit, allowed_mime_types FROM storage.buckets WHERE id = 'menu-images';
 -- SELECT policyname, cmd, roles FROM pg_policies WHERE tablename = 'objects' AND policyname LIKE 'menu_images%';
+
+
+-- ---------------------------------------------------------------------------
+-- v13.0 桌台扫码入座
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS "tf_shop_tables" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid NOT NULL,
+  "table_no" text NOT NULL,
+  "label" text DEFAULT '',
+  "sort_order" int DEFAULT 0,
+  "active" boolean DEFAULT true,
+  "created_at" timestamptz DEFAULT now(),
+  UNIQUE ("shop_id", "table_no")
+);
+
+ALTER TABLE "tf_shop_tables" DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_shop_tables_shop_id ON tf_shop_tables(shop_id);
+CREATE INDEX IF NOT EXISTS idx_shop_tables_shop_active ON tf_shop_tables(shop_id, active);
+
+
+-- ---------------------------------------------------------------------------
+-- v14.0 操作审计日志
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS "tf_audit_logs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid,
+  "user_id" text NOT NULL,
+  "role" text NOT NULL,
+  "method" text NOT NULL,
+  "path" text NOT NULL,
+  "action" text NOT NULL,
+  "resource" text,
+  "resource_id" text,
+  "summary" text DEFAULT '',
+  "status_code" int,
+  "ip" text,
+  "created_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_audit_logs" DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_audit_logs_shop_created ON tf_audit_logs(shop_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_created ON tf_audit_logs(user_id, created_at DESC);

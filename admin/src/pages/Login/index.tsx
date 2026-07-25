@@ -35,7 +35,7 @@ const LoginPage: React.FC = () => {
           localStorage.setItem('refreshToken', result.refreshToken);
         }
         localStorage.setItem('user', JSON.stringify(result));
-        await setInitialState((s) => ({
+        await setInitialState((s: any) => ({
           ...s,
           currentUser: {
             id: result.userId,

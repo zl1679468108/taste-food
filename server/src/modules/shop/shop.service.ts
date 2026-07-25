@@ -6,9 +6,25 @@ import {
   CreateShopDto,
   UpdateShopDto,
   ShopResponseDto,
+  BusinessHoursResponseDto,
 } from './dto/shop.dto';
+import {
+  BusinessHours,
+  defaultBusinessHours,
+  isWithinBusinessHours,
+  normalizeBusinessHours,
+  nextOpenHint,
+} from './business-hours.util';
 
 const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
+
+const SHOP_SELECT_CANDIDATES = [
+  'id, name, description, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, business_hours, created_at, updated_at',
+  'id, name, description, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, created_at, updated_at',
+  'id, name, description, logo_url, address, phone, status, delivery_fee, min_order_amount, created_at, updated_at',
+  'id, name, description, logo_url, address, phone, status, created_at, updated_at',
+  'id, name, description, address, phone, status, created_at, updated_at',
+] as const;
 
 // 内存回退数据（仅开发环境，生产环境禁用）
 const memoryShops: Map<string, ShopResponseDto> = new Map();
@@ -27,6 +43,7 @@ const initMemoryShops = () => {
     deliveryRange: 3000,
     deliveryFee: 500,
     minOrderAmount: 0,
+    businessHours: defaultBusinessHours(),
     createdAt: now,
     updatedAt: now,
   });
@@ -34,13 +51,35 @@ const initMemoryShops = () => {
 
 @Injectable()
 export class ShopService {
+
+  private isMissingColumnError(error: { message?: string } | null | undefined): boolean {
+    const msg = (error?.message || '').toLowerCase();
+    return msg.includes('column') && msg.includes('does not exist');
+  }
+
+  private async queryShops(
+    build: (select: string) => any,
+  ): Promise<{ data: any[] | any | null; error: any | null }> {
+    // Prefer full schema, then progressively degrade for older live databases.
+    let last = { data: null, error: { message: 'no shop select candidate tried' } as any };
+    for (const select of SHOP_SELECT_CANDIDATES) {
+      const result = await build(select);
+      if (!result.error) {
+        return result;
+      }
+      last = result;
+      if (!this.isMissingColumnError(result.error)) {
+        return result;
+      }
+    }
+    return last;
+  }
+
   async findById(id: string): Promise<ShopResponseDto> {
     if (hasSupabase() && supabase) {
-      const { data, error } = await supabase
-        .from('tf_shops')
-        .select('id, name, description, avatar_url, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, created_at, updated_at')
-        .eq('id', id)
-        .single();
+      const { data, error } = await this.queryShops((select) =>
+        supabase!.from('tf_shops').select(select).eq('id', id).single(),
+      );
 
       if (error || !data) {
         throw new NotFoundException(`店铺 ${id} 不存在`);
@@ -52,43 +91,43 @@ export class ShopService {
     initMemoryShops();
     const shop = memoryShops.get(id);
     if (!shop) throw new NotFoundException(`店铺 ${id} 不存在`);
-    return shop;
+    return this.withOpenFlag(shop);
   }
+
 
   async findAll(): Promise<ShopResponseDto[]> {
     if (hasSupabase() && supabase) {
-      const { data, error } = await supabase
-        .from('tf_shops')
-        .select('id, name, description, avatar_url, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, created_at, updated_at')
-        .order('created_at', { ascending: false });
+      const { data, error } = await this.queryShops((select) =>
+        supabase!.from('tf_shops').select(select).order('created_at', { ascending: false }),
+      );
 
       if (error) {
         throw new BadRequestException(`查询店铺失败: ${error.message}`);
       }
-      return (data || []).map(this.toResponse);
+      return (data || []).map((row: any) => this.toResponse(row));
     }
 
     assertMemoryFallbackAllowed('ShopService');
     initMemoryShops();
-    return Array.from(memoryShops.values());
+    return Array.from(memoryShops.values()).map((shop) => this.withOpenFlag(shop));
   }
 
   async findOpenShops(): Promise<ShopResponseDto[]> {
-    if (hasSupabase() && supabase) {
-      const { data, error } = await supabase
-        .from('tf_shops')
-        .select('id, name, description, avatar_url, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, created_at, updated_at')
-        .eq('status', ShopStatus.OPEN);
+    const shops = await this.findAll();
+    return shops.filter((s) => s.isOpenNow);
+  }
 
-      if (error) {
-        throw new BadRequestException(`查询店铺失败: ${error.message}`);
-      }
-      return (data || []).map(this.toResponse);
-    }
-
-    assertMemoryFallbackAllowed('ShopService');
-    initMemoryShops();
-    return Array.from(memoryShops.values()).filter((s) => s.status === ShopStatus.OPEN);
+  async getBusinessHours(id: string): Promise<BusinessHoursResponseDto> {
+    const shop = await this.findById(id);
+    const businessHours = shop.businessHours || defaultBusinessHours();
+    const isOpenNow = isWithinBusinessHours(businessHours, shop.status);
+    return {
+      shopId: shop.id,
+      status: shop.status,
+      businessHours,
+      isOpenNow,
+      nextOpenHint: nextOpenHint(businessHours, shop.status),
+    };
   }
 
   async toggleStatus(id: string): Promise<ShopResponseDto> {
@@ -102,9 +141,8 @@ export class ShopService {
         throw new NotFoundException(`店铺 ${id} 不存在`);
       }
 
-      const newStatus = current.status === ShopStatus.OPEN
-        ? ShopStatus.CLOSED
-        : ShopStatus.OPEN;
+      const newStatus =
+        current.status === ShopStatus.OPEN ? ShopStatus.CLOSED : ShopStatus.OPEN;
 
       const { data, error } = await supabase
         .from('tf_shops')
@@ -125,30 +163,54 @@ export class ShopService {
     if (!shop) throw new NotFoundException(`店铺 ${id} 不存在`);
     shop.status = shop.status === ShopStatus.OPEN ? ShopStatus.CLOSED : ShopStatus.OPEN;
     shop.updatedAt = new Date().toISOString();
-    return shop;
+    return this.withOpenFlag(shop);
   }
 
   async create(dto: CreateShopDto): Promise<ShopResponseDto> {
     const now = new Date().toISOString();
+    const businessHours = dto.businessHours
+      ? normalizeBusinessHours(dto.businessHours)
+      : defaultBusinessHours();
 
     if (hasSupabase() && supabase) {
+      const insertData: Record<string, unknown> = {
+        name: dto.name,
+        description: dto.description || '',
+        address: dto.address || '',
+        phone: dto.phone || '',
+        logo_url: dto.logoUrl || '',
+        status: dto.status || ShopStatus.OPEN,
+        delivery_range: dto.deliveryRange ?? 3000,
+        delivery_fee: dto.deliveryFee ?? 500,
+        min_order_amount: dto.minOrderAmount ?? 0,
+        business_hours: businessHours,
+      };
+
       const { data, error } = await supabase
         .from('tf_shops')
-        .insert({
-          name: dto.name,
-          description: dto.description || '',
-          address: dto.address || '',
-          phone: dto.phone || '',
-          logo_url: dto.logoUrl || '',
-          status: dto.status || ShopStatus.OPEN,
-          delivery_range: dto.deliveryRange || 3000,
-          delivery_fee: dto.deliveryFee || 500,
-          min_order_amount: dto.minOrderAmount || 0,
-        })
+        .insert(insertData)
         .select()
         .single();
 
       if (error) {
+        // 兼容旧库缺列：依次去掉 business_hours / logo_url 再试
+        if (error.message?.includes('business_hours') || error.message?.includes('logo_url')) {
+          if (error.message?.includes('business_hours')) delete insertData.business_hours;
+          if (error.message?.includes('logo_url')) delete insertData.logo_url;
+          const retry = await supabase.from('tf_shops').insert(insertData).select().single();
+          if (retry.error) {
+            if (retry.error.message?.includes('logo_url')) {
+              delete insertData.logo_url;
+              const retry2 = await supabase.from('tf_shops').insert(insertData).select().single();
+              if (retry2.error) {
+                throw new BadRequestException(`创建店铺失败: ${retry2.error.message}`);
+              }
+              return this.toResponse(retry2.data);
+            }
+            throw new BadRequestException(`创建店铺失败: ${retry.error.message}`);
+          }
+          return this.toResponse(retry.data);
+        }
         throw new BadRequestException(`创建店铺失败: ${error.message}`);
       }
       return this.toResponse(data);
@@ -165,19 +227,25 @@ export class ShopService {
       phone: dto.phone || '',
       logoUrl: dto.logoUrl || '',
       status: dto.status || ShopStatus.OPEN,
-      deliveryRange: dto.deliveryRange || 3000,
-      deliveryFee: dto.deliveryFee || 500,
-      minOrderAmount: dto.minOrderAmount || 0,
+      deliveryRange: dto.deliveryRange ?? 3000,
+      deliveryFee: dto.deliveryFee ?? 500,
+      minOrderAmount: dto.minOrderAmount ?? 0,
+      businessHours,
       createdAt: now,
       updatedAt: now,
     };
     memoryShops.set(id, shop);
-    return shop;
+    return this.withOpenFlag(shop);
   }
 
   async update(id: string, dto: UpdateShopDto): Promise<ShopResponseDto> {
+    let normalizedHours: BusinessHours | undefined;
+    if (dto.businessHours !== undefined) {
+      normalizedHours = normalizeBusinessHours(dto.businessHours);
+    }
+
     if (hasSupabase() && supabase) {
-      const updateData: any = { updated_at: new Date().toISOString() };
+      const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (dto.name !== undefined) updateData.name = dto.name;
       if (dto.description !== undefined) updateData.description = dto.description;
       if (dto.address !== undefined) updateData.address = dto.address;
@@ -186,6 +254,7 @@ export class ShopService {
       if (dto.deliveryRange !== undefined) updateData.delivery_range = dto.deliveryRange;
       if (dto.deliveryFee !== undefined) updateData.delivery_fee = dto.deliveryFee;
       if (dto.minOrderAmount !== undefined) updateData.min_order_amount = dto.minOrderAmount;
+      if (normalizedHours !== undefined) updateData.business_hours = normalizedHours;
 
       const { data, error } = await supabase
         .from('tf_shops')
@@ -195,6 +264,23 @@ export class ShopService {
         .single();
 
       if (error || !data) {
+        if (error?.message?.includes('business_hours') && normalizedHours !== undefined) {
+          delete updateData.business_hours;
+          const retry = await supabase
+            .from('tf_shops')
+            .update(updateData)
+            .eq('id', id)
+            .select()
+            .single();
+          if (retry.error || !retry.data) {
+            throw new BadRequestException(
+              `更新店铺失败: 请先执行 business_hours 字段迁移。${retry.error?.message || ''}`,
+            );
+          }
+          const response = this.toResponse(retry.data);
+          response.businessHours = normalizedHours;
+          return this.withOpenFlag(response);
+        }
         throw new BadRequestException(`更新店铺失败: ${error?.message || '未知错误'}`);
       }
       return this.toResponse(data);
@@ -212,16 +298,14 @@ export class ShopService {
     if (dto.deliveryRange !== undefined) shop.deliveryRange = dto.deliveryRange;
     if (dto.deliveryFee !== undefined) shop.deliveryFee = dto.deliveryFee;
     if (dto.minOrderAmount !== undefined) shop.minOrderAmount = dto.minOrderAmount;
+    if (normalizedHours !== undefined) shop.businessHours = normalizedHours;
     shop.updatedAt = new Date().toISOString();
-    return shop;
+    return this.withOpenFlag(shop);
   }
 
   async delete(id: string): Promise<void> {
     if (hasSupabase() && supabase) {
-      const { error } = await supabase
-        .from('tf_shops')
-        .delete()
-        .eq('id', id);
+      const { error } = await supabase.from('tf_shops').delete().eq('id', id);
 
       if (error) {
         throw new BadRequestException(`删除店铺失败: ${error.message}`);
@@ -237,8 +321,28 @@ export class ShopService {
     memoryShops.delete(id);
   }
 
-  private toResponse(record: any): ShopResponseDto {
+  private withOpenFlag(shop: ShopResponseDto): ShopResponseDto {
+    const businessHours = shop.businessHours;
     return {
+      ...shop,
+      isOpenNow: isWithinBusinessHours(businessHours, shop.status),
+      nextOpenHint: nextOpenHint(businessHours, shop.status),
+    };
+  }
+
+  private toResponse(record: any): ShopResponseDto {
+    let businessHours: BusinessHours | undefined;
+    if (record.business_hours != null || record.businessHours != null) {
+      try {
+        businessHours = normalizeBusinessHours(
+          record.business_hours ?? record.businessHours,
+        );
+      } catch {
+        businessHours = defaultBusinessHours();
+      }
+    }
+
+    const base: ShopResponseDto = {
       id: record.id,
       name: record.name,
       description: record.description,
@@ -246,11 +350,14 @@ export class ShopService {
       phone: record.phone,
       logoUrl: record.logo_url || record.logoUrl || '',
       status: record.status,
-      deliveryRange: record.delivery_range || record.deliveryRange || 3000,
-      deliveryFee: record.delivery_fee || record.deliveryFee || 500,
-      minOrderAmount: record.min_order_amount || record.minOrderAmount || 0,
+      // 旧库可能没有配送配置列，回退到系统默认值
+      deliveryRange: record.delivery_range ?? record.deliveryRange ?? 3000,
+      deliveryFee: record.delivery_fee ?? record.deliveryFee ?? 500,
+      minOrderAmount: record.min_order_amount ?? record.minOrderAmount ?? 0,
+      businessHours,
       createdAt: record.created_at || record.createdAt,
       updatedAt: record.updated_at || record.updatedAt,
     };
+    return this.withOpenFlag(base);
   }
 }

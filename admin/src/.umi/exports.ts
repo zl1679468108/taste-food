@@ -6,6 +6,7 @@ export { defineApp } from './core/defineApp'
 export type { RuntimeConfig } from './core/defineApp'
 // plugins
 export { Access, useAccess, useAccessMarkedRoutes } from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-access';
+export { useAntdConfig, useAntdConfigSetter } from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-antd';
 export { Provider, useModel } from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-model';
 export { useRequest, UseRequestProvider, request, getRequestInstance } from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-request';
 // plugins types.d.ts

@@ -29,23 +29,31 @@ export function clearCache(pattern?: string): void {
     cache.clear();
     return;
   }
+  const normalizedPattern = getCacheResourceKey(pattern);
   // 精确匹配资源段：避免 'orders' 误匹配 'order-items' 等
   // cache key 格式为 `method:url:params`，提取 url 段比对资源 key
   for (const key of cache.keys()) {
+    if (key === pattern) {
+      cache.delete(key);
+      continue;
+    }
     const parts = key.split(':');
-    const url = parts.length >= 2 ? parts.slice(1, -1).join(':') : '';
+    const url = parts.length >= 2 ? parts.slice(1, -1).join(':') : key;
     const resourceKey = getCacheResourceKey(url);
-    if (resourceKey === pattern) {
+    if (resourceKey === normalizedPattern) {
       cache.delete(key);
     }
   }
 }
 
 export function getCacheResourceKey(url: string): string {
-  const path = url
+  const normalizedUrl =
+    url.startsWith('/') || /^https?:\/\//i.test(url) || /^[A-Z]+:/i.test(url) ? url : `/${url}`;
+  const path = normalizedUrl
+    .replace(/^[A-Z]+:/, '')
     .replace(/^https?:\/\/[^/]+/i, '')
     .replace(/^\/api\/?/, '/')
-    .split('?')[0]
+    .split(/[?:]/)[0]
     .replace(/^\/+/, '');
   return path.split('/')[0] || path || url;
 }

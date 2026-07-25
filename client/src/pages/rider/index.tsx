@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
-import { get, post } from '../../utils/request';
+import { get, post, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { shortOrderId } from '../../utils/format';
 import { Order, OrderStatus } from '../../types/order';
@@ -16,6 +16,8 @@ import { usePullRefresh } from '../../hooks/usePullRefresh';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import './index.scss';
 
+const DEMO_RIDER_COORD = { latitude: 30.27662, longitude: 120.16021 };
+
 const RiderPage = () => {
   // Store 订阅（函数组件中正确订阅变化）
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -26,12 +28,16 @@ const RiderPage = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pool' | 'mine'>('pool');
   const [actingId, setActingId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [canRetry, setCanRetry] = useState(false);
   const shopId = DEFAULT_SHOP_ID;
 
   /** 加载数据 */
   const loadData = async (tab?: 'pool' | 'mine') => {
     const currentTab = tab !== undefined ? tab : activeTab;
     setLoading(true);
+    setLoadError(false);
+    setCanRetry(false);
 
     try {
       const params: Record<string, string | number> = { page: 1, pageSize: 50 };
@@ -44,9 +50,14 @@ const RiderPage = () => {
 
       const res = await get<PaginatedData<Order>>('/orders', params);
       setOrders(res.data.items);
+      setLoadError(false);
+      setCanRetry(false);
       setLoading(false);
     } catch (e) {
       setLoading(false);
+      setOrders([]);
+      setLoadError(true);
+      setCanRetry(isRetryableError(e));
     }
   };
 
@@ -126,6 +137,44 @@ const RiderPage = () => {
     }
   };
 
+  const getCurrentLocationOrDemo = async () => {
+    try {
+      const res = await Taro.getLocation({ type: 'gcj02' });
+      return {
+        latitude: res.latitude,
+        longitude: res.longitude,
+        speed: res.speed || 0,
+        accuracy: res.accuracy || 0,
+        source: 'rider_location',
+      };
+    } catch {
+      const drift = (Date.now() % 60000) / 60000;
+      return {
+        latitude: DEMO_RIDER_COORD.latitude + drift * 0.004,
+        longitude: DEMO_RIDER_COORD.longitude + drift * 0.005,
+        speed: 0,
+        accuracy: 0,
+        source: 'demo_location',
+      };
+    }
+  };
+
+  /** 上报配送位置 */
+  const handleReportLocation = async (orderId: string) => {
+    if (actingId) return;
+    setActingId(`track-${orderId}`);
+    try {
+      const location = await getCurrentLocationOrDemo();
+      await post(`/orders/${orderId}/delivery-track`, location);
+      Taro.showToast({ title: '位置已更新', icon: 'success' });
+    } catch (e) {
+      console.error('上报位置失败:', e);
+      Taro.showToast({ title: '上报失败', icon: 'none' });
+    } finally {
+      setActingId(null);
+    }
+  };
+
   return (
     <View className='rider-page'>
       <FilterTabs
@@ -142,6 +191,14 @@ const RiderPage = () => {
       <ScrollView scrollY className='order-list'>
         {loading ? (
           <SkeletonLoader mode='card' count={3} />
+        ) : loadError ? (
+          <EmptyState
+            icon='⚠️'
+            title='加载失败'
+            description={canRetry ? '网络不稳定，请重试' : '订单暂时无法获取'}
+            actionText={canRetry ? '点击重试' : '重新加载'}
+            onAction={() => loadData()}
+          />
         ) : orders.length === 0 ? (
           <EmptyState
             icon='🛵'
@@ -166,14 +223,25 @@ const RiderPage = () => {
                     {actingId === order.id ? '抢单中...' : '抢单'}
                   </View>
                 ) : order.status === OrderStatus.DELIVERING ? (
-                  <View
-                    className={`btn deliver-btn${actingId === order.id ? ' disabled' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation?.();
-                      handleDeliver(order.id);
-                    }}
-                  >
-                    {actingId === order.id ? '提交中...' : '确认送达'}
+                  <View className='rider-actions'>
+                    <View
+                      className={`btn track-btn${actingId === `track-${order.id}` ? ' disabled' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation?.();
+                        handleReportLocation(order.id);
+                      }}
+                    >
+                      {actingId === `track-${order.id}` ? '上报中...' : '上报位置'}
+                    </View>
+                    <View
+                      className={`btn deliver-btn${actingId === order.id ? ' disabled' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation?.();
+                        handleDeliver(order.id);
+                      }}
+                    >
+                      {actingId === order.id ? '提交中...' : '确认送达'}
+                    </View>
                   </View>
                 ) : (
                   <Text className='value'>{order.address || '到店自取'}</Text>

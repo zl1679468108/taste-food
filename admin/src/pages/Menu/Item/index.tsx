@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
+import { PageContainer } from '@ant-design/pro-components';
 import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getCategories, MenuItem, Category } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { useCrudModal } from '@/hooks/useCrudModal';
-import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PriceDisplay from '@/components/PriceDisplay';
 import ImageUpload from '@/components/ImageUpload';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
@@ -90,35 +91,41 @@ const MenuItemPage: React.FC = () => {
       title: '图片',
       dataIndex: 'imageUrl',
       key: 'imageUrl',
+      width: 80,
       render: (url: string) => url ? <Image src={url} width={50} height={50} /> : '-',
     },
-    { title: '菜品名称', dataIndex: 'name', key: 'name' },
+    { title: '菜品名称', dataIndex: 'name', key: 'name', width: 160 },
     {
       title: '价格',
       dataIndex: 'price',
       key: 'price',
+      width: 100,
       render: (price: number) => <PriceDisplay price={price} />,
     },
     {
       title: '分类',
       dataIndex: 'categoryId',
       key: 'categoryId',
+      width: 120,
+      ellipsis: true,
       render: (categoryId: string) => categories.find(c => c.id === categoryId)?.name || '-',
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 90,
       render: (status: string) => (
         <Tag color={status === 'active' ? 'green' : 'default'}>
           {status === 'active' ? '上架' : '下架'}
         </Tag>
       ),
     },
-    { title: '月售', dataIndex: 'salesCount', key: 'salesCount' },
+    { title: '月售', dataIndex: 'salesCount', key: 'salesCount', width: 80 },
     {
       title: '操作',
       key: 'action',
+      width: 160,
       render: (_: MenuItem, record: MenuItem) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
@@ -143,6 +150,7 @@ const MenuItemPage: React.FC = () => {
   }, [items, searchText, filterCategoryId]);
 
   return (
+    <PageContainer title="菜品列表" subTitle="菜品上下架与价格管理">
     <div >
       <PageHeaderActions
         icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
@@ -162,8 +170,10 @@ const MenuItemPage: React.FC = () => {
         onFilterChange={setFilterCategoryId}
       />
       <TableCard>
-        <Table columns={columns} dataSource={filteredItems} rowKey="id" loading={loading} 
+        <Table columns={columns} dataSource={filteredItems} rowKey="id" loading={loading}
         pagination={DEFAULT_TABLE_PAGINATION}
+        locale={DEFAULT_TABLE_LOCALE}
+        scroll={{ x: 800 }}
       />
       </TableCard>
 
@@ -221,6 +231,7 @@ const MenuItemPage: React.FC = () => {
         </Form>
       </Modal>
     </div>
+    </PageContainer>
   );
 };
 

@@ -6,6 +6,10 @@ let supabaseHealthy = false;
 let supabaseReady = false;
 let initPromise: Promise<SupabaseClient | null> | null = null;
 
+// Export a live binding. A module-level const snapshot would remain null when
+// callers import this module before the async health check completes.
+export let supabase: SupabaseClient | null = null;
+
 // 健康检查重连配置
 const HEALTH_CHECK_INTERVAL_MS = 30_000; // 每 30 秒重新探测
 let healthCheckTimer: NodeJS.Timeout | null = null;
@@ -36,15 +40,20 @@ function initializeSupabase(): Promise<SupabaseClient | null> {
     },
   });
 
-  // 执行健康检查
+  // 执行健康检查（supabase-js 查询失败时通常返回 { error } 而不 reject）
   return Promise.resolve(
     client
       .from('tf_shops')
       .select('id', { count: 'exact', head: true })
       .limit(1),
   )
-    .then(() => {
+    .then((result) => {
+      const error = (result as { error?: PostgrestError | null } | null)?.error;
+      if (error) {
+        throw error;
+      }
       supabaseInstance = client;
+      supabase = client;
       supabaseHealthy = true;
       supabaseReady = true;
       console.log('[Supabase] 连接成功，使用 Supabase 模式。');
@@ -54,11 +63,17 @@ function initializeSupabase(): Promise<SupabaseClient | null> {
     .catch((err: PostgrestError | unknown) => {
       supabaseHealthy = false;
       supabaseReady = false;
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: string }).message || err)
+          : err instanceof Error
+            ? err.message
+            : String(err);
       assertMemoryFallbackAllowed(`连接失败: ${msg}`);
       console.warn('[Supabase] 连接失败:', msg, '回退到内存模式。');
       // 不保留失效实例；后续调用会重新尝试初始化
       supabaseInstance = null;
+      supabase = null;
       return null;
     });
 }
@@ -85,12 +100,6 @@ export async function getSupabaseClientAsync(): Promise<SupabaseClient | null> {
   return initPromise;
 }
 
-/**
- * 为了向后兼容保留模块级导出。
- * 注意：此值在模块加载时为 null，需调用 getSupabaseClientAsync() 等待就绪。
- */
-export const supabase = getSupabaseClient();
-
 export function hasSupabase(): boolean {
   return supabaseInstance !== null && supabaseHealthy && supabaseReady;
 }
@@ -114,19 +123,30 @@ function scheduleHealthCheck(): void {
   healthCheckTimer = setInterval(async () => {
     if (!supabaseInstance) return;
     try {
-      await Promise.resolve(
+      const result = await Promise.resolve(
         supabaseInstance
           .from('tf_shops')
           .select('id', { count: 'exact', head: true })
           .limit(1),
       );
+      const error = (result as { error?: PostgrestError | null } | null)?.error;
+      if (error) {
+        throw error;
+      }
       supabaseHealthy = true;
       supabaseReady = true;
+      supabase = supabaseInstance;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: string }).message || err)
+          : err instanceof Error
+            ? err.message
+            : String(err);
       console.warn('[Supabase] 健康检查失败:', msg);
       supabaseHealthy = false;
       supabaseReady = false;
+      supabase = null;
       // 重置 initPromise 以便下次 getSupabaseClientAsync 触发重连
       initPromise = null;
     }

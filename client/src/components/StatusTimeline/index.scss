@@ -1,4 +1,4 @@
-@import '../../styles/design-tokens';
+@use '../../styles/design-tokens' as *;
 
 .status-timeline {
   padding: $space-4 $space-4;

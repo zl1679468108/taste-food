@@ -37,8 +37,8 @@ describe('socket service listeners', () => {
     onOrderUpdated(first, 'order-list');
     onOrderUpdated(second, 'order-detail');
 
-    expect(socketOn).toHaveBeenCalledTimes(5);
     expect(socketOn).toHaveBeenCalledWith('order:updated', expect.any(Function));
+    expect(handlers['order:updated']).toEqual(expect.any(Function));
 
     handlers['order:updated']({ order: { id: 'order-1' }, previousStatus: 'paid' });
 

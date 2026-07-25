@@ -108,6 +108,19 @@
   pointer-events: none;
 }
 
+.rider-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.track-btn {
+  background: #FFF0EB;
+  color: #FF6B35;
+}
+
 .grab-btn {
             background: #ff6b35;
             color: #fff;

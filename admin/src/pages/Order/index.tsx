@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Card, Tag, Spin, Popconfirm } from 'antd';
-import {EyeOutlined, ReloadOutlined, OrderedListOutlined, ShoppingOutlined} from '@ant-design/icons';
-import { getOrders, getOrder, updateOrderStatus, cancelOrder, Order } from '@/services/order';
+import { PageContainer } from '@ant-design/pro-components';
+import {EyeOutlined, ReloadOutlined, DownloadOutlined, OrderedListOutlined, ShoppingOutlined} from '@ant-design/icons';
+import { getOrders, getOrder, updateOrderStatus, cancelOrder, exportOrders, Order } from '@/services/order';
 import DeliveryTypeTag from '@/components/DeliveryTypeTag';
 import OrderStatusTag from '@/components/OrderStatusTag';
 import PriceDisplay from '@/components/PriceDisplay';
 import { formatPrice, formatTime, shortOrderId } from '@/utils/format';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 
@@ -21,10 +23,36 @@ const OrderPage: React.FC = () => {
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     loadOrders();
   }, [activeTab, page]);
+
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const data = await exportOrders({
+        status: activeTab || undefined,
+        maxRows: 1000,
+      });
+      const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename || 'orders.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      message.success(`已导出 ${data.count} 条订单`);
+    } catch (e: any) {
+      message.error(e?.message || '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const loadOrders = async () => {
     setLoading(true);
@@ -116,15 +144,14 @@ const OrderPage: React.FC = () => {
         break;
       case 'accepted':
         actions.push({ label: '开始制作', status: 'preparing', type: 'primary' });
-        actions.push({ label: '取消订单', status: 'cancelled', type: 'danger', cancel: true });
+        // 服务端 cancel 仅允许 pending_payment/paid，accepted 不展示取消
         break;
       case 'preparing':
         if (order.deliveryType === 'delivery') {
-          actions.push({ label: '呼叫配送', status: 'delivering', type: 'primary' });
-        } else if (order.deliveryType === 'pickup') {
-          actions.push({ label: '待自取', status: 'ready_for_pickup', type: 'primary' });
+          actions.push({ label: '开始配送（商家）', status: 'delivering', type: 'primary' });
         } else {
-          actions.push({ label: '完成', status: 'completed', type: 'primary' });
+          // 自取/堂食统一：preparing → ready_for_pickup → completed
+          actions.push({ label: '待取餐（制作完成）', status: 'ready_for_pickup', type: 'primary' });
         }
         break;
       case 'ready_for_pickup':
@@ -143,6 +170,7 @@ const OrderPage: React.FC = () => {
       title: '订单号',
       dataIndex: 'id',
       key: 'id',
+      width: 120,
       render: (id: string) => (
         <Text strong style={{ fontFamily: 'monospace' }}>
           {shortOrderId(id)}
@@ -153,29 +181,34 @@ const OrderPage: React.FC = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 110,
       render: (status: string) => <OrderStatusTag status={status} />,
     },
     {
       title: '配送方式',
       dataIndex: 'deliveryType',
       key: 'deliveryType',
+      width: 110,
       render: (type: string) => <DeliveryTypeTag type={type} />,
     },
     {
       title: '金额',
       dataIndex: 'total',
       key: 'total',
+      width: 100,
       render: (total: number) => <PriceDisplay price={total} />,
     },
     {
       title: '时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      width: 140,
       render: (time: string) => formatTime(time, 'MM-DD HH:mm'),
     },
     {
       title: '操作',
       key: 'action',
+      width: 260,
       render: (_: Order, record: Order) => (
         <Space>
           <Button
@@ -230,11 +263,17 @@ const OrderPage: React.FC = () => {
   ];
 
   return (
+    <PageContainer title="订单管理" subTitle="接单、制作与配送状态流转">
     <div>
       <PageHeaderActions
       icon={<ShoppingOutlined style={{ marginRight: 8 }} />}
       title="订单管理"
       onRefresh={loadOrders}
+      extra={
+        <Button icon={<DownloadOutlined />} loading={exporting} onClick={handleExport}>
+          导出 CSV
+        </Button>
+      }
     />
 
       <TableCard>
@@ -250,6 +289,8 @@ const OrderPage: React.FC = () => {
           dataSource={orders}
           rowKey="id"
           loading={loading}
+          locale={DEFAULT_TABLE_LOCALE}
+          scroll={{ x: 840 }}
           pagination={{
             current: page,
             total,
@@ -336,6 +377,19 @@ const OrderPage: React.FC = () => {
                 <Text type="warning">{selectedOrder.remark}</Text>
               </Descriptions.Item>
             )}
+            {selectedOrder.invoiceNeeded && (
+              <Descriptions.Item label="发票" span={2}>
+                <Text>
+                  需要开票
+                  {selectedOrder.invoiceTitle
+                    ? ` · 抬头：${selectedOrder.invoiceTitle}`
+                    : ''}
+                  {selectedOrder.invoiceTaxNo
+                    ? ` · 税号：${selectedOrder.invoiceTaxNo}`
+                    : ''}
+                </Text>
+              </Descriptions.Item>
+            )}
             {selectedOrder.contactName && (
               <Descriptions.Item label="联系人">{selectedOrder.contactName}</Descriptions.Item>
             )}
@@ -350,6 +404,7 @@ const OrderPage: React.FC = () => {
         </Spin>
       </Modal>
     </div>
+    </PageContainer>
   );
 };
 

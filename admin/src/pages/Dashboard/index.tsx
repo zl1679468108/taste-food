@@ -30,6 +30,7 @@ import DeliveryTypeTag from '@/components/DeliveryTypeTag';
 import StatisticCard from '@/components/StatisticCard';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import { brand } from '@/theme';
 
 const { Text } = Typography;
@@ -374,6 +375,7 @@ const DashboardPage: React.FC = () => {
           loading={loading}
           pagination={false}
           size="middle"
+          locale={DEFAULT_TABLE_LOCALE}
         />
       </Card>
     </div>

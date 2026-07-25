@@ -4,7 +4,7 @@
 import React from 'react';
 
 export async function getRoutes() {
-  const routes = {"1":{"path":"/login","layout":false,"id":"1"},"2":{"path":"/","redirect":"/dashboard","parentId":"ant-design-pro-layout","id":"2"},"3":{"name":"数据看板","path":"/dashboard","icon":"DashboardOutlined","parentId":"ant-design-pro-layout","id":"3"},"4":{"name":"店铺管理","path":"/shop","icon":"ShopOutlined","parentId":"ant-design-pro-layout","id":"4"},"5":{"name":"店铺信息","path":"/shop/info","parentId":"4","id":"5"},"6":{"name":"多店铺管理","path":"/shop/manage","parentId":"4","id":"6"},"7":{"name":"菜品管理","path":"/menu","icon":"CoffeeOutlined","parentId":"ant-design-pro-layout","id":"7"},"8":{"name":"分类管理","path":"/menu/category","parentId":"7","id":"8"},"9":{"name":"菜品列表","path":"/menu/item","parentId":"7","id":"9"},"10":{"name":"订单管理","path":"/order","icon":"OrderedListOutlined","parentId":"ant-design-pro-layout","id":"10"},"11":{"name":"用户管理","path":"/user","icon":"TeamOutlined","parentId":"ant-design-pro-layout","id":"11"},"12":{"name":"促销管理","path":"/promotion","icon":"GiftOutlined","parentId":"ant-design-pro-layout","id":"12"},"ant-design-pro-layout":{"id":"ant-design-pro-layout","path":"/","isLayout":true}} as const;
+  const routes = {"1":{"path":"/login","layout":false,"id":"1"},"2":{"path":"/","redirect":"/dashboard","parentId":"ant-design-pro-layout","id":"2"},"3":{"name":"数据看板","path":"/dashboard","icon":"DashboardOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"3"},"4":{"name":"店铺管理","path":"/shop","icon":"ShopOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"4"},"5":{"name":"店铺信息","path":"/shop/info","parentId":"4","id":"5"},"6":{"name":"多店铺管理","path":"/shop/manage","parentId":"4","id":"6"},"7":{"name":"桌台与扫码","path":"/shop/tables","parentId":"4","id":"7"},"8":{"name":"菜品管理","path":"/menu","icon":"CoffeeOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"8"},"9":{"name":"分类管理","path":"/menu/category","parentId":"8","id":"9"},"10":{"name":"菜品列表","path":"/menu/item","parentId":"8","id":"10"},"11":{"name":"订单管理","path":"/order","icon":"OrderedListOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"11"},"12":{"name":"用户管理","path":"/user","icon":"TeamOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"12"},"13":{"name":"促销管理","path":"/promotion","icon":"GiftOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"13"},"14":{"name":"操作审计","path":"/audit","icon":"AuditOutlined","access":"canAdmin","parentId":"ant-design-pro-layout","id":"14"},"ant-design-pro-layout":{"id":"ant-design-pro-layout","path":"/","isLayout":true}} as const;
   return {
     routes,
     routeComponents: {
@@ -14,12 +14,14 @@ export async function getRoutes() {
 '4': React.lazy(() => import('./EmptyRoute')),
 '5': React.lazy(() => import(/* webpackChunkName: "p__Shop__index" */'@/pages/Shop/index.tsx')),
 '6': React.lazy(() => import(/* webpackChunkName: "p__ShopManage__index" */'@/pages/ShopManage/index.tsx')),
-'7': React.lazy(() => import('./EmptyRoute')),
-'8': React.lazy(() => import(/* webpackChunkName: "p__Menu__Category__index" */'@/pages/Menu/Category/index.tsx')),
-'9': React.lazy(() => import(/* webpackChunkName: "p__Menu__Item__index" */'@/pages/Menu/Item/index.tsx')),
-'10': React.lazy(() => import(/* webpackChunkName: "p__Order__index" */'@/pages/Order/index.tsx')),
-'11': React.lazy(() => import(/* webpackChunkName: "p__User__index" */'@/pages/User/index.tsx')),
-'12': React.lazy(() => import(/* webpackChunkName: "p__Promotion__index" */'@/pages/Promotion/index.tsx')),
+'7': React.lazy(() => import(/* webpackChunkName: "p__Shop__Tables__index" */'@/pages/Shop/Tables/index.tsx')),
+'8': React.lazy(() => import('./EmptyRoute')),
+'9': React.lazy(() => import(/* webpackChunkName: "p__Menu__Category__index" */'@/pages/Menu/Category/index.tsx')),
+'10': React.lazy(() => import(/* webpackChunkName: "p__Menu__Item__index" */'@/pages/Menu/Item/index.tsx')),
+'11': React.lazy(() => import(/* webpackChunkName: "p__Order__index" */'@/pages/Order/index.tsx')),
+'12': React.lazy(() => import(/* webpackChunkName: "p__User__index" */'@/pages/User/index.tsx')),
+'13': React.lazy(() => import(/* webpackChunkName: "p__Promotion__index" */'@/pages/Promotion/index.tsx')),
+'14': React.lazy(() => import(/* webpackChunkName: "p__Audit__index" */'@/pages/Audit/index.tsx')),
 'ant-design-pro-layout': React.lazy(() => import(/* webpackChunkName: "umi__plugin-layout__Layout" */'/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-layout/Layout.tsx')),
 },
   };

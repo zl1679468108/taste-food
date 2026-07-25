@@ -64,12 +64,13 @@ export class PromotionService {
     const now = new Date().toISOString();
 
     if (hasSupabase() && supabase) {
-      // 查询条件：status=active AND (end_date IS NULL OR end_date > now)
+      // 查询条件：status=active AND (start_date IS NULL OR start_date <= now) AND (end_date IS NULL OR end_date > now)
       const { data, error } = await supabase
         .from('tf_promotions')
         .select('*')
         .eq('shop_id', shopId)
         .eq('status', 'active')
+        .or(`start_date.is.null,start_date.lte.${now}`)
         .or(`end_date.is.null,end_date.gt.${now}`)
         .order('created_at', { ascending: false });
 
@@ -86,11 +87,41 @@ export class PromotionService {
       .filter((p) => p.shop_id === shopId)
       .filter((p) => {
         if (p.status !== 'active') return false;
+        if (p.start_date && p.start_date > now) return false;
         if (p.end_date && p.end_date < now) return false;
         return true;
       })
       .sort((a, b) => (b.created_at > a.created_at ? 1 : -1))
       .map(this.toResponse);
+  }
+
+  /**
+   * 管理端查询店铺的全部促销记录（包含未生效、已过期和已停用活动）。
+   * 顾客端继续使用 findAllByShop，避免把管理数据暴露给公开接口。
+   */
+  async findAllForManagement(shopId: string): Promise<PromotionResponseDto[]> {
+    if (!shopId) {
+      throw new BadRequestException('缺少店铺归属');
+    }
+
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_promotions')
+        .select('*')
+        .eq('shop_id', shopId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw new BadRequestException(error.message);
+      }
+      return (data || []).map((row) => this.toResponse(this.normalize(row)));
+    }
+
+    assertMemoryFallbackAllowed('PromotionService');
+    return Array.from(memoryPromotions.values())
+      .filter((p) => p.shop_id === shopId)
+      .sort((a, b) => (b.created_at > a.created_at ? 1 : -1))
+      .map((p) => this.toResponse(p));
   }
 
   async findOne(id: string): Promise<PromotionResponseDto> {
@@ -163,8 +194,12 @@ export class PromotionService {
     return this.toResponse(record);
   }
 
-  async update(id: string, dto: UpdatePromotionDto): Promise<PromotionResponseDto> {
+  async update(id: string, dto: UpdatePromotionDto, shopId: string): Promise<PromotionResponseDto> {
     const now = new Date().toISOString();
+
+    if (!shopId) {
+      throw new NotFoundException(`促销 ${id} 不存在`);
+    }
 
     if (hasSupabase() && supabase) {
       // 先查是否存在
@@ -172,6 +207,7 @@ export class PromotionService {
         .from('tf_promotions')
         .select('id')
         .eq('id', id)
+        .eq('shop_id', shopId)
         .single();
 
       if (fetchErr || !existing) {
@@ -190,6 +226,7 @@ export class PromotionService {
         .from('tf_promotions')
         .update(updateData)
         .eq('id', id)
+        .eq('shop_id', shopId)
         .select()
         .single();
 
@@ -202,7 +239,7 @@ export class PromotionService {
     // 内存模式
     assertMemoryFallbackAllowed('PromotionService');
     const record = memoryPromotions.get(id);
-    if (!record) {
+    if (!record || record.shop_id !== shopId) {
       throw new NotFoundException(`促销 ${id} 不存在`);
     }
 
@@ -218,12 +255,28 @@ export class PromotionService {
     return this.toResponse(record);
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, shopId: string): Promise<void> {
+    if (!shopId) {
+      throw new NotFoundException(`促销 ${id} 不存在`);
+    }
+
     if (hasSupabase() && supabase) {
+      const { data: existing, error: fetchErr } = await supabase
+        .from('tf_promotions')
+        .select('id')
+        .eq('id', id)
+        .eq('shop_id', shopId)
+        .single();
+
+      if (fetchErr || !existing) {
+        throw new NotFoundException(`促销 ${id} 不存在`);
+      }
+
       const { error } = await supabase
         .from('tf_promotions')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('shop_id', shopId);
 
       if (error) {
         throw new BadRequestException(error.message);
@@ -233,6 +286,10 @@ export class PromotionService {
 
     // 内存模式
     assertMemoryFallbackAllowed('PromotionService');
+    const record = memoryPromotions.get(id);
+    if (!record || record.shop_id !== shopId) {
+      throw new NotFoundException(`促销 ${id} 不存在`);
+    }
     const deleted = memoryPromotions.delete(id);
     if (!deleted) {
       throw new NotFoundException(`促销 ${id} 不存在`);

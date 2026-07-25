@@ -4,9 +4,10 @@
 import * as Plugin_0 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/app.tsx';
 import * as Plugin_1 from '@@/core/helmet.ts';
 import * as Plugin_2 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-access/runtime.tsx';
-import * as Plugin_3 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-initialState/runtime.tsx';
-import * as Plugin_4 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-layout/runtime.tsx';
-import * as Plugin_5 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-model/runtime.tsx';
+import * as Plugin_3 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-antd/runtime.tsx';
+import * as Plugin_4 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-initialState/runtime.tsx';
+import * as Plugin_5 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-layout/runtime.tsx';
+import * as Plugin_6 from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-model/runtime.tsx';
 import { PluginManager } from 'umi';
 
 function __defaultExport (obj) {
@@ -31,14 +32,18 @@ export function getPlugins() {
     },
     {
       apply: Plugin_3,
-      path: process.env.NODE_ENV === 'production' ? void 0 : '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-initialState/runtime.tsx',
+      path: process.env.NODE_ENV === 'production' ? void 0 : '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-antd/runtime.tsx',
     },
     {
       apply: Plugin_4,
-      path: process.env.NODE_ENV === 'production' ? void 0 : '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-layout/runtime.tsx',
+      path: process.env.NODE_ENV === 'production' ? void 0 : '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-initialState/runtime.tsx',
     },
     {
       apply: Plugin_5,
+      path: process.env.NODE_ENV === 'production' ? void 0 : '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-layout/runtime.tsx',
+    },
+    {
+      apply: Plugin_6,
       path: process.env.NODE_ENV === 'production' ? void 0 : '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/.umi/plugin-model/runtime.tsx',
     },
   ];

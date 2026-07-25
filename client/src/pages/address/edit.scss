@@ -1,0 +1,88 @@
+@use '../../styles/design-tokens' as *;
+
+.address-edit {
+  min-height: 100vh;
+  background: $gray-100;
+  padding: 20rpx;
+
+  &__loading {
+    display: block;
+    text-align: center;
+    color: #999;
+    padding: 80rpx 0;
+  }
+
+  &__card {
+    background: #fff;
+    border-radius: 16rpx;
+    padding: 8rpx 24rpx;
+  }
+
+  &__save {
+    margin-top: 40rpx;
+    height: 88rpx;
+    border-radius: 44rpx;
+    background: $gradient-brand;
+    color: #fff;
+    font-size: 30rpx;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &.disabled {
+      opacity: 0.6;
+    }
+  }
+}
+
+.form-item {
+  display: flex;
+  align-items: center;
+  min-height: 96rpx;
+  border-bottom: 1px solid #f5f5f5;
+
+  &--block {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20rpx 0;
+    gap: 16rpx;
+  }
+
+  &--switch {
+    justify-content: space-between;
+  }
+
+  &__label {
+    width: 160rpx;
+    font-size: 28rpx;
+    color: #333;
+    flex-shrink: 0;
+  }
+
+  &__input {
+    flex: 1;
+    font-size: 28rpx;
+    color: #333;
+  }
+}
+
+.tag-list {
+  display: flex;
+  gap: 16rpx;
+}
+
+.tag-item {
+  padding: 8rpx 24rpx;
+  border-radius: 24rpx;
+  background: $gray-100;
+  color: #666;
+  font-size: 24rpx;
+  border: 1px solid transparent;
+
+  &.active {
+    background: #fff0eb;
+    color: $primary;
+    border-color: $primary;
+  }
+}

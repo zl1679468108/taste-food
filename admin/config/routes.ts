@@ -31,6 +31,11 @@ export default [
         path: '/shop/manage',
         component: './ShopManage',
       },
+      {
+        name: '桌台与扫码',
+        path: '/shop/tables',
+        component: './Shop/Tables',
+      },
     ],
   },
   {
@@ -70,6 +75,13 @@ export default [
     path: '/promotion',
     component: './Promotion',
     icon: 'GiftOutlined',
+    access: 'canAdmin',
+  },
+  {
+    name: '操作审计',
+    path: '/audit',
+    component: './Audit',
+    icon: 'AuditOutlined',
     access: 'canAdmin',
   },
 ];

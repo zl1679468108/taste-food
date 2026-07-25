@@ -7,7 +7,7 @@ const engineIOClientPath = path.dirname(
 );
 
 // 共享包源码路径（monorepo workspace，源码直接引用，无需构建）
-const sharedPath = path.resolve(__dirname, '../packages/shared/src');
+const sharedPath = path.resolve(__dirname, '../../packages/shared/src');
 
 export default defineConfig({
   projectName: 'taste-food',
@@ -15,12 +15,29 @@ export default defineConfig({
   sourceRoot: 'src',
   outputRoot: 'dist',
   plugins: ['@tarojs/plugin-http'],
+  compile: {
+    include: [
+      (filename: string) => filename.startsWith(sharedPath),
+    ],
+  },
+  miniCssExtractPluginOption: {
+    ignoreOrder: true,
+  },
   copy: {
     patterns: [
       { from: 'src/assets/', to: 'dist/assets/' },
     ],
+    options: {},
   },
   mini: {
+    compile: {
+      include: [
+        (filename: string) => filename.startsWith(sharedPath),
+      ],
+    },
+    miniCssExtractPluginOption: {
+      ignoreOrder: true,
+    },
     postcss: {
       pxtransform: {
         enable: true,

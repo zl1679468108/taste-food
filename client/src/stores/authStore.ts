@@ -62,6 +62,7 @@ interface AuthState {
 const ACCESS_TOKEN_EXPIRES_MS = 15 * 60 * 1000;
 // 提前 1 分钟刷新
 const REFRESH_BUFFER_MS = 60 * 1000;
+const isTestEnv = process.env.NODE_ENV === 'test';
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
@@ -172,7 +173,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         Taro.setStorageSync('refreshToken', newRefreshToken);
         set({ token: newToken, refreshToken: newRefreshToken });
         
-        console.log('[Auth] Token 刷新成功');
+        if (!isTestEnv) {
+          console.log('[Auth] Token 刷新成功');
+        }
       }
     } catch (e) {
       console.warn('[Auth] Token 刷新失败:', e instanceof Error ? e.message : e);
@@ -198,7 +201,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const timer = setInterval(() => {
       const { isLoggedIn, refreshToken } = get();
       if (isLoggedIn && refreshToken) {
-        console.log('[Auth] 自动刷新 Token...');
+        if (!isTestEnv) {
+          console.log('[Auth] 自动刷新 Token...');
+        }
         get().refreshSession();
       }
     }, ACCESS_TOKEN_EXPIRES_MS - REFRESH_BUFFER_MS);

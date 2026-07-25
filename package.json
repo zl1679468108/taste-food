@@ -14,11 +14,12 @@
     "test:headed": "npx playwright test --headed",
     "test:report": "npx playwright show-report",
     "build:shared": "echo '@taste-food/shared 使用源码直接引用，无需构建'",
-    "typecheck:shared": "cd packages/shared && npx tsc --noEmit",
-    "typecheck:server": "cd server && npx tsc --noEmit",
-    "typecheck:admin": "cd admin && npx tsc --noEmit",
-    "typecheck:client": "cd client && npx tsc --noEmit",
-    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:admin && npm run typecheck:client"
+    "typecheck:shared": "cd packages/shared && ../../client/node_modules/.bin/tsc --noEmit --pretty false",
+    "typecheck:server": "cd server && ./node_modules/.bin/tsc --noEmit --pretty false",
+    "typecheck:admin": "cd admin && ./node_modules/.bin/tsc --noEmit --pretty false",
+    "typecheck:client": "cd client && ./node_modules/.bin/tsc --noEmit --pretty false",
+    "typecheck": "npm run typecheck:shared && npm run typecheck:server && npm run typecheck:admin && npm run typecheck:client",
+    "quality:check": "node scripts/quality-check.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

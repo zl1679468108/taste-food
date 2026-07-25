@@ -17,15 +17,31 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // 公开接口直接放行（@Public() 装饰）
+    // 公开接口：默认放行；若带合法 Bearer 则可选注入 user（用于收藏回显等）
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (isPublic) return true;
 
     const request = context.switchToHttp().getRequest();
-    const authHeader = request.headers.authorization;
+    const authHeader = request.headers.authorization as string | undefined;
+
+    if (isPublic) {
+      if (authHeader) {
+        const publicMatch = /^Bearer\s+(.+)$/i.exec(authHeader);
+        if (publicMatch) {
+          const publicToken = publicMatch[1].trim();
+          try {
+            const payload: CurrentUserPayload =
+              await this.authService.validateToken(publicToken);
+            request.user = payload;
+          } catch {
+            // 游客：token 无效也放行
+          }
+        }
+      }
+      return true;
+    }
 
     if (!authHeader) {
       throw new UnauthorizedException('缺少认证令牌');

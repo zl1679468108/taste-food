@@ -349,44 +349,135 @@
 
 /* ========== 新订单横幅通知 ========== */
 .new-order-banner {
-  background: linear-gradient(135deg, #FF6B35, #FF8F65);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(135deg, #FF6B35 0%, #FF8F65 55%, #FF6B35 100%);
   color: #fff;
-  padding: 16px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  animation: pulse 2s infinite;
+  padding: 18px 20px 16px;
+  box-shadow: 0 8px 20px rgba(255, 107, 53, 0.28);
+  animation: banner-slide-in 0.28s ease-out, pulse 2.4s ease-in-out infinite;
 
-  &__content {
+  &__body {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
     gap: 12px;
   }
 
   &__icon {
-    font-size: 28px;
+    font-size: 34px;
+    line-height: 1.1;
+    flex-shrink: 0;
+  }
+
+  &__titles {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 
   &__text {
-    font-size: 26px;
-    font-weight: 500;
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  &__meta {
+    font-size: 22px;
+    opacity: 0.92;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__amount {
-    font-size: 30px;
-    font-weight: 700;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    margin-left: 4px;
   }
 
   &__close {
     font-size: 28px;
-    opacity: 0.8;
-    padding: 4px 8px;
+    opacity: 0.85;
+    padding: 0 4px 0 8px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  &__actions {
+    display: flex;
+    gap: 12px;
+  }
+
+  &__btn {
+    flex: 1;
+    height: 64px;
+    border-radius: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &--ghost {
+      background: rgba(255, 255, 255, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.55);
+    }
+
+    &--solid {
+      background: #fff;
+    }
+
+    &:active {
+      opacity: 0.88;
+    }
+  }
+
+  &__btn-text {
+    font-size: 26px;
+    font-weight: 600;
+    color: #fff;
+
+    &--solid {
+      color: #FF6B35;
+    }
   }
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.85; }
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.05); }
+}
+
+@keyframes banner-slide-in {
+  from {
+    transform: translateY(-100%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* 待接单统计高亮 */
+.stat-card--alert {
+  border: 1px solid rgba(255, 107, 53, 0.35);
+  background: #fff7f3;
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.12);
+
+  .stat-card__value {
+    color: #FF6B35;
+  }
 }
 
 /* 管理动作按钮 */

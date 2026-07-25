@@ -13,8 +13,12 @@ export {
   formatTime,
   formatRelativeTime,
   truncateText,
-  shortOrderId,
 } from '@taste-food/shared/format';
+import { shortOrderId as sharedShortOrderId } from '@taste-food/shared/format';
 
 // admin 历史 formatPrice 返回带 ¥ 符号，映射为 shared 的 formatPriceWithSymbol
 export { formatPriceWithSymbol as formatPrice } from '@taste-food/shared/format';
+
+export function shortOrderId(id: string): string {
+  return sharedShortOrderId(id).replace(/^#/, '');
+}

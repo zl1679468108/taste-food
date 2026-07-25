@@ -1,16 +1,35 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
-import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP } from '../../utils/constants';
+import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP } from '../../utils/constants';
 import { Order, OrderStatus } from '../../types/order';
 import { Category } from '../../types/menu';
 import { PaginatedData } from '../../types/api';
-import { onOrderUpdated, onOrderCreated, removePageListeners } from '../../services/socket';
+import {
+  onOrderUpdated,
+  onOrderNew,
+  removePageListeners,
+  playMerchantNewOrderAlert,
+} from '../../services/socket';
+import type { OrderNewEvent } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
 import './index.scss';
+
+/** 商家新订单横幅数据（优先用 WS 摘要字段） */
+interface NewOrderBannerData {
+  visible: boolean;
+  orderId: string;
+  total: number;
+  deliveryType: string;
+  status: string;
+  itemCount: number;
+  tableNo?: string;
+  address?: string;
+  contactName?: string;
+}
 
 interface OrderStats {
   totalOrders: number;
@@ -49,7 +68,9 @@ const AdminPage = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const shopId = DEFAULT_SHOP_ID;
-  const [newOrderBanner, setNewOrderBanner] = useState<{ visible: boolean; order: Order | Record<string, unknown> } | null>(null);
+  const [newOrderBanner, setNewOrderBanner] = useState<NewOrderBannerData | null>(null);
+  const [paidPendingCount, setPaidPendingCount] = useState(0);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /** 加载分类 */
   const loadCategories = async () => {
@@ -65,7 +86,7 @@ const AdminPage = () => {
   const loadStats = async () => {
     setLoadingStats(true);
     try {
-      const response = await get<OrderStats>(`/orders/stats/${shopId}`);
+      const response = await get<OrderStats>('/orders/stats/today');
       // 直接使用 stats 接口返回的 totalOrders，避免用单页 items.length 覆盖导致超 100 时显示错误
       setStats(response.data);
       setLoadingStats(false);
@@ -122,31 +143,113 @@ const AdminPage = () => {
   const loadDataRef = useRef(loadData);
   loadDataRef.current = loadData;
 
-  /** 设置 WebSocket 监听 */
-  const setupSocketListeners = () => {
-    // 监听新订单
-    onOrderCreated((data) => {
-      setNewOrderBanner({ visible: true, order: data.order });
-      loadDataRef.current();
-    }, 'admin');
+  /** 回到前台时补拉 paid 待接单数量（不强制切换当前 Tab 列表） */
+  const pullPaidPendingOrders = useCallback(async () => {
+    try {
+      const response = await get<PaginatedData<Order>>('/orders', {
+        shop_id: shopId,
+        status: OrderStatus.PAID,
+        page: 1,
+        pageSize: 20,
+      });
+      const items = response.data?.items || [];
+      setPaidPendingCount(items.length);
+    } catch (e) {
+      console.error('补拉待接单失败:', e);
+    }
+  }, [shopId]);
 
-    // 监听订单更新
-    onOrderUpdated(() => {
-      loadDataRef.current();
-    }, 'admin');
-  };
+  const pullPaidPendingRef = useRef(pullPaidPendingOrders);
+  pullPaidPendingRef.current = pullPaidPendingOrders;
 
   /** 关闭新订单横幅 */
   const closeNewOrderBanner = () => {
+    if (bannerTimerRef.current) {
+      clearTimeout(bannerTimerRef.current);
+      bannerTimerRef.current = null;
+    }
     setNewOrderBanner(null);
   };
 
-  /** 查看横幅订单 */
-  const handleBannerViewOrder = () => {
-    const order = newOrderBanner?.order;
-    if (order) {
+  /** 展示新订单横幅（自动收起） */
+  const showNewOrderBanner = (data: OrderNewEvent) => {
+    const nested = (data.order || {}) as Record<string, unknown>;
+    const orderId = String(data.orderId || nested.id || '');
+    if (!orderId) return;
+
+    const banner: NewOrderBannerData = {
+      visible: true,
+      orderId,
+      total: Number(data.total ?? nested.total ?? 0),
+      deliveryType: String(data.deliveryType || nested.deliveryType || ''),
+      status: String(data.status || nested.status || OrderStatus.PAID),
+      itemCount: Number(data.itemCount ?? (Array.isArray(nested.items) ? (nested.items as unknown[]).length : 0)),
+      tableNo: String(data.tableNo || nested.tableNo || ''),
+      address: String(data.address || nested.address || ''),
+      contactName: String(data.contactName || nested.contactName || ''),
+    };
+
+    if (bannerTimerRef.current) {
+      clearTimeout(bannerTimerRef.current);
+    }
+    setNewOrderBanner(banner);
+    // 15s 后自动收起，避免长期遮挡
+    bannerTimerRef.current = setTimeout(() => {
       setNewOrderBanner(null);
-      Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${order.id}` });
+      bannerTimerRef.current = null;
+    }, 15000);
+  };
+
+  /** 设置 WebSocket 监听：支付成功 order:new/paid */
+  const setupSocketListeners = () => {
+    onOrderNew((data) => {
+      playMerchantNewOrderAlert();
+      showNewOrderBanner(data);
+      loadDataRef.current();
+      pullPaidPendingRef.current();
+    }, 'admin');
+
+    onOrderUpdated(() => {
+      loadDataRef.current();
+      pullPaidPendingRef.current();
+    }, 'admin');
+  };
+
+  /** 横幅摘要：桌号/地址 */
+  const getBannerLocationSummary = (banner: NewOrderBannerData): string => {
+    if (banner.deliveryType === 'dine_in') {
+      return banner.tableNo ? `桌号 ${banner.tableNo}` : '堂食';
+    }
+    if (banner.deliveryType === 'pickup') {
+      return banner.tableNo ? `自取 ${banner.tableNo}` : '到店自取';
+    }
+    if (banner.address) {
+      return banner.address.length > 16 ? `${banner.address.slice(0, 16)}…` : banner.address;
+    }
+    return banner.contactName ? `联系人 ${banner.contactName}` : '外卖配送';
+  };
+
+  /** 查看横幅订单详情 */
+  const handleBannerViewOrder = () => {
+    const orderId = newOrderBanner?.orderId;
+    if (!orderId) return;
+    closeNewOrderBanner();
+    Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${orderId}` });
+  };
+
+  /** 横幅一键接单 */
+  const handleBannerAcceptOrder = async () => {
+    const orderId = newOrderBanner?.orderId;
+    if (!orderId) return;
+    try {
+      await post(`/orders/${orderId}/status`, { status: OrderStatus.ACCEPTED });
+      Taro.showToast({ title: '已接单', icon: 'success' });
+      closeNewOrderBanner();
+      loadOrders(1);
+      loadStats();
+      pullPaidPendingOrders();
+    } catch (error) {
+      console.error('接单失败:', error);
     }
   };
 
@@ -155,23 +258,32 @@ const AdminPage = () => {
     if (!isLoggedIn || user?.role !== 'admin') {
       Taro.showToast({ title: '请先以管理员身份登录', icon: 'none' });
       Taro.navigateTo({ url: '/pages/auth/login' });
-      return;
+      return false;
     }
-    loadData();
+    return true;
   };
 
   useEffect(() => {
-    checkAuth();
+    if (checkAuth()) {
+      loadData();
+      pullPaidPendingOrders();
+    }
     setupSocketListeners();
 
     return () => {
       removePageListeners('admin');
+      if (bannerTimerRef.current) {
+        clearTimeout(bannerTimerRef.current);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  Taro.useDidShow(() => {
-    checkAuth();
+  // 回到前台：补拉列表 + paid 待接单
+  useDidShow(() => {
+    if (!checkAuth()) return;
+    loadData();
+    pullPaidPendingOrders();
   });
 
   /** 切换 Tab */
@@ -198,6 +310,7 @@ const AdminPage = () => {
       setSelectedOrder(null);
       loadOrders(1);
       loadStats();
+      pullPaidPendingOrders();
     } catch (error: any) {
       console.error('操作失败:', error);
     }
@@ -223,11 +336,12 @@ const AdminPage = () => {
         break;
       case OrderStatus.PREPARING:
         if (order.deliveryType === 'delivery') {
-          actions.push({ label: '呼叫配送（制作完成）', nextStatus: OrderStatus.DELIVERING, type: 'primary' });
+          actions.push({ label: '开始配送（商家）', nextStatus: OrderStatus.DELIVERING, type: 'primary' });
         } else if (order.deliveryType === 'pickup') {
           actions.push({ label: '待自取（制作完成）', nextStatus: OrderStatus.READY_FOR_PICKUP, type: 'primary' });
         } else {
-          actions.push({ label: '完成（堂食）', nextStatus: OrderStatus.COMPLETED, type: 'success' });
+          // 堂食与自取一致：制作完成先进入待取餐，再确认完成
+          actions.push({ label: '待出餐/待取餐（制作完成）', nextStatus: OrderStatus.READY_FOR_PICKUP, type: 'primary' });
         }
         break;
       case OrderStatus.READY_FOR_PICKUP:
@@ -249,25 +363,49 @@ const AdminPage = () => {
 
   return (
     <View className='admin-page'>
-      {/* 新订单横幅通知 */}
+      {/* 新订单横幅通知（支付成功 order:new） */}
       {newOrderBanner && newOrderBanner.visible && (
         <View className='new-order-banner'>
-          <View className='new-order-banner__content' onClick={() => handleBannerViewOrder()}>
-            <Text className='new-order-banner__icon'>🔔</Text>
-            <Text className='new-order-banner__text'>新订单</Text>
-            <Text className='new-order-banner__amount'>
-              ¥{((newOrderBanner.order.total as number) / 100).toFixed(2)}
-            </Text>
+          <View className='new-order-banner__body'>
+            <View className='new-order-banner__header'>
+              <Text className='new-order-banner__icon'>🔔</Text>
+              <View className='new-order-banner__titles'>
+                <Text className='new-order-banner__text'>新待接订单</Text>
+                <Text className='new-order-banner__meta'>
+                  {DELIVERY_TYPE_MAP[newOrderBanner.deliveryType] || newOrderBanner.deliveryType || '订单'}
+                  {newOrderBanner.itemCount > 0 ? ` · ${newOrderBanner.itemCount}件` : ''}
+                  {' · '}
+                  {getBannerLocationSummary(newOrderBanner)}
+                </Text>
+              </View>
+              <Text className='new-order-banner__amount'>
+                {formatPriceWithSymbol(newOrderBanner.total)}
+              </Text>
+              <Text
+                className='new-order-banner__close'
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeNewOrderBanner();
+                }}
+              >
+                ✕
+              </Text>
+            </View>
+            <View className='new-order-banner__actions'>
+              <View
+                className='new-order-banner__btn new-order-banner__btn--ghost'
+                onClick={handleBannerViewOrder}
+              >
+                <Text className='new-order-banner__btn-text'>查看</Text>
+              </View>
+              <View
+                className='new-order-banner__btn new-order-banner__btn--solid'
+                onClick={handleBannerAcceptOrder}
+              >
+                <Text className='new-order-banner__btn-text new-order-banner__btn-text--solid'>一键接单</Text>
+              </View>
+            </View>
           </View>
-          <Text
-            className='new-order-banner__close'
-            onClick={(e) => {
-              e.stopPropagation();
-              closeNewOrderBanner();
-            }}
-          >
-            ✕
-          </Text>
         </View>
       )}
       {/* 统计卡片 */}
@@ -282,9 +420,12 @@ const AdminPage = () => {
           </Text>
           <Text className='stat-card__label'>今日营收</Text>
         </View>
-        <View className='stat-card'>
-          <Text className='stat-card__value'>{stats?.pendingCount || 0}</Text>
-          <Text className='stat-card__label'>待处理</Text>
+        <View
+          className={`stat-card${paidPendingCount > 0 ? ' stat-card--alert' : ''}`}
+          onClick={() => switchTab(OrderStatus.PAID)}
+        >
+          <Text className='stat-card__value'>{paidPendingCount || stats?.pendingCount || 0}</Text>
+          <Text className='stat-card__label'>待接单</Text>
         </View>
         <View className='stat-card'>
           <Text className='stat-card__value'>{stats?.preparingCount || 0}</Text>
@@ -304,6 +445,10 @@ const AdminPage = () => {
         <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/user-manage' })}>
           <Text className='action-btn__icon'>👥</Text>
           <Text>会员管理</Text>
+        </View>
+        <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/reviews' })}>
+          <Text className='action-btn__icon'>⭐</Text>
+          <Text>评价列表</Text>
         </View>
       </View>
 
@@ -456,6 +601,16 @@ const AdminPage = () => {
                 <View className='action-modal__info-row'>
                   <Text className='action-modal__info-label'>备注</Text>
                   <Text className='action-modal__info-value'>{selectedOrder.remark}</Text>
+                </View>
+              )}
+              {selectedOrder.invoiceNeeded && (
+                <View className='action-modal__info-row'>
+                  <Text className='action-modal__info-label'>发票</Text>
+                  <Text className='action-modal__info-value'>
+                    需要开票
+                    {selectedOrder.invoiceTitle ? ` · ${selectedOrder.invoiceTitle}` : ''}
+                    {selectedOrder.invoiceTaxNo ? ` · 税号${selectedOrder.invoiceTaxNo}` : ''}
+                  </Text>
                 </View>
               )}
               <View className='action-modal__info-row'>

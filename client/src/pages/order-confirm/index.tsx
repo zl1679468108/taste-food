@@ -1,18 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, Input } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import { View, Text, Input, Switch } from '@tarojs/components';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { DeliveryType } from '../../types/order';
 import { DEFAULT_SHOP_ID } from '../../env';
+import { loadDineContext } from '../../utils/dine-context';
 import { Promotion } from '../../types/promotion';
 import SectionCard from '../../components/SectionCard';
 import FooterBar from '../../components/FooterBar';
 import { isValidPhone, isNonEmpty } from '../../utils/validators';
 import { estimateDiscount } from '../../utils/promotion';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
+import type { AddressItem } from '../address/index';
 import './index.scss';
 
 const OrderConfirmPage = () => {
@@ -34,10 +36,26 @@ const OrderConfirmPage = () => {
   const { pending: submitting, run: runSubmit } = useAsyncAction();
   const [shopName, setShopName] = useState('');
   const [shopDeliveryFee, setShopDeliveryFee] = useState(0);
+  const [shopOpen, setShopOpen] = useState(true);
+  const [nextOpenHint, setNextOpenHint] = useState<string | null>(null);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [promotionsLoading, setPromotionsLoading] = useState(false);
+  const [selectedAddress, setSelectedAddress] = useState<AddressItem | null>(null);
+  const [addressLoading, setAddressLoading] = useState(false);
+  const [invoiceNeeded, setInvoiceNeeded] = useState(false);
+  const [invoiceTitle, setInvoiceTitle] = useState('');
+  const [invoiceTaxNo, setInvoiceTaxNo] = useState('');
 
   const deliveryFee = deliveryType === DeliveryType.DELIVERY ? shopDeliveryFee : 0;
+
+  // 扫码入座上下文：默认堂食 + 桌号
+  useEffect(() => {
+    const ctx = loadDineContext();
+    if (!ctx?.tableNo) return;
+    setDeliveryType(DeliveryType.DINE_IN);
+    setTableNo(ctx.tableNo);
+  }, []);
+
 
   const loadShopInfo = useCallback(async () => {
     try {
@@ -45,6 +63,11 @@ const OrderConfirmPage = () => {
       const shop = res.data;
       setShopName(shop?.name || '');
       setShopDeliveryFee(shop?.deliveryFee || 0);
+      // 与菜单页一致：显式 isOpenNow 优先，否则回退 status
+      const open =
+        typeof shop?.isOpenNow === 'boolean' ? !!shop.isOpenNow : shop?.status === 'open';
+      setShopOpen(open);
+      setNextOpenHint(shop?.nextOpenHint || null);
     } catch (e) {
       console.error('加载店铺信息失败:', e);
     }
@@ -63,6 +86,31 @@ const OrderConfirmPage = () => {
     }
   }, []);
 
+  const applyAddress = useCallback((addr: AddressItem | null) => {
+    setSelectedAddress(addr);
+    if (!addr) return;
+    setAddress(addr.detail || '');
+    setContactName(addr.contactName || '');
+    setContactPhone(addr.contactPhone || '');
+  }, []);
+
+  const loadDefaultAddress = useCallback(async () => {
+    if (!useAuthStore.getState().isLoggedIn) return;
+    setAddressLoading(true);
+    try {
+      const res = await get<AddressItem[]>('/addresses', { shopId: DEFAULT_SHOP_ID }, { useCache: false });
+      const list = res.data || [];
+      const preferred = list.find((a) => a.isDefault) || list[0] || null;
+      if (preferred) {
+        applyAddress(preferred);
+      }
+    } catch (e) {
+      console.error('加载默认地址失败:', e);
+    } finally {
+      setAddressLoading(false);
+    }
+  }, [applyAddress]);
+
   useEffect(() => {
     // 检查购物车
     if (cartItems.length === 0) {
@@ -75,18 +123,70 @@ const OrderConfirmPage = () => {
     loadShopInfo();
     // 加载可用优惠
     loadPromotions();
+    // 外卖默认地址
+    loadDefaultAddress();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 从地址簿返回时读取选中地址；登录后补拉默认地址
+  useDidShow(() => {
+    try {
+      const picked = Taro.getStorageSync('tf_selected_address') as AddressItem | '';
+      if (picked && typeof picked === 'object' && (picked as AddressItem).id) {
+        applyAddress(picked as AddressItem);
+        Taro.removeStorageSync('tf_selected_address');
+        return;
+      }
+    } catch (e) {
+      // ignore
+    }
+    // 尚未选中地址且已登录时，补拉默认地址（覆盖先打开页后登录的场景）
+    if (!selectedAddress && useAuthStore.getState().isLoggedIn) {
+      loadDefaultAddress();
+    }
+  });
+
+  const openAddressBook = () => {
+    if (!authLoggedIn) {
+      Taro.showToast({ title: '请先登录', icon: 'none' });
+      Taro.navigateTo({ url: '/pages/auth/login' });
+      return;
+    }
+    Taro.navigateTo({
+      url: '/pages/address/index?select=1',
+      events: {
+        addressSelected: (addr: AddressItem) => {
+          applyAddress(addr);
+        },
+      },
+    });
+  };
+
+  const goAddAddress = () => {
+    if (!authLoggedIn) {
+      Taro.navigateTo({ url: '/pages/auth/login' });
+      return;
+    }
+    Taro.navigateTo({ url: '/pages/address/edit' });
+  };
 
   /** 选择配送方式 */
   const selectDeliveryType = (type: DeliveryType) => {
     setDeliveryType(type);
+    // 切到外卖且尚未选地址时，尝试带出默认地址
+    if (type === DeliveryType.DELIVERY && !selectedAddress) {
+      loadDefaultAddress();
+    }
   };
 
   /** 提交订单 */
   const submitOrder = async () => {
     if (cartItems.length === 0) {
       Taro.showToast({ title: '购物车为空', icon: 'none' });
+      return;
+    }
+    if (!shopOpen) {
+      Taro.showToast({ title: nextOpenHint || '店铺休息中，暂不可下单', icon: 'none' });
       return;
     }
 
@@ -124,6 +224,11 @@ const OrderConfirmPage = () => {
       return;
     }
 
+    if (invoiceNeeded && !isNonEmpty(invoiceTitle)) {
+      Taro.showToast({ title: '请填写发票抬头', icon: 'none' });
+      return;
+    }
+
     await runSubmit(async () => {
       const orderData = {
         shopId: cartShopId || DEFAULT_SHOP_ID,
@@ -135,14 +240,24 @@ const OrderConfirmPage = () => {
           quantity: item.quantity,
           specDesc: item.specDesc || '',
           imageUrl: item.imageUrl || '',
+          // 传规格选项 ID，后端用于校验/落库规格明细
+          specOptionIds: item.specOptionIds || [],
         })),
         deliveryType,
         // deliveryFee 由服务端从店铺配置获取，不信任客户端传值
         address: deliveryType === DeliveryType.DELIVERY ? address : '',
         tableNo: (deliveryType === DeliveryType.DINE_IN || deliveryType === DeliveryType.PICKUP) ? tableNo : '',
         remark: cartRemarks || '',
-        contactName: contactName || '',
-        contactPhone: contactPhone || '',
+        // 空值不传，避免后端把空串当有效手机号/联系人校验失败
+        ...(isNonEmpty(contactName) ? { contactName: contactName.trim() } : {}),
+        ...(isNonEmpty(contactPhone) ? { contactPhone: contactPhone.trim() } : {}),
+        invoiceNeeded,
+        ...(invoiceNeeded
+          ? {
+              invoiceTitle: invoiceTitle.trim(),
+              ...(isNonEmpty(invoiceTaxNo) ? { invoiceTaxNo: invoiceTaxNo.trim() } : {}),
+            }
+          : {}),
       };
 
       const response = await post<any>('/orders', orderData);
@@ -205,26 +320,51 @@ const OrderConfirmPage = () => {
           <View className='delivery-info-form'>
             {deliveryType === DeliveryType.DELIVERY ? (
               <>
+                <View className='address-book-block'>
+                  {addressLoading ? (
+                    <Text className='address-book-block__hint'>地址加载中...</Text>
+                  ) : selectedAddress ? (
+                    <View className='address-book-card' onClick={openAddressBook}>
+                      <View className='address-book-card__row'>
+                        <Text className='address-book-card__name'>{selectedAddress.contactName}</Text>
+                        <Text className='address-book-card__phone'>{selectedAddress.contactPhone}</Text>
+                        {selectedAddress.isDefault ? (
+                          <Text className='address-book-card__badge'>默认</Text>
+                        ) : null}
+                      </View>
+                      <Text className='address-book-card__detail'>{selectedAddress.detail}</Text>
+                      <Text className='address-book-card__switch'>切换地址 ›</Text>
+                    </View>
+                  ) : (
+                    <View className='address-book-empty'>
+                      <Text className='address-book-empty__text'>暂无收货地址</Text>
+                      <View className='address-book-empty__actions'>
+                        <Text className='address-book-empty__btn' onClick={goAddAddress}>去新增</Text>
+                        <Text className='address-book-empty__btn ghost' onClick={openAddressBook}>地址簿</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
                 <Input
                   className='form-input'
-                  placeholder='请输入配送地址'
+                  placeholder='请输入配送地址（可从地址簿带出后微调）'
                   value={address}
                   onInput={(e) => setAddress(e.detail.value)}
                 />
-                <View style={{ display: 'flex', gap: '10px' }}>
+                <View className='form-row'>
                   <Input
-                    className='form-input'
+                    className='form-input form-input--flex-1'
                     placeholder='姓名'
-                    style={{ flex: 1 }}
                     value={contactName}
                     onInput={(e) => setContactName(e.detail.value)}
+                    aria-label='联系人姓名'
                   />
                   <Input
-                    className='form-input'
+                    className='form-input form-input--flex-2'
                     placeholder='电话'
-                    style={{ flex: 2 }}
                     value={contactPhone}
                     onInput={(e) => setContactPhone(e.detail.value)}
+                    aria-label='联系人电话'
                   />
                 </View>
               </>
@@ -244,7 +384,7 @@ const OrderConfirmPage = () => {
         {/* 优惠信息 */}
         {promotions.length > 0 && (
           <SectionCard className='promotion-section' icon='🏷️' title='优惠活动'>
-            {promotions.map((promo: Promotion, idx: number) => {
+            {promotions.map((promo: Promotion) => {
               const rule = promo.rule || {};
               let desc = '';
               if (promo.type === 'full_discount') {
@@ -257,9 +397,9 @@ const OrderConfirmPage = () => {
                 desc = promo.description || promo.name;
               }
               return (
-                <View key={promo.id} style={{ padding: '6px 0', fontSize: 12, color: '#FF6B35' }}>
+                <View key={promo.id} className='promotion-loading'>
                   <Text>🎉 {promo.name}</Text>
-                  <Text style={{ marginLeft: 8, color: '#666' }}>{desc}</Text>
+                  <Text className='price-value--muted'>{desc}</Text>
                 </View>
               );
             })}
@@ -272,7 +412,7 @@ const OrderConfirmPage = () => {
             {cartItems.map((item) => (
               <View key={item.key} className='goods-item'>
                 <View className='goods-item__image'>
-                  <Text style={{ fontSize: '40rpx' }}>🍖</Text>
+                  <Text className='empty-cart-icon'>🍖</Text>
                 </View>
                 <View className='goods-item__info'>
                   <Text className='goods-item__name'>{item.name}</Text>
@@ -310,6 +450,34 @@ const OrderConfirmPage = () => {
           </View>
         </SectionCard>
 
+        {/* 发票信息 */}
+        <SectionCard className='invoice-section' icon='🧾' title='发票信息'>
+          <View className='invoice-switch-row'>
+            <Text className='invoice-switch-row__label'>需要发票</Text>
+            <Switch
+              checked={invoiceNeeded}
+              color='#FF6B35'
+              onChange={(e) => setInvoiceNeeded(!!e.detail.value)}
+            />
+          </View>
+          {invoiceNeeded && (
+            <View className='invoice-fields'>
+              <Input
+                className='form-input'
+                placeholder='发票抬头（必填）'
+                value={invoiceTitle}
+                onInput={(e) => setInvoiceTitle(e.detail.value)}
+              />
+              <Input
+                className='form-input'
+                placeholder='税号（选填）'
+                value={invoiceTaxNo}
+                onInput={(e) => setInvoiceTaxNo(e.detail.value)}
+              />
+            </View>
+          )}
+        </SectionCard>
+
         {/* 价格统计 */}
         <SectionCard className='price-section'>
           <View className='price-item'>
@@ -326,13 +494,19 @@ const OrderConfirmPage = () => {
               <Text className='price-value price-value--discount'>-{formatPriceWithSymbol(discountAmount)}</Text>
             </View>
           )}
+          {promotionsLoading && (
+            <View className='price-item'>
+              <Text className='price-label'>优惠计算中</Text>
+              <Text className='price-value price-value--muted'>...</Text>
+            </View>
+          )}
         </SectionCard>
       </View>
 
       <FooterBar
         totalText={formatPriceWithSymbol(total)}
-        actionText={submitting ? '提交中...' : '提交订单'}
-        actionDisabled={submitting}
+        actionText={submitting ? '提交中...' : !shopOpen ? '休息中' : '提交订单'}
+        actionDisabled={submitting || !shopOpen}
         onAction={submitOrder}
       />
     </View>

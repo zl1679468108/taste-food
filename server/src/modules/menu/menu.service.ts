@@ -13,6 +13,30 @@ import { SpecGroupResponseDto, SpecOptionResponseDto } from './dto/spec.dto';
 import { supabase, hasSupabase } from '../../database/supabase.client';
 import { FavoritesService } from '../favorites/favorites.service';
 
+const MENU_ITEM_SELECT_CANDIDATES = [
+  'id, category_id, shop_id, name, description, price, image_url, status, monthly_sales, spec_group_ids, created_at, updated_at',
+  'id, category_id, shop_id, name, description, price, image_url, status, monthly_sales, created_at, updated_at',
+  'id, category_id, shop_id, name, description, price, image_url, status, created_at, updated_at',
+] as const;
+
+function isMissingColumnError(error: { message?: string } | null | undefined): boolean {
+  const msg = String(error?.message || '').toLowerCase();
+  return msg.includes('column') && msg.includes('does not exist');
+}
+
+async function queryMenuItems(
+  build: (select: string) => any,
+): Promise<{ data: any[] | any | null; error: any | null }> {
+  let last = { data: null, error: { message: 'no menu select candidate tried' } as any };
+  for (const select of MENU_ITEM_SELECT_CANDIDATES) {
+    const result = await build(select);
+    if (!result.error) return result;
+    last = result;
+    if (!isMissingColumnError(result.error)) return result;
+  }
+  return last;
+}
+
 interface CategoryRecord {
   id: string;
   shopId: string;
@@ -245,21 +269,22 @@ export class MenuService {
    */
   async getPopularItems(shopId?: string, limit: number = 10, userId?: string): Promise<MenuItemResponseDto[]> {
     if (hasSupabase() && supabase) {
-      let query = supabase
-        .from('tf_menu_items')
-        .select('id, category_id, shop_id, name, description, price, image_url, status, monthly_sales, spec_group_ids, created_at, updated_at')
-        .eq('status', MenuItemStatus.ACTIVE)
-        .order('monthly_sales', { ascending: false })
-        .limit(limit);
-      if (shopId) query = query.eq('shop_id', shopId);
-      const { data, error } = await query;
+      // 旧库可能缺少 monthly_sales/spec_group_ids：兼容查询后在内存排序
+      const { data, error } = await queryMenuItems((select) => {
+        let query = supabase!.from('tf_menu_items').select(select).eq('status', MenuItemStatus.ACTIVE);
+        if (shopId) query = query.eq('shop_id', shopId);
+        return query.limit(Math.max(limit * 5, 50));
+      });
       if (error) throw new BadRequestException(`获取热门菜品失败: ${error.message}`);
-      const items = (data || []).map((row) => this.toMenuItem(row));
+      const items = (data || [])
+        .map((row: any) => this.toMenuItem(row))
+        .sort((a: any, b: any) => b.salesCount - a.salesCount)
+        .slice(0, limit);
       // 批量查询收藏状态，避免逐菜品 N+1 查询
       const favoriteSet = userId
-        ? await this.favoritesService.batchCheckFavorites(userId, items.map((i) => i.id))
+        ? await this.favoritesService.batchCheckFavorites(userId, items.map((i: any) => i.id))
         : undefined;
-      return await Promise.all(items.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
+      return await Promise.all(items.map((i: any) => this.toMenuItemResponse(i, userId, favoriteSet)));
     }
 
     // Memory fallback
@@ -298,21 +323,23 @@ export class MenuService {
   async getMenuItems(categoryId?: string, search?: string, shopId?: string, userId?: string): Promise<MenuItemResponseDto[]> {
     const sid = shopId || DEFAULT_SHOP_ID;
     if (hasSupabase() && supabase) {
-      let query = supabase.from('tf_menu_items').select('id, category_id, shop_id, name, description, price, image_url, status, monthly_sales, spec_group_ids, created_at, updated_at').eq('shop_id', sid).order('id');
-      if (categoryId) query = query.eq('category_id', categoryId);
-      // 转义 PostgreSQL LIKE/ILIKE 通配符（%、_、\），避免用户输入破坏查询模式
-      if (search) {
-        const escaped = search.replace(/[%_\\]/g, '\\$&');
-        query = query.ilike('name', `%${escaped}%`);
-      }
-      const { data, error } = await query;
+      const { data, error } = await queryMenuItems((select) => {
+        let query = supabase!.from('tf_menu_items').select(select).eq('shop_id', sid).order('id');
+        if (categoryId) query = query.eq('category_id', categoryId);
+        // 转义 PostgreSQL LIKE/ILIKE 通配符（%、_、\），避免用户输入破坏查询模式
+        if (search) {
+          const escaped = search.split('\\').join('\\\\').split('%').join('\\%').split('_').join('\\_');
+          query = query.ilike('name', `%${escaped}%`);
+        }
+        return query;
+      });
       if (error) throw new BadRequestException(`获取菜品失败: ${error.message}`);
-      const items = (data || []).map((row) => this.toMenuItem(row));
+      const items = (data || []).map((row: any) => this.toMenuItem(row));
       // 批量查询收藏状态，避免逐菜品 N+1 查询
       const favoriteSet = userId
-        ? await this.favoritesService.batchCheckFavorites(userId, items.map((i) => i.id))
+        ? await this.favoritesService.batchCheckFavorites(userId, items.map((i: any) => i.id))
         : undefined;
-      return await Promise.all(items.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
+      return await Promise.all(items.map((i: any) => this.toMenuItemResponse(i, userId, favoriteSet)));
     }
 
     await this.seedIfEmpty();
@@ -323,16 +350,14 @@ export class MenuService {
     const favoriteSet = userId
       ? new Set(items.filter((i) => memoryFavorites.has(`${userId}:${i.id}`)).map((i) => i.id))
       : undefined;
-    return await Promise.all(items.map((i) => this.toMenuItemResponse(i, userId, favoriteSet)));
+    return await Promise.all(items.map((i: any) => this.toMenuItemResponse(i, userId, favoriteSet)));
   }
 
   async getMenuItemById(id: string, userId?: string): Promise<MenuItemResponseDto> {
     if (hasSupabase() && supabase) {
-      const { data, error } = await supabase
-        .from('tf_menu_items')
-        .select('id, category_id, shop_id, name, description, price, image_url, status, monthly_sales, spec_group_ids, created_at, updated_at')
-        .eq('id', id)
-        .single();
+      const { data, error } = await queryMenuItems((select) =>
+        supabase!.from('tf_menu_items').select(select).eq('id', id).single(),
+      );
       if (error || !data) throw new NotFoundException(`菜品 ${id} 不存在`);
       return await this.toMenuItemResponse(this.toMenuItem(data), userId);
     }
@@ -350,11 +375,13 @@ export class MenuService {
 
     // Check if item has spec groups
     if (hasSupabase() && supabase) {
-      const { data: row } = await supabase
+      // 旧库无 spec_group_ids 时直接返回空规格
+      const { data: row, error: specColErr } = await supabase
         .from('tf_menu_items')
         .select('spec_group_ids')
         .eq('id', menuItemId)
         .single();
+      if (specColErr && isMissingColumnError(specColErr)) return [];
       if (!row?.spec_group_ids || row.spec_group_ids.length === 0) return [];
 
       const specIds = row.spec_group_ids;

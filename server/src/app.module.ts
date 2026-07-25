@@ -13,13 +13,16 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { UserModule } from './modules/user/user.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
+import { AddressModule } from './modules/address/address.module';
 import { HealthModule } from './modules/health/health.module';
+import { ReviewModule } from './modules/review/review.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Module({
   imports: [
     AuthModule, ShopModule, MenuModule, OrderModule,
     PaymentModule, NotificationModule, StorageModule, UserModule,
-    FavoritesModule, HealthModule,
+    FavoritesModule, AddressModule, HealthModule, ReviewModule, AuditModule,
   ],
   controllers: [],
   providers: [

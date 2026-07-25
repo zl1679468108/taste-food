@@ -10,6 +10,7 @@ import { getRoutes } from './core/route';
 import type { Location } from 'history';
 
 
+import '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/global.css';
 import '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/src/global.ts';
 import 'antd/dist/reset.css';
 const publicPath = '/';

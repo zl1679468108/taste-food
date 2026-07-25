@@ -14,6 +14,9 @@ export interface Order {
   remark?: string;
   contactName?: string;
   contactPhone?: string;
+  invoiceNeeded?: boolean;
+  invoiceTitle?: string;
+  invoiceTaxNo?: string;
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
@@ -73,3 +76,11 @@ export const updateOrderStatus = (id: string, status: string) =>
 // 取消订单：调用专用 /cancel 接口（后端原子处理状态校验 + 退款记录 + daily_stats 联动）
 export const cancelOrder = (id: string) =>
   request.post(`/api/orders/${id}/cancel`);
+
+/** 导出订单 CSV（服务端生成，最多 maxRows） */
+export const exportOrders = (params?: { status?: string; maxRows?: number }) =>
+  request.get('/api/orders/export', { params }) as Promise<{
+    csv: string;
+    count: number;
+    filename: string;
+  }>;

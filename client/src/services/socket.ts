@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import Taro from '@tarojs/taro';
 import { WS_URL } from '../env';
+import newOrderAlertSrc from '../assets/sounds/new-order.wav';
 
 // 微信小程序全局对象类型声明（避免 TS 报错，运行时由微信小程序环境注入）
 declare const wx: unknown;
@@ -10,23 +11,56 @@ let isConnected = false;
 let lastUserId: string | null = null;
 let lastUserRole: string | null = null;
 
-export interface OrderUpdatedEvent {
+export interface OrderEventSummary {
+  orderId?: string;
+  shopId?: string;
+  total?: number;
+  deliveryType?: string;
+  status?: string;
+  itemCount?: number;
+  contactName?: string;
+  contactPhone?: string;
+  tableNo?: string;
+  address?: string;
+  previousStatus?: string;
+  event?: string;
   order: Record<string, unknown>;
+}
+
+export interface OrderUpdatedEvent extends OrderEventSummary {
   previousStatus: string;
 }
 
-export interface OrderCreatedEvent {
-  order: Record<string, unknown>;
+export interface OrderCreatedEvent extends OrderEventSummary {}
+
+/** 商家新待处理订单（支付成功） */
+export type OrderNewEvent = OrderEventSummary;
+export type OrderPaidEvent = OrderEventSummary;
+
+export interface DeliveryTrackEvent {
+  orderId: string;
+  shopId: string;
+  userId: string;
+  riderId?: string;
+  latitude: number;
+  longitude: number;
+  recordedAt: string;
 }
 
 export type OrderUpdatedCallback = (data: OrderUpdatedEvent) => void;
 export type OrderCreatedCallback = (data: OrderCreatedEvent) => void;
+export type OrderNewCallback = (data: OrderNewEvent) => void;
+export type DeliveryTrackCallback = (data: DeliveryTrackEvent) => void;
 
 // 存储每个页面的监听器回调
 const orderUpdatedCallbacks: Map<string, OrderUpdatedCallback> = new Map();
 const orderCreatedCallbacks: Map<string, OrderCreatedCallback> = new Map();
+const orderNewCallbacks: Map<string, OrderNewCallback> = new Map();
+const deliveryTrackCallbacks: Map<string, DeliveryTrackCallback> = new Map();
 let isOrderUpdatedHandlerBound = false;
 let isOrderCreatedHandlerBound = false;
+let isOrderNewHandlerBound = false;
+let isDeliveryTrackHandlerBound = false;
 
 /** 检测是否在微信小程序环境 */
 const isMiniProgram = typeof wx !== 'undefined';
@@ -132,6 +166,32 @@ function bindOrderHandlers(): void {
       });
     });
   }
+  if (!isOrderNewHandlerBound && orderNewCallbacks.size > 0) {
+    isOrderNewHandlerBound = true;
+    const dispatchNew = (data: OrderNewEvent) => {
+      orderNewCallbacks.forEach((cb) => {
+        try {
+          cb(data);
+        } catch (e) {
+          console.error('[Socket] order:new 回调错误:', e);
+        }
+      });
+    };
+    socket.on('order:new', dispatchNew);
+    socket.on('order:paid', dispatchNew);
+  }
+  if (!isDeliveryTrackHandlerBound && deliveryTrackCallbacks.size > 0) {
+    isDeliveryTrackHandlerBound = true;
+    socket.on('delivery:track', (data: DeliveryTrackEvent) => {
+      deliveryTrackCallbacks.forEach((cb) => {
+        try {
+          cb(data);
+        } catch (e) {
+          console.error('[Socket] delivery:track 回调错误:', e);
+        }
+      });
+    });
+  }
 }
 
 export function disconnectSocket(): void {
@@ -142,6 +202,8 @@ export function disconnectSocket(): void {
     isConnected = false;
     isOrderUpdatedHandlerBound = false;
     isOrderCreatedHandlerBound = false;
+    isOrderNewHandlerBound = false;
+    isDeliveryTrackHandlerBound = false;
     // 清除缓存的用户身份，避免下次连接复用旧身份（导致加入错误房间）
     lastUserId = null;
     lastUserRole = null;
@@ -183,18 +245,90 @@ export function onOrderCreated(callback: OrderCreatedCallback, pageId?: string):
   }
 }
 
+export function onDeliveryTrackUpdated(callback: DeliveryTrackCallback, pageId?: string): void {
+  const key = pageId || `anonymous-${Date.now()}-${deliveryTrackCallbacks.size}`;
+  deliveryTrackCallbacks.set(key, callback);
+
+  if (socket && !isDeliveryTrackHandlerBound) {
+    bindOrderHandlers();
+  }
+}
+
+/** 监听商家新待处理订单（order:new / order:paid） */
+export function onOrderNew(callback: OrderNewCallback, pageId?: string): void {
+  const key = pageId || `anonymous-${Date.now()}-${orderNewCallbacks.size}`;
+  orderNewCallbacks.set(key, callback);
+  if (socket && !isOrderNewHandlerBound) {
+    bindOrderHandlers();
+  }
+}
+
 export function removePageListeners(pageId: string): void {
   orderUpdatedCallbacks.delete(pageId);
   orderCreatedCallbacks.delete(pageId);
+  orderNewCallbacks.delete(pageId);
+  deliveryTrackCallbacks.delete(pageId);
 }
 
 export function removeAllListeners(): void {
   orderUpdatedCallbacks.clear();
   orderCreatedCallbacks.clear();
+  orderNewCallbacks.clear();
+  deliveryTrackCallbacks.clear();
   if (socket) {
     socket.off('order:updated');
     socket.off('order:created');
+    socket.off('order:new');
+    socket.off('order:paid');
+    socket.off('delivery:track');
   }
   isOrderUpdatedHandlerBound = false;
   isOrderCreatedHandlerBound = false;
+  isOrderNewHandlerBound = false;
+  isDeliveryTrackHandlerBound = false;
+}
+
+/**
+ * 商家新订单本地提醒：短振动 + 可选提示音（失败静默忽略）。
+ * 商家页不在 tabBar 内时不设角标，由调用方决定。
+ * 默认使用 assets/sounds/new-order.wav；无资源时仅振动。
+ */
+const NEW_ORDER_ALERT_SRC = newOrderAlertSrc;
+
+export function playMerchantNewOrderAlert(): void {
+  try {
+    Taro.vibrateShort({ type: 'heavy' });
+  } catch {
+    try {
+      Taro.vibrateLong();
+    } catch {
+      // 模拟器/无振动设备忽略
+    }
+  }
+
+  if (!NEW_ORDER_ALERT_SRC) {
+    return;
+  }
+
+  try {
+    const audio = Taro.createInnerAudioContext();
+    audio.autoplay = true;
+    audio.src = NEW_ORDER_ALERT_SRC;
+    const cleanup = () => {
+      try {
+        audio.destroy();
+      } catch {
+        // ignore
+      }
+    };
+    audio.onError(cleanup);
+    audio.onEnded(cleanup);
+    try {
+      audio.play();
+    } catch {
+      cleanup();
+    }
+  } catch {
+    // InnerAudioContext 不可用时忽略
+  }
 }

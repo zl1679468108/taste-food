@@ -7,3 +7,4 @@ export { default as FooterBar } from './FooterBar';
 export { default as FilterTabs } from './FilterTabs';
 export { default as OrderCard } from './OrderCard';
 export type { FilterTabItem } from './FilterTabs';
+export { default as VirtualList } from './VirtualList';

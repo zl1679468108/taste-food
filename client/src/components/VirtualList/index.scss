@@ -1,0 +1,20 @@
+.tf-virtual-list {
+  width: 100%;
+
+  &__phantom {
+    position: relative;
+    width: 100%;
+  }
+
+  &__window {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    will-change: transform;
+  }
+
+  &__item {
+    box-sizing: border-box;
+  }
+}

@@ -1,4 +1,4 @@
-@import '../../styles/design-tokens';
+@use '../../styles/design-tokens' as *;
 
 .tf-order-card {
   background: #fff;

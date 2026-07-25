@@ -7,6 +7,8 @@ import {
 } from 'antd';
 import { ApplyPluginsType } from 'umi';
 import { getPluginManager } from '../core/plugin';
+import { AntdConfigContext, AntdConfigContextSetter } from './context';
+import merge from '/Users/zhaolong/前端/vibe-coding-project/taste-food/admin/node_modules/lodash/merge'
 
 let cacheAntdConfig = null;
 
@@ -16,8 +18,12 @@ const getAntdConfig = () => {
       key: 'antd',
       type: ApplyPluginsType.modify,
       initialValue: {
+        ...{"theme":{"token":{"colorPrimary":"#FF6B35","colorLink":"#FF6B35","colorSuccess":"#00C853","colorWarning":"#FFB300","colorError":"#FF5252","colorInfo":"#2196F3","borderRadius":8}}},
       },
     });
+    if (!cacheAntdConfig.theme) {
+      cacheAntdConfig.theme = {};
+    }
   }
   return cacheAntdConfig;
 }
@@ -39,7 +45,36 @@ function AntdProvider({ children }) {
   }
 
 
+  if (antdConfig.prefixCls) {
+    ConfigProvider.config({
+      prefixCls: antdConfig.prefixCls,
+    });
+  };
 
+  if (antdConfig.iconPrefixCls) {
+    // Icons in message need to set iconPrefixCls via ConfigProvider.config()
+    ConfigProvider.config({
+      iconPrefixCls: antdConfig.iconPrefixCls,
+    });
+  };
+
+  if (antdConfig.theme) {
+    // Pass config theme to static method
+    ConfigProvider.config({
+      theme: antdConfig.theme,
+    });
+  }
+
+  container = <ConfigProvider {...antdConfig}>{container}</ConfigProvider>;
+
+
+  container = (
+    <AntdConfigContextSetter.Provider value={setAntdConfig}>
+      <AntdConfigContext.Provider value={antdConfig}>
+        {container}
+      </AntdConfigContext.Provider>
+    </AntdConfigContextSetter.Provider>
+  )
 
   return container;
 }
