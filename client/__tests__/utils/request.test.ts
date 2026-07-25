@@ -1,4 +1,4 @@
-import { get, post, patch, RequestError } from '../../src/utils/request';
+import { get, post, patch, RequestError, isRetryableError } from '../../src/utils/request';
 import { clearCache } from '../../src/utils/cache';
 
 jest.mock('@tarojs/taro', () => ({
@@ -10,6 +10,16 @@ jest.mock('@tarojs/taro', () => ({
     showToast: jest.fn(),
     reLaunch: jest.fn(),
     getCurrentPages: jest.fn(() => [{ route: 'pages/menu/index' }]),
+    getNetworkType: jest.fn(async () => ({ networkType: 'wifi' })),
+  },
+}));
+
+jest.mock('../../src/stores/authStore', () => ({
+  useAuthStore: {
+    getState: () => ({
+      logout: jest.fn(),
+      stopAutoRefresh: jest.fn(),
+    }),
   },
 }));
 
@@ -27,6 +37,7 @@ describe('request utils', () => {
     clearCache();
     jest.clearAllMocks();
     mockTaro.request.mockResolvedValue(mockResponse);
+    mockTaro.getNetworkType.mockResolvedValue({ networkType: 'wifi' });
   });
 
   test('get should call Taro.request with correct parameters', async () => {
@@ -73,19 +84,58 @@ describe('request utils', () => {
     expect(error.message).toBe('test message');
     expect(error.code).toBe(500);
     expect(error.name).toBe('RequestError');
+    expect(error.retryable).toBe(true);
   });
 
-  test('get should handle network errors', async () => {
+  test('get should handle network errors and retry once', async () => {
+    mockTaro.request
+      .mockRejectedValueOnce(new Error('Network request failed'))
+      .mockResolvedValueOnce(mockResponse);
+
+    const result = await get('/test', undefined, { retryDelay: 1 });
+    expect(result.code).toBe(0);
+    expect(mockTaro.request).toHaveBeenCalledTimes(2);
+  });
+
+  test('get should toast after network retries exhausted', async () => {
     mockTaro.request.mockRejectedValue(new Error('Network request failed'));
-    await expect(get('/test')).rejects.toThrow('网络连接失败，请检查网络');
-    expect(mockTaro.showToast).toHaveBeenCalledWith({ title: '网络连接失败，请检查网络', icon: 'none' });
+    await expect(get('/test', undefined, { retries: 1, retryDelay: 1 })).rejects.toThrow(
+      '网络连接失败，请检查网络',
+    );
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '网络连接失败，请检查网络',
+      icon: 'none',
+    });
+    // first + 1 retry
+    expect(mockTaro.request).toHaveBeenCalledTimes(2);
   });
 
-  test('get should handle 401 errors', async () => {
-    const errorResponse = { ...mockResponse, data: { code: 401, message: 'Unauthorized' } };
+  test('get should warn on weak network', async () => {
+    mockTaro.getNetworkType.mockResolvedValue({ networkType: '2g' });
+    await get('/test');
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '当前网络较弱，加载可能较慢',
+      icon: 'none',
+    });
+  });
+
+  test('get should not retry 401', async () => {
+    const errorResponse = {
+      ...mockResponse,
+      data: { code: 401, message: 'Unauthorized' },
+    };
     mockTaro.request.mockResolvedValue(errorResponse);
     await expect(get('/test')).rejects.toThrow('Unauthorized');
+    expect(mockTaro.request).toHaveBeenCalledTimes(1);
     expect(mockTaro.removeStorageSync).toHaveBeenCalledWith('token');
-    expect(mockTaro.showToast).toHaveBeenCalledWith({ title: '登录已过期，请重新登录', icon: 'none' });
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '登录已过期，请重新登录',
+      icon: 'none',
+    });
+  });
+
+  test('isRetryableError detects network errors', () => {
+    expect(isRetryableError(new RequestError('net', -1, { isNetworkError: true }))).toBe(true);
+    expect(isRetryableError(new RequestError('bad', 400))).toBe(false);
   });
 });

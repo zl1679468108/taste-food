@@ -1,7 +1,0 @@
-{
-  "miniprogramRoot": "./dist",
-  "compileType": "miniprogram",
-  "appid": "wx93c16508eff05096",
-  "projectname": "taste-food",
-  "description": "小买卖点餐系统"
-}
