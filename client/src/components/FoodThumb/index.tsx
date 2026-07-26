@@ -14,10 +14,12 @@ interface FoodThumbProps {
   tone?: string;
 }
 
+/** 展示链：接口 imageUrl(src) 优先 → 本地名映射(DEPRECATED 兜底) → 占位图 */
 function buildCandidates(name?: string, src?: string): string[] {
   const list: string[] = [];
   const remote = (src || '').trim();
   if (remote) list.push(remote);
+  // DEPRECATED: 仅 imageUrl 为空/加载失败时回退本地名映射
   const local = resolveDishImageByName(name);
   if (local && local !== remote) list.push(local);
   list.push(placeholderImg);

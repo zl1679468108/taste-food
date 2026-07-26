@@ -298,7 +298,7 @@ const ShopPage: React.FC = () => {
                 suffix={shop ? '元' : undefined}
                 icon={<DollarOutlined />}
                 color={brand.success}
-                bgColor="#E8F8EF"
+                bgColor={brand.successSoft}
               />
             </Col>
             <Col xs={24} sm={8}>
@@ -312,7 +312,7 @@ const ShopPage: React.FC = () => {
                 suffix={shop ? '元' : undefined}
                 icon={<ShoppingCartOutlined />}
                 color={brand.warning}
-                bgColor="#FFF8E6"
+                bgColor={brand.warningSoft}
               />
             </Col>
           </Row>

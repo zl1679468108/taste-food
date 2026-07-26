@@ -9,13 +9,13 @@
 
 ## 当前待办
 
-### P1 — 门店图库批量维护与小程序缓存（T195）— in_progress 2026-07-26
+### P1 — 门店图库批量维护与小程序缓存（T196）— ✅ 2026-07-26
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T195.1 | tf_media_assets + batch/list/delete API | server | §4 / §3.4 | P1 | in_progress | shop_id 隔离；批量上传；列表含占用；agent Maxwell |
-| T195.2 | Admin MediaPicker + 菜品绑图 | admin | §3.4 | P1 | in_progress | 图库弹窗、已用标识、批量导入；agent Wegener |
-| T195.3 | 种子批量导入 + 小程序菜单图缓存 | client/scripts | §3.1.2 | P1 | in_progress | dishes 灌库；进店缓存；弱化映射；agent McClintock |
+| T196.1 | tf_media_assets + batch/list/delete API | server | §4 / §3.4 | P1 | ✅ done 2026-07-26 | shop_id 隔离；batch/list/delete；usedBy；路径 {shopId}/... |
+| T196.2 | Admin MediaPicker + 菜品绑图 | admin | §3.4 | P1 | ✅ done 2026-07-26 | MediaPicker 图库弹窗/已用角标/未使用筛选/批量导入；菜品表单主路径选图 + 次要单张；列表缩略图 |
+| T196.3 | 种子批量导入 + 小程序菜单图缓存 | client/scripts | §3.1.2 | P1 | ✅ done 2026-07-26 | seed-menu-images.mjs；tf:menu:{shopId} 缓存；dish-images DEPRECATED |
 
 
 ### P1 — 样式变量落地验收与 PC 对齐（T195）— ✅ 2026-07-26

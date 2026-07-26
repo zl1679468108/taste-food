@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
-import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, CoffeeOutlined, PictureOutlined } from '@ant-design/icons';
 import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getCategories, MenuItem, Category } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -8,7 +8,7 @@ import SearchFilterBar from '@/components/SearchFilterBar';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PriceDisplay from '@/components/PriceDisplay';
-import ImageUpload from '@/components/ImageUpload';
+import MediaPicker from '@/components/MediaPicker';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 const { TextArea } = Input;
@@ -91,8 +91,20 @@ const MenuItemPage: React.FC = () => {
       title: '图片',
       dataIndex: 'imageUrl',
       key: 'imageUrl',
-      width: 80,
-      render: (url: string) => (url ? <Image src={url} width={50} height={50} /> : '-'),
+      width: 72,
+      render: (url: string) =>
+        url ? (
+          <Image
+            src={url}
+            width={48}
+            height={48}
+            className="tf-menu-item-thumb"
+            style={{ objectFit: 'cover', borderRadius: 6 }}
+            preview={{ mask: <PictureOutlined /> }}
+          />
+        ) : (
+          <div className="tf-menu-item-thumb-empty">无图</div>
+        ),
     },
     { title: '菜品名称', dataIndex: 'name', key: 'name', width: 160 },
     {
@@ -189,7 +201,8 @@ const MenuItemPage: React.FC = () => {
         onCancel={closeModal}
         confirmLoading={submitting}
         okText="保存"
-        width={600}
+        width={640}
+        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -227,6 +240,7 @@ const MenuItemPage: React.FC = () => {
           <Form.Item
             name="imageUrl"
             label="菜品图片"
+            extra="主路径：图库批量导入后选择；单张上传仅作补充"
             rules={[
               {
                 validator: async (_, value) => {
@@ -235,13 +249,13 @@ const MenuItemPage: React.FC = () => {
                     // eslint-disable-next-line no-new
                     new URL(value);
                   } catch {
-                    throw new Error('请输入合法的 URL');
+                    throw new Error('请选择或上传合法的图片');
                   }
                 },
               },
             ]}
           >
-            <ImageUpload />
+            <MediaPicker shopId={DEFAULT_SHOP_ID} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="active">
             <Select>

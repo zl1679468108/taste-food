@@ -24,6 +24,7 @@ jest.mock('../../src/stores/authStore', () => ({
 }));
 
 import Taro from '@tarojs/taro';
+import { API_BASE_URL } from '../../src/env';
 
 const mockTaro = Taro as any;
 
@@ -43,7 +44,7 @@ describe('request utils', () => {
   test('get should call Taro.request with correct parameters', async () => {
     await get('/test', { param: 'value' });
     expect(mockTaro.request).toHaveBeenCalledWith({
-      url: 'http://127.0.0.1:3010/api/test',
+      url: `${API_BASE_URL}/test`,
       method: 'GET',
       data: { param: 'value' },
       header: { 'Content-Type': 'application/json' },
@@ -54,7 +55,7 @@ describe('request utils', () => {
   test('post should call Taro.request with correct parameters', async () => {
     await post('/test', { data: 'test' });
     expect(mockTaro.request).toHaveBeenCalledWith({
-      url: 'http://127.0.0.1:3010/api/test',
+      url: `${API_BASE_URL}/test`,
       method: 'POST',
       data: { data: 'test' },
       header: { 'Content-Type': 'application/json' },

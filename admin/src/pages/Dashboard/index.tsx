@@ -137,21 +137,21 @@ const DashboardPage: React.FC = () => {
       suffix: '元',
       icon: <MoneyCollectOutlined />,
       color: brand.success,
-      bgColor: '#f6ffed',
+      bgColor: brand.successSoft,
     },
     {
       title: '待处理',
       value: stats?.pendingCount || 0,
       icon: <ClockCircleOutlined />,
       color: brand.warning,
-      bgColor: '#fffbe6',
+      bgColor: brand.warningSoft,
     },
     {
       title: '已完成',
       value: stats?.completedCount || 0,
       icon: <CheckCircleOutlined />,
       color: brand.success,
-      bgColor: '#f6ffed',
+      bgColor: brand.successSoft,
     },
   ];
 
@@ -161,7 +161,7 @@ const DashboardPage: React.FC = () => {
     yField: 'orders',
     smooth: true,
     point: { size: 5, shape: 'diamond' as const },
-    label: { style: { fill: '#aaa', fontSize: 12 } },
+    label: { style: { fill: brand.chartAxis, fontSize: brand.fontXs } },
     color: brand.primary,
   };
 
@@ -171,7 +171,7 @@ const DashboardPage: React.FC = () => {
     yField: 'revenue',
     smooth: true,
     point: { size: 5, shape: 'circle' as const },
-    label: { style: { fill: '#aaa', fontSize: 12 } },
+    label: { style: { fill: brand.chartAxis, fontSize: brand.fontXs } },
     color: brand.success,
   };
 

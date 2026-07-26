@@ -11,6 +11,12 @@ export const brand = {
   warning: '#FFB300',
   danger: '#FF5252',
   info: '#2196F3',
+  /** 成功场景浅底（统计卡等） */
+  successSoft: '#F6FFED',
+  /** 警告场景浅底（待处理统计卡等） */
+  warningSoft: '#FFFBE6',
+  /** 图表轴/标签次要色 */
+  chartAxis: '#AAAAAA',
 
   /* ---------- 中性色阶 ---------- */
   white: '#FFFFFF',

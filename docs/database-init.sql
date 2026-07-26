@@ -1,11 +1,13 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: 1.0.1 (与代码实现同步)
+-- 版本: 1.0.2 (与代码实现同步)
 -- 更新日期: 2026-07-26
 -- 版本策略: 语义化小版本迭代（MAJOR.MINOR.PATCH），避免虚高主版本号
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
 --
+-- 1.0.2
+--   1. tf_media_assets 门店图库素材元数据（按 shop_id 隔离，对齐 storage 模块）
 -- 1.0.1
 --   1. tf_orders.order_no 业务单号 + 唯一索引 + atomic_create_order(p_order_no)
 --   2. tf_user_sessions 不透明双 Token 会话（Access 2h + Refresh 14d）
@@ -732,6 +734,30 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql;
+
+-- ---------------------------------------------------------------------------
+-- v15.0 门店图库素材元数据（按 shop_id 隔离）
+-- 对齐 server/src/modules/storage/storage.service.ts
+-- storage 路径约定：{shopId}/{timestamp}-{rand}.ext
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS "tf_media_assets" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid NOT NULL,
+  "url" text NOT NULL,
+  "path" text NOT NULL,
+  "file_name" text,
+  "mime" text,
+  "size_bytes" integer,
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
+);
+
+ALTER TABLE "tf_media_assets" DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_shop_id ON tf_media_assets(shop_id);
+CREATE INDEX IF NOT EXISTS idx_media_assets_shop_url ON tf_media_assets(shop_id, url);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_assets_path ON tf_media_assets(path);
+
 
 -- ============================================================
 -- Supabase Storage：菜品图片桶 menu-images

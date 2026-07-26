@@ -112,9 +112,9 @@ describe('authStore', () => {
   });
 
   test('getRoleLabel should return correct labels', () => {
-    expect(getRoleLabel('admin')).toBe('👨‍🍳 商家');
-    expect(getRoleLabel('customer')).toBe('🛒 顾客');
-    expect(getRoleLabel('rider')).toBe('🛵 骑手');
+    expect(getRoleLabel('admin')).toBe('商家');
+    expect(getRoleLabel('customer')).toBe('顾客');
+    expect(getRoleLabel('rider')).toBe('骑手');
     expect(getRoleLabel('unknown')).toBe('unknown');
   });
 

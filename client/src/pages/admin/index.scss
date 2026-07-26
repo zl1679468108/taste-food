@@ -37,7 +37,7 @@
     }
 
     &-text {
-      color: $text-price;
+      color: $primary;
       font-size: $font-sm;
       line-height: $leading-normal;
       font-weight: $weight-medium;
@@ -118,9 +118,9 @@
   }
 
   &--active {
-    color: $text-price;
+    color: $primary;
     font-weight: $weight-medium;
-    border-bottom-color: $text-price;
+    border-bottom-color: $primary;
   }
 
   &__count {
@@ -235,7 +235,7 @@
 
     &--danger {
       background: $primary-light;
-      color: $text-price;
+      color: $primary;
       border: 1px solid $primary;
     }
 
@@ -251,7 +251,7 @@
 .list-loading {
   padding: $space-10 0;
   text-align: center;
-  color: $text-tertiary;
+  color: $text-secondary;
   font-size: $font-md;
   line-height: $leading-normal;
 }
@@ -370,7 +370,7 @@
 
   &--danger {
     background: $primary-light;
-    color: $text-price;
+    color: $primary;
     border: 1px solid $primary;
   }
 
@@ -385,7 +385,7 @@
 .empty-state {
   text-align: center;
   padding: 60px 0;
-  color: $text-hint;
+  color: $text-secondary;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -410,7 +410,7 @@
   &__text {
     font-size: $font-base;
     line-height: $leading-normal;
-    color: $text-tertiary;
+    color: $text-secondary;
   }
 }
 
@@ -525,7 +525,7 @@
     color: $text-inverse;
 
     &--solid {
-      color: $text-price;
+      color: $primary;
     }
   }
 }
@@ -553,7 +553,7 @@
   box-shadow: $shadow-empty-icon;
 
   .stat-card__value {
-    color: $text-price;
+    color: $primary;
   }
 }
 

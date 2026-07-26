@@ -101,7 +101,7 @@ function csvToExcelHtmlBlob(csv: string): Blob {
         `<tr>${row
           .map(
             (c) =>
-              `<td style="border:1px solid #ddd;padding:4px 8px;mso-number-format:'\\@';">${escapeHtml(c)}</td>`,
+              `<td style="border:1px solid ${brand.gray300};padding:4px 8px;mso-number-format:'\\@';">${escapeHtml(c)}</td>`,
           )
           .join('')}</tr>`,
     )

@@ -9,6 +9,7 @@ import { getCategoryIcon } from '../../utils/iconMap';
 import { Shop } from '../../types/shop';
 import { Category, MenuItem, SpecGroup, SpecOption } from '../../types/menu';
 import { DEFAULT_SHOP_ID } from '../../env';
+import { loadMenuCache, saveMenuCache } from '../../utils/menu-cache';
 import {
   applyDineParamsFromRouter,
   clearDineContext,
@@ -99,59 +100,121 @@ export default function MenuPage() {
     }
   }, []);
 
-  useEffect(() => {
-    loadData();
+  const applyMenuPayload = useCallback((
+    shopData: Shop | null | undefined,
+    categoriesData: Category[],
+    menuItemsData: MenuItem[],
+    popularItems: MenuItem[] = [],
+  ) => {
+    const categoryItems: CategoryItemData[] = categoriesData.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      iconKey: cat.iconKey,
+      items: menuItemsData.filter((item) => item.categoryId === cat.id),
+    }));
+
+    if (popularItems.length > 0) {
+      categoryItems.unshift({
+        id: 'popular',
+        name: '热门推荐',
+        iconKey: 'hot',
+        items: popularItems,
+      });
+    }
+
+    if (shopData) setShop(shopData);
+    setCategories(categoryItems);
   }, []);
 
-  usePullRefresh(loadData);
+  /** 仅有缓存 items 时的临时展示（冷启动先出图，网络回来后整表替换） */
+  const applyCachedItems = useCallback((items: MenuItem[]) => {
+    if (!items.length) return;
+    const prev = categoriesRef.current;
+    if (prev.length > 0) {
+      const byId = new Map(items.map((item) => [item.id, item]));
+      setCategories(
+        prev.map((cat) => ({
+          ...cat,
+          items: cat.items.map((item) => {
+            const cached = byId.get(item.id);
+            return cached ? { ...item, ...cached } : item;
+          }),
+        })),
+      );
+      return;
+    }
+    setCategories([
+      {
+        id: 'cached',
+        name: '全部菜品',
+        iconKey: 'food',
+        items,
+      },
+    ]);
+  }, []);
 
-  async function loadData() {
-    setLoading(true);
+  const loadData = useCallback(async (options?: { forceNetwork?: boolean }) => {
+    const forceNetwork = options?.forceNetwork === true;
+    const shopId = DEFAULT_SHOP_ID;
     setLoadError(false);
     setCanRetry(false);
+
+    // 非强制网络：可用缓存先展示，再后台刷新
+    let hasCache = false;
+    if (!forceNetwork) {
+      const cached = loadMenuCache(shopId);
+      if (cached?.items?.length) {
+        hasCache = true;
+        applyCachedItems(cached.items);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    } else if (categoriesRef.current.length === 0) {
+      setLoading(true);
+    }
+
     try {
       const [shopRes, categoriesRes, menuItemsRes, popularRes] = await Promise.all([
-        get<Shop>(`/shops/${DEFAULT_SHOP_ID}`),
-        get<Category[]>('/categories', { shop_id: DEFAULT_SHOP_ID }),
-        get<MenuItem[]>('/menu-items', { shop_id: DEFAULT_SHOP_ID }),
-        get<MenuItem[]>('/menu-items/popular', { shop_id: DEFAULT_SHOP_ID }),
+        get<Shop>(`/shops/${shopId}`),
+        get<Category[]>('/categories', { shop_id: shopId }),
+        get<MenuItem[]>('/menu-items', { shop_id: shopId }),
+        get<MenuItem[]>('/menu-items/popular', { shop_id: shopId }),
       ]);
 
       const shopData = shopRes.data;
-      const categoriesData = categoriesRes.data;
-      const menuItemsData = menuItemsRes.data;
+      const categoriesData = categoriesRes.data || [];
+      const menuItemsData = menuItemsRes.data || [];
       const popularItems = popularRes.data || [];
 
-      const categoryItems: CategoryItemData[] = categoriesData.map((cat) => ({
-        id: cat.id,
-        name: cat.name,
-        iconKey: cat.iconKey,
-        items: menuItemsData.filter((item) => item.categoryId === cat.id),
-      }));
-
-      if (popularItems.length > 0) {
-        categoryItems.unshift({
-          id: 'popular',
-          name: '热门推荐',
-          iconKey: 'hot',
-          items: popularItems,
-        });
-      }
-
-      setShop(shopData);
-      setCategories(categoryItems);
+      applyMenuPayload(shopData, categoriesData, menuItemsData, popularItems);
+      saveMenuCache(shopId, menuItemsData);
       setLoadError(false);
       setCanRetry(false);
       setLoading(false);
     } catch (error: any) {
       setLoading(false);
+      // 已有缓存/列表时保留展示，仅提示刷新失败
+      if (hasCache || categoriesRef.current.length > 0) {
+        setLoadError(false);
+        console.error('刷新菜单失败:', error);
+        Taro.showToast({ title: '菜单刷新失败', icon: 'none' });
+        return;
+      }
       setCategories([]);
       setLoadError(true);
       setCanRetry(isRetryableError(error));
       console.error('加载菜单失败:', error);
       Taro.showToast({ title: '加载菜单失败', icon: 'none' });
     }
-  }
+  }, [applyCachedItems, applyMenuPayload]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  // 下拉刷新：强制走网络
+  usePullRefresh(() => loadData({ forceNetwork: true }));
 
   function switchCategory(index: number) {
     const cats = categoriesRef.current;

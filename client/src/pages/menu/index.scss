@@ -133,8 +133,8 @@
   &__icon {
     font-size: $font-lg;
     line-height: $leading-tight;
-    font-weight: $weight-semibold;
-    color: $text-hint;
+    font-weight: $weight-regular;
+    color: $text-tertiary;
   }
 
   &__placeholder {
@@ -170,7 +170,7 @@
 
     &--active {
       background: $primary-light;
-      color: $text-price;
+      color: $primary;
       font-weight: $weight-semibold;
 
       &::before {
@@ -197,7 +197,7 @@
 
   &__name {
     font-size: $font-sm;
-    line-height: 1.2;
+    line-height: $leading-tight;
   }
 }
 
@@ -274,10 +274,10 @@
     height: 18px;
     border-radius: 9px;
     background: $white;
-    color: $text-price;
+    color: $primary;
     font-size: $font-xs;
     line-height: $leading-normal;
-    font-weight: $weight-semibold;
+    font-weight: $weight-medium;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -302,7 +302,7 @@
     font-size: $font-2xl;
     font-weight: $weight-bold;
     color: $text-inverse;
-    line-height: 1.2;
+    line-height: $leading-tight;
   }
 
   &__note {
@@ -354,12 +354,13 @@
     font-size: $font-lg;
     font-weight: $weight-semibold;
     line-height: $leading-tight;
+    color: $text-primary;
   }
 
   &__clear {
     font-size: $font-base;
     line-height: $leading-normal;
-    color: $text-hint;
+    color: $text-secondary;
     cursor: pointer;
   }
 
@@ -410,14 +411,15 @@
 
   &__item-name {
     font-size: $font-md;
+    font-weight: $weight-medium;
     color: $text-primary;
-    line-height: $leading-normal;
+    line-height: $leading-snug;
   }
 
   &__item-spec {
     font-size: $font-xs;
     line-height: $leading-normal;
-    color: $text-hint;
+    color: $text-tertiary;
     margin-top: 2px;
   }
 
@@ -554,7 +556,7 @@
     }
 
     &-value {
-      color: $text-price;
+      color: $primary;
       font-weight: $weight-medium;
     }
   }
@@ -702,8 +704,8 @@
   }
 
   &.selected {
-    border-color: $text-price;
-    color: $text-price;
+    border-color: $primary;
+    color: $primary;
     background: rgba($primary, 0.05);
   }
 
@@ -795,7 +797,7 @@
     flex-shrink: 0;
     font-size: $font-xs;
     line-height: $leading-normal;
-    color: $text-price;
+    color: $primary;
     padding: $space-1 $space-2;
   }
 }

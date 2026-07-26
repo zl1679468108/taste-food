@@ -64,7 +64,7 @@
   &--underline {
     .tf-filter-tabs__item.is-active {
       .tf-filter-tabs__label {
-        color: $text-price;
+        color: $primary;
         font-weight: $weight-semibold;
       }
     }
@@ -94,10 +94,10 @@
 
     .tf-filter-tabs__item.is-active {
       background: $primary-light;
-      border-color: $text-price;
+      border-color: $primary;
 
       .tf-filter-tabs__label {
-        color: $text-price;
+        color: $primary;
         font-weight: $weight-semibold;
       }
     }

@@ -57,7 +57,7 @@
     display: block;
     margin-top: 3px;
     font-size: $font-xs;
-    line-height: 1.4;
+    line-height: $leading-snug;
     color: $text-secondary;
     @include ellipsis(1);
   }
@@ -86,7 +86,7 @@
 
   &__price-unit {
     font-size: $font-xs;
-    font-weight: $weight-semibold;
+    font-weight: $weight-medium;
     color: $text-price;
     line-height: $leading-none;
   }
@@ -100,8 +100,8 @@
 
   &__sales {
     font-size: $font-2xs;
-    color: $text-hint;
-    line-height: 1.3;
+    color: $text-tertiary;
+    line-height: $leading-tight;
   }
 
   &__actions {

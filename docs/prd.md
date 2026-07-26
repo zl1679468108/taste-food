@@ -156,6 +156,7 @@
 | ✅ 下单备注与发票信息 | P2 | T156 | ✅ 2026-07-24 | 订单备注、是否开票、抬头/税号；商家与 admin 可见 |
 | ✅ 小程序全局样式变量统一 | P1 | T194 | ✅ 2026-07-26 | 字体/字号/颜色/间距/行高 design tokens，模块 scss 去硬编码 |
 | ✅ 样式变量落地验收与 PC 对齐 | P1 | T195 | ✅ 2026-07-26 | 小程序文字层级验收；admin theme/CSS 变量对齐 client tokens |
+| ✅ 视觉验收与质量扫尾 | P1 | T196 | ✅ 2026-07-26 | 文字层级验收；过期单测修复；admin 场景色 token；质量门禁 |
 
 **本轮不做**: 批量异步导出任务（可后续追加；已支持同步 CSV 导出）。配送轨迹地图已在 §3.17 补齐。
 
@@ -282,11 +283,16 @@
 | PATCH | `/api/promotions/:id` | 编辑促销 | 是（Admin） |
 | DELETE | `/api/promotions/:id` | 删除促销 | 是（Admin） |
 
-### 4.7 存储
+### 4.7 存储（门店图库）
 | 方法 | 路径 | 说明 | 鉴权 |
 |------|------|------|------|
-| POST | `/api/storage/images/menu` | 上传菜品图片（≤5MB） | 是 |
-| DELETE | `/api/storage/images/:path` | 删除图片 | 是 |
+| POST | `/api/storage/images/menu` | 单张上传菜品图片（form: `image` + `shop_id`，≤5MB，jpg/png/webp） | 是（Admin） |
+| POST | `/api/storage/images/menu/batch` | 批量上传（form: `images` 多文件 + `shop_id`，≤30 张） | 是（Admin） |
+| GET | `/api/storage/images/menu?shop_id=` | 门店图库列表（含 `usedBy` 菜品占用） | 是（Admin） |
+| DELETE | `/api/storage/images/menu/:id` | 按素材 id 删除（仍被菜品引用则 400） | 是（Admin） |
+| DELETE | `/api/storage/images/:path` | [兼容] 按 storage path 删除对象 | 是（Admin） |
+
+> 存储路径约定：`{shopId}/{timestamp}-{rand}.ext`，桶 `menu-images`；上传成功写入 `tf_media_assets`。
 
 ### 4.8 用户
 | 方法 | 路径 | 说明 | 鉴权 |
@@ -349,6 +355,7 @@
 | `tf_audit_logs` | 操作审计日志 | id, shop_id, user_id, role, method, path, action, resource, resource_id, summary, status_code, ip, created_at |
 | `tf_shop_tables` | 店铺桌台 | id, shop_id, table_no, label, sort_order, active, created_at（UNIQUE(shop_id,table_no)） |
 | `tf_reviews` | 订单评价 | id, order_id, shop_id, user_id, rating, content, reply_content, reply_at, created_at（UNIQUE(order_id)） |
+| `tf_media_assets` | 门店图库素材 | id, shop_id, url, path, file_name, mime, size_bytes, created_at, updated_at（index shop_id） |
 
 > `business_hours` 建议结构：`{ mon:[{start,end}], ..., sun:[...] }`，空数组表示当日休息。<br>
 > 多租户规范：所有业务表均含 `shop_id` 字段用于店铺隔离。<br>

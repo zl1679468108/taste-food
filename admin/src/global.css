@@ -10,6 +10,9 @@
   --tf-warning: #FFB300;
   --tf-danger: #FF5252;
   --tf-info: #2196F3;
+  --tf-success-soft: #F6FFED;
+  --tf-warning-soft: #FFFBE6;
+  --tf-chart-axis: #AAAAAA;
 
   /* 中性色阶 */
   --tf-white: #FFFFFF;

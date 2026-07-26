@@ -1,4 +1,8 @@
 /**
+ * @deprecated DEPRECATED — 本地菜名→图片映射仅作兜底。
+ * 展示优先使用接口返回的 imageUrl（图库/种子导入回填）。
+ * 新功能请勿再扩展本映射；空图请走图库 imageUrl + FoodThumb 占位链。
+ *
  * 菜品名 → 本地菜品图
  * 优先精确匹配，再按关键词命中，供 FoodThumb 在 imageUrl 为空时使用
  */
