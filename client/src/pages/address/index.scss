@@ -2,102 +2,103 @@
 
 .address-page {
   min-height: 100vh;
-  background: $gray-100;
-  padding-bottom: calc(140rpx + env(safe-area-inset-bottom));
+  background: $bg-page;
+  padding-bottom: calc(70px + env(safe-area-inset-bottom));
 
   &__list {
-    padding: 20rpx;
+    padding: $space-3 10px $space-1 + 2px;
   }
 
-  &__footer {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom));
-    background: #fff;
-    box-shadow: 0 -2rpx 10rpx rgba(0, 0, 0, 0.05);
-  }
+  /* 底部新增按钮统一使用 FooterBar */
 
-  &__add-btn {
-    height: 88rpx;
-    border-radius: 44rpx;
-    background: $gradient-brand;
-    color: #fff;
-    font-size: 30rpx;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  > .empty-state {
+    min-height: calc(100vh - 100px);
+    padding-bottom: $space-6;
   }
 }
 
 .address-card {
-  background: #fff;
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-bottom: 20rpx;
-  border: 1px solid #f0f0f0;
-  box-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.03);
+  background: $bg-card;
+  border-radius: $radius-xl;
+  padding: $space-3;
+  margin-bottom: 10px;
+  border: 1px solid $border-light;
+  box-shadow: $shadow-sm;
+  transition: border-color $duration-fast $ease-out, box-shadow $duration-fast $ease-out,
+    opacity $duration-fast $ease-out;
+
+  &:active {
+    opacity: 0.96;
+  }
 
   &.is-default {
-    border-color: rgba(255, 107, 53, 0.35);
+    border-color: rgba($primary, 0.35);
   }
 
   &__row {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 12rpx;
-    margin-bottom: 12rpx;
+    gap: $space-1 + 2px;
+    margin-bottom: $space-1 + 2px;
   }
 
   &__name {
-    font-size: 30rpx;
-    font-weight: 600;
-    color: #333;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    line-height: $leading-tight;
+    color: $text-primary;
   }
 
   &__phone {
-    font-size: 26rpx;
-    color: #666;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-secondary;
   }
 
   &__tag,
   &__default {
-    font-size: 20rpx;
-    padding: 2rpx 12rpx;
-    border-radius: 8rpx;
-    background: #fff0eb;
-    color: $primary;
+    font-size: $font-2xs;
+    padding: 1px $space-1 + 2px;
+    border-radius: $radius-sm + 2px;
+    background: $primary-light;
+    color: $text-price;
+    line-height: $leading-tight;
   }
 
   &__default {
     background: $primary;
-    color: #fff;
+    color: $text-inverse;
   }
 
   &__detail {
-    font-size: 26rpx;
-    color: #444;
-    line-height: 1.5;
+    font-size: $font-sm;
+    color: $gray-800;
+    line-height: $leading-normal;
   }
 
   &__actions {
     display: flex;
     justify-content: flex-end;
-    gap: 28rpx;
-    margin-top: 20rpx;
-    padding-top: 16rpx;
-    border-top: 1px solid #f5f5f5;
+    gap: 14px;
+    margin-top: 10px;
+    padding-top: $space-2;
+    border-top: 1px solid $border-light;
   }
 
   &__action {
-    font-size: 24rpx;
-    color: #666;
+    font-size: $font-xs;
+    color: $text-secondary;
+    padding: 2px 0;
+    line-height: $leading-tight;
+    transition: opacity $duration-fast $ease-out, color $duration-fast $ease-out;
+
+    &:active {
+      opacity: 0.7;
+    }
 
     &.danger {
-      color: #ff4d4f;
+      color: $danger;
     }
   }
 }

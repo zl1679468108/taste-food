@@ -2,6 +2,7 @@ import { memo, useCallback } from 'react';
 import { View, Text } from '@tarojs/components';
 import { CartItem } from '../../types/cart';
 import { formatPriceWithSymbol } from '../../utils/format';
+import FoodThumb from '../FoodThumb';
 
 interface CartItemRowProps {
   item: CartItem;
@@ -14,6 +15,13 @@ function CartItemRowInner({ item, onUpdateQuantity }: CartItemRowProps) {
 
   return (
     <View className='cart-popup__item'>
+      <FoodThumb
+        className='cart-popup__item-thumb'
+        src={item.imageUrl}
+        name={item.name}
+        size='sm'
+        round
+      />
       <View className='cart-popup__item-info'>
         <Text className='cart-popup__item-name'>{item.name}</Text>
         {item.specDesc && <Text className='cart-popup__item-spec'>{item.specDesc}</Text>}

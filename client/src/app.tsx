@@ -1,8 +1,7 @@
 import { useEffect, PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { useAuthStore } from './stores/authStore';
-import { connectSocket, joinUserRoom, disconnectSocket } from './services/socket';
-import RoleSwitcher from './components/RoleSwitcher';
+import { connectSocket, disconnectSocket } from './services/socket';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import './app.scss';
 
@@ -19,8 +18,6 @@ function connectWebSocket() {
 }
 
 function App({ children }: PropsWithChildren) {
-  const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
-
   useEffect(() => {
     const authStore = useAuthStore.getState();
     const restored = authStore.restoreToken();
@@ -54,7 +51,6 @@ function App({ children }: PropsWithChildren) {
   return (
     <ErrorBoundary>
       {children}
-      {isLoggedIn && <RoleSwitcher />}
     </ErrorBoundary>
   );
 }

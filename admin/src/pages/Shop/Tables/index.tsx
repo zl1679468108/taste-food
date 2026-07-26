@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
-  Card,
   Form,
   Input,
   InputNumber,
@@ -15,7 +14,11 @@ import {
   Image,
   Tag,
 } from 'antd';
-import { PageContainer } from '@ant-design/pro-components';
+import { QrcodeOutlined, TableOutlined } from '@ant-design/icons';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import TableCard from '@/components/TableCard';
+import SearchFilterBar from '@/components/SearchFilterBar';
+import EmptyState from '@/components/EmptyState';
 import {
   ShopTable,
   buildTableQrImageUrl,
@@ -25,33 +28,50 @@ import {
   seedTables,
   updateTable,
 } from '@/services/table';
+import { getShop } from '@/services/shop';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 
-const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
+const { Text } = Typography;
 
 export default function ShopTablesPage() {
   const shopId = DEFAULT_SHOP_ID;
   const [loading, setLoading] = useState(false);
   const [tables, setTables] = useState<ShopTable[]>([]);
+  const [shopName, setShopName] = useState<string>('');
+  const [searchText, setSearchText] = useState('');
+  const [activeFilter, setActiveFilter] = useState<string | undefined>();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ShopTable | null>(null);
   const [qrTable, setQrTable] = useState<ShopTable | null>(null);
+  const [seeding, setSeeding] = useState(false);
   const [form] = Form.useForm();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const list = await listTables(shopId);
       setTables(Array.isArray(list) ? list : []);
-    } catch (e: any) {
-      message.error(e?.message || '加载桌台失败');
+    } catch (e) {
+      console.error('加载桌台失败:', e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [shopId]);
+
+  const loadShopMeta = useCallback(async () => {
+    try {
+      const shop = await getShop(shopId);
+      setShopName(shop?.name || '');
+    } catch (e) {
+      console.error('加载店铺信息失败:', e);
+    }
+  }, [shopId]);
 
   useEffect(() => {
     load();
-  }, []);
+    loadShopMeta();
+  }, [load, loadShopMeta]);
 
   const onSubmit = async () => {
     const values = await form.validateFields();
@@ -67,34 +87,91 @@ export default function ShopTablesPage() {
       setEditing(null);
       form.resetFields();
       load();
-    } catch (e: any) {
-      message.error(e?.message || '保存失败');
+    } catch (e) {
+      console.error('保存桌台失败:', e);
     }
   };
 
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      await seedTables(shopId);
+      message.success('已初始化 A01-A10');
+      load();
+    } catch (e) {
+      console.error('初始化桌台失败:', e);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleAdd = () => {
+    setEditing(null);
+    form.resetFields();
+    form.setFieldsValue({ active: true, sortOrder: tables.length + 1 });
+    setOpen(true);
+  };
+
+  const filteredTables = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+    return tables.filter((t) => {
+      const matchKeyword =
+        !keyword ||
+        (t.tableNo || '').toLowerCase().includes(keyword) ||
+        (t.label || '').toLowerCase().includes(keyword);
+      const matchActive =
+        !activeFilter ||
+        (activeFilter === 'active' && t.active) ||
+        (activeFilter === 'inactive' && !t.active);
+      return matchKeyword && matchActive;
+    });
+  }, [tables, searchText, activeFilter]);
+
   const columns = useMemo(
     () => [
-      { title: '桌号', dataIndex: 'tableNo', width: 100 },
+      {
+        title: '桌号',
+        dataIndex: 'tableNo',
+        width: 100,
+        render: (v: string) => <Text strong>{v}</Text>,
+      },
       {
         title: '名称',
         dataIndex: 'label',
+        width: 160,
+        ellipsis: true,
         render: (v: string) => v || '-',
       },
-      { title: '排序', dataIndex: 'sortOrder', width: 80 },
+      {
+        title: '排序',
+        dataIndex: 'sortOrder',
+        width: 80,
+      },
       {
         title: '状态',
         dataIndex: 'active',
         width: 90,
         render: (v: boolean) => (v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>),
       },
-      { title: '扫码 Path', dataIndex: 'scanPath', ellipsis: true },
+      {
+        title: '扫码 Path',
+        dataIndex: 'scanPath',
+        ellipsis: true,
+        render: (v: string) => (
+          <Text copyable={{ text: v }} style={{ fontFamily: 'monospace', fontSize: 12 }}>
+            {v}
+          </Text>
+        ),
+      },
       {
         title: '操作',
-        width: 260,
+        width: 200,
+        fixed: 'right' as const,
         render: (_: unknown, row: ShopTable) => (
-          <Space>
+          <Space size={0}>
             <Button
               type="link"
+              size="small"
               onClick={() => {
                 setEditing(row);
                 form.setFieldsValue({
@@ -108,7 +185,7 @@ export default function ShopTablesPage() {
             >
               编辑
             </Button>
-            <Button type="link" onClick={() => setQrTable(row)}>
+            <Button type="link" size="small" icon={<QrcodeOutlined />} onClick={() => setQrTable(row)}>
               二维码
             </Button>
             <Popconfirm
@@ -118,12 +195,12 @@ export default function ShopTablesPage() {
                   await deleteTable(shopId, row.id);
                   message.success('已删除');
                   load();
-                } catch (e: any) {
-                  message.error(e?.message || '删除失败');
+                } catch (e) {
+                  console.error('删除桌台失败:', e);
                 }
               }}
             >
-              <Button type="link" danger>
+              <Button type="link" size="small" danger>
                 删除
               </Button>
             </Popconfirm>
@@ -131,56 +208,72 @@ export default function ShopTablesPage() {
         ),
       },
     ],
-    [form],
+    [form, load, shopId],
   );
 
   return (
-    <PageContainer
-      title="桌台与扫码"
-      subTitle="为每桌生成扫码入座 path；顾客扫码后菜单页自动识别桌号并默认堂食"
-    >
-      <Card>
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Button
-            type="primary"
-            onClick={() => {
-              setEditing(null);
-              form.resetFields();
-              form.setFieldsValue({ active: true, sortOrder: tables.length + 1 });
-              setOpen(true);
-            }}
-          >
-            新增桌台
-          </Button>
-          <Button
-            onClick={async () => {
-              try {
-                await seedTables(shopId);
-                message.success('已初始化 A01-A10');
-                load();
-              } catch (e: any) {
-                message.error(e?.message || '初始化失败');
-              }
-            }}
-          >
+    <div className="tf-page">
+      <PageHeaderActions
+        icon={<TableOutlined style={{ marginRight: 8 }} />}
+        title="桌台与扫码"
+        addText="新增桌台"
+        onAdd={handleAdd}
+        onRefresh={load}
+        extra={
+          <Button onClick={handleSeed} loading={seeding}>
             初始化 A01-A10
           </Button>
-          <Button onClick={load}>刷新</Button>
-        </Space>
+        }
+      />
 
-        <Typography.Paragraph type="secondary">
-          开发/体验可用普通二维码编码小程序 path。正式上线请在微信公众平台生成「小程序码」，scene 建议
-          <Typography.Text code>t=桌号</Typography.Text>（≤32 字符）。
-        </Typography.Paragraph>
+      <TableCard>
+        <div style={{ marginBottom: 12 }}>
+          <Space wrap size={8}>
+            <Tag color="blue">当前店铺</Tag>
+            <Text strong>{shopName || '默认店铺'}</Text>
+            <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }}>
+              {shopId}
+            </Text>
+          </Space>
+          <div style={{ marginTop: 6 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              桌台按店铺绑定（/api/shops/:shopId/tables）。开发可用普通二维码；正式环境请用微信小程序码。
+            </Text>
+          </div>
+        </div>
+
+        <SearchFilterBar
+          searchPlaceholder="搜索桌号 / 名称"
+          onSearch={setSearchText}
+          onSearchClear={() => setSearchText('')}
+          filterPlaceholder="按状态筛选"
+          filterValue={activeFilter}
+          filterOptions={[
+            { label: '启用', value: 'active' },
+            { label: '停用', value: 'inactive' },
+          ]}
+          onFilterChange={setActiveFilter}
+        />
 
         <Table
           rowKey="id"
           loading={loading}
           columns={columns as any}
-          dataSource={tables}
-          pagination={false}
+          dataSource={filteredTables}
+          size="small"
+          pagination={DEFAULT_TABLE_PAGINATION}
+          scroll={{ x: 900 }}
+          locale={{
+            emptyText: (
+              <EmptyState
+                description="暂无桌台，可一键初始化 A01-A10"
+                actionText="初始化 A01-A10"
+                onAction={handleSeed}
+              />
+            ),
+          }}
         />
-      </Card>
+      </TableCard>
 
       <Modal
         title={editing ? '编辑桌台' : '新增桌台'}
@@ -191,6 +284,7 @@ export default function ShopTablesPage() {
         }}
         onOk={onSubmit}
         destroyOnClose
+        okText="保存"
       >
         <Form form={form} layout="vertical" initialValues={{ active: true, sortOrder: 0 }}>
           <Form.Item name="tableNo" label="桌号" rules={[{ required: true, message: '请输入桌号' }]}>
@@ -209,7 +303,7 @@ export default function ShopTablesPage() {
       </Modal>
 
       <Modal
-        title={qrTable ? `桌号 ${qrTable.tableNo} 二维码` : '二维码'}
+        title={qrTable ? `桌号 ${qrTable.tableNo}` : '二维码'}
         open={!!qrTable}
         onCancel={() => setQrTable(null)}
         footer={null}
@@ -217,13 +311,13 @@ export default function ShopTablesPage() {
         {qrTable && (
           <Space direction="vertical" style={{ width: '100%' }} align="center">
             <Image width={220} src={buildTableQrImageUrl(qrTable.scanPath)} alt={qrTable.tableNo} />
-            <Typography.Text copyable>{qrTable.scanPath}</Typography.Text>
-            <Typography.Text type="secondary">
-              打印后贴在桌面；顾客用微信扫码打开小程序菜单并自动带桌号
-            </Typography.Text>
+            <Text copyable>{qrTable.scanPath}</Text>
+            <Text type="secondary" style={{ fontSize: 12, textAlign: 'center' }}>
+              打印贴桌；顾客微信扫码打开菜单并自动带桌号
+            </Text>
           </Space>
         )}
       </Modal>
-    </PageContainer>
+    </div>
   );
 }

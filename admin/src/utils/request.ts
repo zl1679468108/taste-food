@@ -6,6 +6,28 @@ interface CacheEntry<T> {
   timestamp: number;
 }
 
+/**
+ * 统一请求错误约定（避免图5 双 toast）：
+ * 1. 业务 code !== 0 与 HTTP/网络错误，均由本拦截器 toast 一次
+ * 2. 页面 catch 中只做本地状态回退（loading/modal），不要再 message.error
+ * 3. 特殊场景传 { skipErrorMessage: true } 可跳过全局 toast
+ * 4. reject 的 Error.message 仍可读，供日志或自定义文案（但不建议再 toast）
+ * 5. 401 会先尝试 refresh；refresh 失败仅 toast「登录已过期」一次
+ */
+export interface RequestConfig extends AxiosRequestConfig {
+  /** 显式启用 GET 缓存（默认不缓存，管理后台需实时数据） */
+  useCache?: boolean;
+  cachedData?: unknown;
+  /** 内部标记：本次请求为 refresh 重试，避免循环 */
+  _isRefreshRetry?: boolean;
+  /**
+   * 跳过全局错误 toast。
+   * 适用于：静默轮询、自定义错误 UI、批量请求自行汇总提示。
+   * 注意：401 登录过期提示也会被跳过（仍会清登录态并跳转）。
+   */
+  skipErrorMessage?: boolean;
+}
+
 // 缓存仅用于显式声明 useCache 的请求，管理后台数据默认不缓存
 const cache = new Map<string, CacheEntry<unknown>>();
 const DEFAULT_TTL = 5 * 60 * 1000;
@@ -45,10 +67,19 @@ function clearCache(pattern?: string): void {
 }
 
 function buildCacheKey(config: AxiosRequestConfig): string {
-  const params = config.params ? JSON.stringify(Object.keys(config.params).sort().reduce((acc, key) => {
-    acc[key] = config.params[key];
-    return acc;
-  }, {} as Record<string, unknown>)) : '';
+  const params = config.params
+    ? JSON.stringify(
+        Object.keys(config.params)
+          .sort()
+          .reduce(
+            (acc, key) => {
+              acc[key] = config.params[key];
+              return acc;
+            },
+            {} as Record<string, unknown>,
+          ),
+      )
+    : '';
   return `${config.method}:${config.url}:${params}`;
 }
 
@@ -66,8 +97,39 @@ function clearResourceCache(url: string): void {
 }
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error && error.message) return error.message;
   return String(error || '网络错误');
+}
+
+function extractResponseMessage(data: unknown, fallback: string): string {
+  if (data && typeof data === 'object') {
+    const maybe = data as { message?: unknown; msg?: unknown; error?: unknown };
+    if (typeof maybe.message === 'string' && maybe.message) return maybe.message;
+    if (typeof maybe.msg === 'string' && maybe.msg) return maybe.msg;
+    if (typeof maybe.error === 'string' && maybe.error) return maybe.error;
+  }
+  return fallback;
+}
+
+function shouldSkipErrorMessage(config?: AxiosRequestConfig): boolean {
+  return Boolean((config as RequestConfig | undefined)?.skipErrorMessage);
+}
+
+/** 全局仅 toast 一次；skipErrorMessage 时静默 */
+function toastErrorOnce(config: AxiosRequestConfig | undefined, content: string): void {
+  if (shouldSkipErrorMessage(config)) return;
+  const text = (content || '').trim() || '请求失败';
+  message.error(text);
+}
+
+function createHandledError(msg: string, cause?: unknown): Error {
+  const err = new Error(msg || '请求失败');
+  // 标记已由拦截器提示，页面不应再 toast
+  (err as Error & { __tfErrorHandled?: boolean; cause?: unknown }).__tfErrorHandled = true;
+  if (cause !== undefined) {
+    (err as Error & { cause?: unknown }).cause = cause;
+  }
+  return err;
 }
 
 function clearAuthAndRedirect(): void {
@@ -80,7 +142,7 @@ function clearAuthAndRedirect(): void {
   }
 }
 
-// 扩展 AxiosRequestConfig 以支持 useCache 选项
+// 扩展 AxiosRequestConfig 以支持 useCache / skipErrorMessage
 declare module 'axios' {
   interface AxiosRequestConfig {
     /** 显式启用 GET 缓存（默认不缓存，管理后台需实时数据） */
@@ -88,6 +150,11 @@ declare module 'axios' {
     cachedData?: unknown;
     /** 内部标记：本次请求为 refresh 重试，避免循环 */
     _isRefreshRetry?: boolean;
+    /**
+     * 跳过全局错误 toast（业务 code / HTTP 均跳过）。
+     * 页面 catch 中也不要再 toast，除非自行实现完整错误 UI。
+     */
+    skipErrorMessage?: boolean;
   }
 }
 
@@ -151,9 +218,16 @@ request.interceptors.response.use(
       return config.cachedData;
     }
 
+    // 非标准业务包（如 blob / 纯文本）直接透传
+    if (data == null || typeof data !== 'object' || Array.isArray(data) || !('code' in data)) {
+      return data;
+    }
+
     if (data.code !== 0) {
-      message.error(data.message || '请求失败');
-      return Promise.reject(new Error(data.message));
+      const msg = extractResponseMessage(data, '请求失败');
+      // 业务失败：全局 toast 一次，页面 catch 不要再 toast
+      toastErrorOnce(config, msg);
+      return Promise.reject(createHandledError(msg, data));
     }
 
     // 仅当显式声明 useCache 时才写入缓存
@@ -168,7 +242,9 @@ request.interceptors.response.use(
     return data.data;
   },
   async (error: AxiosError) => {
-    const originalRequest = error.config as (AxiosRequestConfig & { _isRefreshRetry?: boolean }) | undefined;
+    const originalRequest = error.config as
+      | (AxiosRequestConfig & { _isRefreshRetry?: boolean; skipErrorMessage?: boolean })
+      | undefined;
     const isAuthEndpoint =
       originalRequest?.url?.includes('/api/auth/refresh') ||
       originalRequest?.url?.includes('/api/auth/wechat-login');
@@ -189,23 +265,40 @@ request.interceptors.response.use(
       } catch (e) {
         // refresh 失败：清登录态 + 弹一次提示即可，避免下方分支再次 message
         clearAuthAndRedirect();
-        message.error('登录已过期，请重新登录');
-        return Promise.reject(e);
+        toastErrorOnce(originalRequest, '登录已过期，请重新登录');
+        return Promise.reject(createHandledError('登录已过期，请重新登录', e));
       }
     }
 
     // refresh 后重试仍 401，或 auth 接口 401：清登录态（不再弹 message，避免与 refresh catch 重复）
     if (error.response?.status === 401 && (originalRequest?._isRefreshRetry || isAuthEndpoint)) {
       clearAuthAndRedirect();
-      return Promise.reject(error);
+      return Promise.reject(createHandledError('登录已过期，请重新登录', error));
     }
 
-    // 其他非 401 错误，按响应 message 提示
-    const respData = error.response?.data as { message?: string } | undefined;
-    message.error(respData?.message || getErrorMessage(error));
-    return Promise.reject(error);
-  }
+    // 其他非 401 错误：HTTP / 网络，统一 toast 一次
+    const respData = error.response?.data;
+    const fallback =
+      error.response?.status === 403
+        ? '无权限访问'
+        : error.response?.status === 404
+          ? '资源不存在'
+          : error.response?.status === 500
+            ? '服务器错误'
+            : error.message || '网络错误';
+    const msg = extractResponseMessage(respData, fallback);
+    toastErrorOnce(originalRequest, msg);
+    return Promise.reject(createHandledError(msg, error));
+  },
 );
 
-export { clearCache };
+export function isRequestErrorHandled(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      (error as { __tfErrorHandled?: boolean }).__tfErrorHandled,
+  );
+}
+
+export { clearCache, createHandledError };
 export default request;

@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker, Card } from 'antd';
-import { PageContainer } from '@ant-design/pro-components';
-import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker } from 'antd';
+import { EditOutlined, DeleteOutlined, GiftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promotion } from '@/services/promotion';
 import SearchFilterBar from '@/components/SearchFilterBar';
@@ -12,34 +11,35 @@ import PageHeaderActions from '@/components/PageHeaderActions';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
-// 各促销类型对应的 rule 字段定义
 type RuleFieldDef = {
   name: 'threshold' | 'discount';
   label: string;
   required: boolean;
-  /** 字段描述（展示在表单下方） */
   hint: string;
-  /** 单位（分 vs 元，统一用元展示，提交时转换为分） */
   unit: 'yuan';
 };
 
 const RULE_FIELDS_BY_TYPE: Record<string, RuleFieldDef[]> = {
-  // 满减：满 threshold 元减 discount 元
   full_discount: [
     { name: 'threshold', label: '满（元）', required: true, hint: '订单金额达到此值才触发满减', unit: 'yuan' },
     { name: 'discount', label: '减（元）', required: true, hint: '满足条件后减免的金额', unit: 'yuan' },
   ],
-  // 首单立减：首单减 discount 元
   first_order: [
     { name: 'discount', label: '首单立减（元）', required: true, hint: '新用户首单减免的金额', unit: 'yuan' },
   ],
 };
 
+const promotionTypeMap: Record<string, { color: string; text: string }> = {
+  full_discount: { color: 'orange', text: '满减' },
+  first_order: { color: 'green', text: '首单立减' },
+};
+
 const PromotionPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string | undefined>();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -50,7 +50,6 @@ const PromotionPage: React.FC = () => {
       setPromotions(res || []);
     } catch (error) {
       console.error('加载促销失败:', error);
-      message.error('加载促销失败');
     } finally {
       setLoading(false);
     }
@@ -85,7 +84,6 @@ const PromotionPage: React.FC = () => {
     },
   });
 
-  // 监听 type 变化以动态渲染子表单字段
   const selectedType = Form.useWatch('type', form);
 
   useEffect(() => {
@@ -98,7 +96,7 @@ const PromotionPage: React.FC = () => {
       message.success('删除成功');
       loadPromotions();
     } catch (error) {
-      message.error('删除失败');
+      console.error('删除促销失败:', error);
     }
   };
 
@@ -113,7 +111,6 @@ const PromotionPage: React.FC = () => {
           ...rest,
           rule,
         };
-        // 类型和店铺只在创建时提交；更新接口以资源现有值和 JWT 店铺为准。
         if (!editing) {
           data.type = type;
           data.shopId = DEFAULT_SHOP_ID;
@@ -128,12 +125,6 @@ const PromotionPage: React.FC = () => {
       update: (id, values) => updatePromotion(id, values as any),
     });
 
-  const promotionTypeMap: Record<string, { color: string; text: string }> = {
-    full_discount: { color: 'orange', text: '满减' },
-    first_order: { color: 'green', text: '首单立减' },
-  };
-
-  // 渲染 rule 字段摘要（列表展示用）
   const renderRuleSummary = (record: Promotion): string => {
     const rule = (record.rule || {}) as Record<string, number>;
     if (record.type === 'full_discount') {
@@ -149,12 +140,19 @@ const PromotionPage: React.FC = () => {
   };
 
   const columns = [
-    { title: '活动名称', dataIndex: 'name', key: 'name', width: 160, ellipsis: true },
+    {
+      title: '活动名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 180,
+      ellipsis: true,
+      render: (name: string) => <Text strong>{name || '-'}</Text>,
+    },
     {
       title: '类型',
       dataIndex: 'type',
       key: 'type',
-      width: 100,
+      width: 110,
       render: (type: string) => {
         const config = promotionTypeMap[type] || { color: 'default', text: type };
         return <Tag color={config.color}>{config.text}</Tag>;
@@ -178,7 +176,10 @@ const PromotionPage: React.FC = () => {
         </Tag>
       ),
     },
-    { title: '有效期', key: 'dateRange', width: 200,
+    {
+      title: '有效期',
+      key: 'dateRange',
+      width: 160,
       render: (_: Promotion, record: Promotion) => {
         if (record.startDate && record.endDate) {
           return `${formatTime(record.startDate, 'MM-DD')} ~ ${formatTime(record.endDate, 'MM-DD')}`;
@@ -186,13 +187,18 @@ const PromotionPage: React.FC = () => {
         return '永久';
       },
     },
-    { title: '操作', key: 'action', width: 160, render: (_: Promotion, record: Promotion) => (
-        <Space>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+    {
+      title: '操作',
+      key: 'action',
+      width: 150,
+      fixed: 'right' as const,
+      render: (_: Promotion, record: Promotion) => (
+        <Space size={0}>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除
             </Button>
           </Popconfirm>
@@ -201,36 +207,50 @@ const PromotionPage: React.FC = () => {
     },
   ];
 
-  // 当前 type 对应的 rule 字段定义
   const currentRuleFields = selectedType ? RULE_FIELDS_BY_TYPE[selectedType] || [] : [];
 
   const filteredPromotions = useMemo(() => {
-    if (!searchText.trim()) return promotions;
-    return promotions.filter((p) => p.name?.includes(searchText.trim()));
-  }, [promotions, searchText]);
+    const keyword = searchText.trim().toLowerCase();
+    return promotions.filter((p) => {
+      const matchName = !keyword || (p.name || '').toLowerCase().includes(keyword);
+      const matchType = !typeFilter || p.type === typeFilter;
+      return matchName && matchType;
+    });
+  }, [promotions, searchText, typeFilter]);
 
   return (
-    <PageContainer title="促销管理" subTitle="满减/首单活动">
-    <div>
+    <div className="tf-page">
       <PageHeaderActions
-      icon={<GiftOutlined style={{ marginRight: 8 }} />}
-      title="促销管理"
-      addText="新增促销"
-      onAdd={handleAdd}
-      onRefresh={loadPromotions}
-    />
+        icon={<GiftOutlined style={{ marginRight: 8 }} />}
+        title="促销管理"
+        addText="新增促销"
+        onAdd={handleAdd}
+        onRefresh={loadPromotions}
+      />
 
       <TableCard>
-              <SearchFilterBar
-        searchPlaceholder="搜索促销名称"
-        onSearch={setSearchText}
-        onSearchClear={() => setSearchText('')}
-      />
-      <Table columns={columns} dataSource={filteredPromotions} rowKey="id" loading={loading}
-        pagination={DEFAULT_TABLE_PAGINATION}
-        locale={DEFAULT_TABLE_LOCALE}
-        scroll={{ x: 900 }}
-      />
+        <SearchFilterBar
+          searchPlaceholder="搜索促销名称"
+          onSearch={setSearchText}
+          onSearchClear={() => setSearchText('')}
+          filterPlaceholder="按类型筛选"
+          filterValue={typeFilter}
+          filterOptions={[
+            { label: '满减', value: 'full_discount' },
+            { label: '首单立减', value: 'first_order' },
+          ]}
+          onFilterChange={setTypeFilter}
+        />
+        <Table
+          columns={columns}
+          dataSource={filteredPromotions}
+          rowKey="id"
+          loading={loading}
+          size="small"
+          pagination={DEFAULT_TABLE_PAGINATION}
+          locale={DEFAULT_TABLE_LOCALE}
+          scroll={{ x: 900 }}
+        />
       </TableCard>
 
       <Modal
@@ -241,6 +261,7 @@ const PromotionPage: React.FC = () => {
         confirmLoading={submitting}
         okText="保存"
         width={520}
+        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="活动名称" rules={[{ required: true, message: '请输入活动名称' }]}>
@@ -253,7 +274,6 @@ const PromotionPage: React.FC = () => {
             </Select>
           </Form.Item>
 
-          {/* 根据 type 动态渲染 rule 子表单字段 */}
           {currentRuleFields.map((field) => (
             <Form.Item
               key={field.name}
@@ -278,7 +298,7 @@ const PromotionPage: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea />
+            <Input.TextArea rows={3} />
           </Form.Item>
           <Form.Item name="dateRange" label="有效期">
             <RangePicker style={{ width: '100%' }} />
@@ -286,7 +306,6 @@ const PromotionPage: React.FC = () => {
         </Form>
       </Modal>
     </div>
-    </PageContainer>
   );
 };
 

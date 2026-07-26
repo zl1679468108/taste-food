@@ -16,6 +16,7 @@ import {
   type DineContext,
 } from '../../utils/dine-context';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import Icon from '../../components/Icon';
 import BottomSheet from '../../components/BottomSheet';
 import EmptyState from '../../components/EmptyState';
 import { usePullRefresh } from '../../hooks/usePullRefresh';
@@ -23,6 +24,7 @@ import './index.scss';
 
 import FlyInAnimation from '../../components/FlyInAnimation';
 import MenuItemCard from '../../components/MenuItemCard';
+import FoodThumb from '../../components/FoodThumb';
 import CartItemRow from '../../components/CartItemRow';
 
 interface CategoryItemData {
@@ -470,28 +472,13 @@ export default function MenuPage() {
 
   function getItemBgColor(categoryIndex: number): string {
     const bgClasses = [
-      'emoji-bg-hot', 'emoji-bg-meat', 'emoji-bg-veg',
-      'emoji-bg-drink', 'emoji-bg-rice',
+      'item-bg-hot', 'item-bg-meat', 'item-bg-veg',
+      'item-bg-drink', 'item-bg-rice',
     ];
     return bgClasses[categoryIndex % bgClasses.length];
   }
 
   const getItemBgColorCb = useCallback(getItemBgColor, []);
-
-  function getItemEmoji(name: string): string {
-    const meatKeywords = ['烤羊排', '烤鸡翅', '牛肉', '羊肉', '排骨', '鸡胗', '大虾', '鸡翅', '烤串', '鱿鱼'];
-    const vegKeywords = ['茄子', '金针菇', '韭菜', '土豆', '玉米'];
-    const drinkKeywords = ['可乐', '雪碧', '啤酒', '矿泉水', '酸梅'];
-    const riceKeywords = ['冷面', '馒头', '面包'];
-
-    if (meatKeywords.some((k) => name.includes(k))) return '🥩';
-    if (vegKeywords.some((k) => name.includes(k))) return '🥬';
-    if (drinkKeywords.some((k) => name.includes(k))) return '🥤';
-    if (riceKeywords.some((k) => name.includes(k))) return '🍚';
-    return '🍽️';
-  }
-
-  const getItemEmojiCb = useCallback(getItemEmoji, []);
 
   function getSelectedSpecDesc(): string {
     const specsData = itemSpecsRef.current;
@@ -518,7 +505,7 @@ export default function MenuPage() {
     <View className='page menu-page'>
       {/* 顶部店铺信息 */}
       <View className='menu-header'>
-        <View className='menu-header__avatar'>🏪</View>
+        <View className='menu-header__avatar'><Icon name='shop' size={28} color='#FFFFFF' /></View>
         <View className='menu-header__info'>
           <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <View className='menu-header__title-row'>
@@ -531,39 +518,11 @@ export default function MenuPage() {
             </View>
             <View className='menu-header__actions'>
               <View
-                className='menu-header__status'
-                onClick={() => {
-                  const authState = useAuthStore.getState();
-                  if (!authState.isLoggedIn) {
-                    Taro.showToast({ title: '请先登录', icon: 'none' });
-                    return;
-                  }
-                  Taro.navigateTo({ url: '/pages/favorites/index' });
-                }}
-                aria-label='我的收藏'
-              >
-                <Text>❤️ 收藏</Text>
-              </View>
-              <View
-                className='menu-header__status'
-                onClick={() => {
-                  const authState = useAuthStore.getState();
-                  if (!authState.isLoggedIn) {
-                    Taro.showToast({ title: '请先登录', icon: 'none' });
-                    return;
-                  }
-                  Taro.navigateTo({ url: '/pages/address/index' });
-                }}
-                aria-label='地址簿'
-              >
-                <Text>📍 地址</Text>
-              </View>
-              <View
-                className='menu-header__status'
+                className={`menu-header__action-btn${showSearch ? ' menu-header__action-btn--active' : ''}`}
                 onClick={() => setShowSearch(!showSearch)}
                 aria-label={showSearch ? '关闭搜索' : '打开搜索'}
               >
-                <Text>{showSearch ? '✕ 搜索' : '🔍 搜索'}</Text>
+                <Icon name={showSearch ? 'close' : 'search'} size={18} color='#FFFFFF' />
               </View>
             </View>
           </View>
@@ -593,25 +552,25 @@ export default function MenuPage() {
         <SkeletonLoader mode='list' count={5} />
       ) : loadError ? (
         <EmptyState
-          icon='⚠️'
+          icon='warning'
           title='加载失败'
-          description={canRetry ? '网络不稳定，请重试' : '菜单暂时无法获取'}
-          actionText={canRetry ? '点击重试' : '重新加载'}
+          description={canRetry ? '网络不太稳，点一下再试试' : '菜单暂时加载不出来'}
+          actionText={canRetry ? '再试一次' : '重新加载'}
           onAction={() => loadData()}
         />
       ) : categories.length === 0 ? (
         <EmptyState
-          icon={searchKeyword.trim() ? '🔍' : '🍽️'}
-          title={searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
-          description={searchKeyword.trim() ? '换个关键词试试吧' : '商家正在准备菜单，请稍后再来'}
+          icon={searchKeyword.trim() ? 'search' : 'food'}
+          title={searchKeyword.trim() ? '没找到相关菜品' : '暂无菜品'}
+          description={searchKeyword.trim() ? '换个关键词试试' : '商家还在准备菜单，稍后再来看看'}
           actionText={searchKeyword.trim() ? '清空搜索' : undefined}
           onAction={searchKeyword.trim() ? clearSearch : undefined}
         />
       ) : !categories.some((cat) => cat.items.length > 0) ? (
         <EmptyState
-          icon={searchKeyword.trim() ? '🔍' : '🍽️'}
-          title={searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
-          description={searchKeyword.trim() ? '换个关键词试试吧' : '商家正在准备菜单，请稍后再来'}
+          icon={searchKeyword.trim() ? 'search' : 'food'}
+          title={searchKeyword.trim() ? '没找到相关菜品' : '暂无菜品'}
+          description={searchKeyword.trim() ? '换个关键词试试' : '商家还在准备菜单，稍后再来看看'}
           actionText={searchKeyword.trim() ? '清空搜索' : undefined}
           onAction={searchKeyword.trim() ? clearSearch : undefined}
         />
@@ -620,7 +579,7 @@ export default function MenuPage() {
       {dineContext?.tableNo ? (
         <View className='dine-banner' aria-label={`当前桌号 ${dineContext.tableNo}`}>
           <View className='dine-banner__text'>
-            <Text className='dine-banner__title'>🍽️ 堂食桌号 {dineContext.tableNo}</Text>
+            <View className='dine-banner__title-row'><Icon name='food' size={16} color='#FF6B35' /><Text className='dine-banner__title'>堂食桌号 {dineContext.tableNo}</Text></View>
             <Text className='dine-banner__sub'>扫码入座已识别，结算将默认堂食</Text>
           </View>
           <Text
@@ -654,9 +613,13 @@ export default function MenuPage() {
                 onClick={() => switchCategory(index)}
                 aria-label={`分类 ${cat.name}`}
               >
-                <Text className='category-sidebar__icon'>
-                  {getCategoryIcon(cat.iconKey || cat.name)}
-                </Text>
+                <View className='category-sidebar__icon'>
+                  <Icon
+                    name={getCategoryIcon(cat.iconKey)}
+                    size={20}
+                    color={index === activeCategoryIndex ? '#FF6B35' : '#999999'}
+                  />
+                </View>
                 <Text className='category-sidebar__name'>{cat.name}</Text>
               </View>
             ))}
@@ -690,7 +653,6 @@ export default function MenuPage() {
                         onItemClick={handleItemClick}
                         onFavorite={toggleFavorite}
                         getItemBgColor={getItemBgColorCb}
-                        getItemEmoji={getItemEmojiCb}
                       />
                     ))
                   )}
@@ -707,6 +669,7 @@ export default function MenuPage() {
         visible={cartPopupVisible}
         onClose={() => setCartPopupVisible(false)}
         title='购物车'
+        flush
       >
         <View className='cart-popup cart-popup--embedded'>
           <View className='cart-popup__header'>
@@ -717,9 +680,10 @@ export default function MenuPage() {
           <View className='cart-popup__body'>
             {cartItems.length === 0 ? (
               <EmptyState
-                icon='🛒'
-                title='购物车空空如也'
-                description='去挑选几道好菜吧'
+                compact
+                icon='order'
+                title='购物车是空的'
+                description='去挑几道喜欢的菜吧'
                 actionText='去点餐'
                 onAction={() => setCartPopupVisible(false)}
               />
@@ -741,13 +705,18 @@ export default function MenuPage() {
         visible={!!(specPopupVisible && selectedItem)}
         onClose={() => setSpecPopupVisible(false)}
         title={selectedItem?.name || '选择规格'}
+        flush
       >
         {selectedItem && (
             <View className='spec-popup'>
               <View className='spec-popup__header'>
-                <View className={`spec-popup__image ${getItemBgColor(activeCategoryIndex)}`}>
-                  <Text style={{ fontSize: 36 }}>{getItemEmoji(selectedItem.name)}</Text>
-                </View>
+                <FoodThumb
+                  className='spec-popup__image'
+                  src={selectedItem.imageUrl}
+                  name={selectedItem.name}
+                  size='md'
+                  round
+                />
                 <View className='spec-popup__info'>
                   <Text className='spec-popup__name'>{selectedItem.name}</Text>
                   <Text className='spec-popup__desc'>{selectedItem.description || '精选食材，美味秘制'}</Text>
@@ -845,15 +814,15 @@ export default function MenuPage() {
             pointerEvents: 'none',
           }}
         >
-          <Text style={{ fontSize: 36 }}>🛒</Text>
+          <Icon name='cart' size={28} color='#FFFFFF' />
         </View>
       )}
 
-      {/* 底部购物车栏 */}
-      {cartCount > 0 && (
+      {/* 底部购物车栏：弹层打开时隐藏，避免压住规格弹窗底部按钮 */}
+      {cartCount > 0 && !specPopupVisible && (
         <View className='cart-bar' onClick={() => setCartPopupVisible(!cartPopupVisible)}>
           <View className='cart-bar__icon-wrap'>
-            <Text className='cart-bar__icon'>🛒</Text>
+            <View className='cart-bar__icon'><Icon name='cart' size={22} color='#FFFFFF' /></View>
             <View className='cart-bar__badge'>
               <Text className='cart-bar__badge-text'>
                 {cartCount}

@@ -5,6 +5,7 @@ import { get, post, patch as httpPatch, del } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { getCategoryIcon } from '../../utils/iconMap';
+import Icon from '../../components/Icon';
 import { Category } from '../../types/menu';
 import { MenuItem } from '../../types/menu';
 import { DEFAULT_SHOP_ID, API_BASE_URL } from '../../env';
@@ -15,7 +16,6 @@ interface FormMode {
   title: string;
 }
 
-const EMOJI_OPTIONS = ['🍖', '🥩', '🍗', '🥬', '🥦', '🌽', '🥤', '🍺', '🍚', '🍜', '🦐', '🍢', '🧆', '🥟', '🧃', '🍵'];
 
 const MenuManagePage = () => {
   // Store 订阅（函数组件中正确订阅变化）
@@ -37,7 +37,6 @@ const MenuManagePage = () => {
   // 表单字段
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
-  const [formEmoji, setFormEmoji] = useState('🍖');
   const [formImageUrl, setFormImageUrl] = useState('');
   const [formPrice, setFormPrice] = useState(''); // 元
   const [formCategoryId, setFormCategoryId] = useState('');
@@ -158,7 +157,6 @@ const MenuManagePage = () => {
     setEditingItem(null);
     setFormName('');
     setFormDescription('');
-    setFormEmoji('🍖');
     setFormImageUrl('');
     setFormPrice('');
     setFormCategoryId(activeCategoryId || '');
@@ -172,7 +170,6 @@ const MenuManagePage = () => {
     setEditingItem(item);
     setFormName(item.name);
     setFormDescription(item.description || '');
-    setFormEmoji('🍖');
     setFormImageUrl(item.imageUrl || '');
     setFormPrice((item.price / 100).toString());
     setFormCategoryId(item.categoryId);
@@ -354,9 +351,10 @@ const MenuManagePage = () => {
             key={cat.id}
             className={`category-chip ${activeCategoryId === cat.id ? 'category-chip--active' : ''}`}
           >
-            <Text onClick={() => selectCategory(cat.id)}>
-              {getCategoryIcon(cat.iconKey)} {cat.name}
-            </Text>
+            <View className='category-chip__label' onClick={() => selectCategory(cat.id)}>
+              <Icon name={getCategoryIcon(cat.iconKey)} size={16} color={activeCategoryId === cat.id ? '#FF6B35' : '#666666'} />
+              <Text>{cat.name}</Text>
+            </View>
             <Text
               className='category-chip__edit'
               onClick={(e) => {
@@ -364,7 +362,7 @@ const MenuManagePage = () => {
                 openEditCategory(cat);
               }}
             >
-              ✏️
+              编辑
             </Text>
           </View>
         ))}
@@ -409,7 +407,7 @@ const MenuManagePage = () => {
 
             {filteredItems.length === 0 ? (
               <View className='empty-category'>
-                <Text className='empty-category__icon'>🍽️</Text>
+                <View className='empty-category__icon'><Icon name='food' size={40} color='#CCCCCC' /></View>
                 <Text className='empty-category__text'>该分类下暂无菜品</Text>
               </View>
             ) : (
@@ -422,7 +420,7 @@ const MenuManagePage = () => {
                         background: item.imageUrl ? `url(${item.imageUrl}) center/cover no-repeat` : `linear-gradient(135deg, #ff6b6b, #ffa07a)`,
                       }}
                     >
-                      {!item.imageUrl && <Text>{formEmoji}</Text>}
+                      {!item.imageUrl && <Icon name='food' size={28} color='#FFFFFF' />}
                       <Text className='menu-item-admin-card__status-badge'>
                         {item.status === 'active' ? '上架' : '下架'}
                       </Text>
@@ -443,19 +441,19 @@ const MenuManagePage = () => {
                             }`}
                             onClick={() => toggleItemStatus(item)}
                           >
-                            {item.status === 'active' ? '✓' : '✕'}
+                            {item.status === 'active' ? <Icon name='check' size={14} color='#52C41A' /> : <Icon name='close' size={14} color='#FF4D4F' />}
                           </View>
                           <View
                             className='menu-item-admin-card__action-btn menu-item-admin-card__action-btn--edit'
                             onClick={() => openEditForm(item)}
                           >
-                            ✎
+                            <Icon name='edit' size={14} color='#1677FF' />
                           </View>
                           <View
                             className='menu-item-admin-card__action-btn menu-item-admin-card__action-btn--delete'
                             onClick={() => deleteItem(item)}
                           >
-                            🗑
+                            <Icon name='trash' size={14} color='#FF4D4F' />
                           </View>
                         </View>
                       </View>
@@ -484,7 +482,7 @@ const MenuManagePage = () => {
                 className='form-modal__close'
                 onClick={() => setFormVisible(false)}
               >
-                ✕
+                <Icon name='close' size={16} color='#999999' />
               </View>
             </View>
             <View className='form-modal__body'>
@@ -517,27 +515,13 @@ const MenuManagePage = () => {
                     <View className='image-preview' style={{ backgroundImage: `url(${formImageUrl})` }} />
                   ) : (
                     <View className='image-placeholder'>
-                      <Text className='icon'>📷</Text>
+                      <Icon name='camera' size={28} color='#999999' />
                       <Text className='text'>点击上传图片</Text>
                     </View>
                   )}
                 </View>
               </View>
 
-              <View className='form-field'>
-                <Text className='form-field__label'>展示图标</Text>
-                <View className='emoji-grid'>
-                  {EMOJI_OPTIONS.map((emoji) => (
-                    <View
-                      key={emoji}
-                      className={`emoji-option ${formEmoji === emoji ? 'emoji-option--selected' : ''}`}
-                      onClick={() => setFormEmoji(emoji)}
-                    >
-                      <Text>{emoji}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
 
               <View className='form-field'>
                 <Text className='form-field__label'>价格（元）*</Text>

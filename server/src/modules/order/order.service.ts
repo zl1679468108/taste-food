@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import * as ExcelJS from 'exceljs';
 import { OrderStatus, DeliveryType, PromotionType, ShopStatus } from '../../common/constants/enums';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -25,6 +26,8 @@ export interface OrderItemRecord {
 
 export interface OrderRecord {
   id: string;
+  /** 业务订单号，如 TF20260726A0010007；旧单可能缺失 */
+  orderNo?: string;
   shopId: string;
   userId: string;
   riderId?: string; // 增加骑手 ID
@@ -62,6 +65,7 @@ export interface DeliveryTrackPointRecord {
 // Supabase 行类型
 interface OrderRow {
   id: string;
+  order_no?: string;
   shop_id: string;
   user_id: string;
   rider_id?: string;
@@ -130,6 +134,26 @@ const memoryOrders: Map<string, OrderRecord> = new Map();
 const memoryDeliveryTracks: Map<string, DeliveryTrackPointRecord[]> = new Map();
 // 旧库无 rider_id 列时，用内存记录抢单归属（进程内有效）
 const memoryRiderClaims: Map<string, string> = new Map();
+/** 店铺日序号（内存）：key = shopId:YYYYMMDD */
+const memoryOrderSeq: Map<string, number> = new Map();
+
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  pending_payment: '待支付',
+  paid: '已支付',
+  accepted: '已接单',
+  preparing: '制作中',
+  ready_for_pickup: '待自取',
+  delivering: '配送中',
+  completed: '已完成',
+  cancelled: '已取消',
+  rejected: '已拒绝',
+};
+
+const DELIVERY_TYPE_LABEL: Record<string, string> = {
+  delivery: '外卖配送',
+  pickup: '到店自取',
+  dine_in: '堂食',
+};
 
 @Injectable()
 export class OrderService {
@@ -162,6 +186,88 @@ export class OrderService {
       code === 'pgrst202' ||
       code === '42883'
     );
+  }
+
+  /** 店铺短码：shopId 去横线后取末 4 位大写 */
+  private shopShortCode(shopId: string): string {
+    const raw = String(shopId || '').replace(/-/g, '').toUpperCase();
+    if (!raw) return '0000';
+    return raw.slice(-4).padStart(4, '0');
+  }
+
+  private formatOrderDateKey(date = new Date()): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}${m}${d}`;
+  }
+
+  private buildOrderNo(shopId: string, dateKey: string, seq: number): string {
+    return `TF${dateKey}${this.shopShortCode(shopId)}${String(seq).padStart(4, '0')}`;
+  }
+
+  /** 旧单无 order_no 时的兼容展示（基于 uuid 前 8 位） */
+  private compatOrderNo(orderId: string): string {
+    return String(orderId || '').replace(/-/g, '').slice(0, 8).toUpperCase();
+  }
+
+  /**
+   * 生成业务订单号：TF + YYYYMMDD + 店铺短码4位 + 当日序号4位
+   * 例：TF20260726A0010007
+   */
+  private async allocateOrderNo(shopId: string): Promise<string> {
+    const dateKey = this.formatOrderDateKey();
+    const seqKey = `${shopId}:${dateKey}`;
+    let seq = 1;
+
+    if (hasSupabase() && supabase) {
+      try {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const { count, error } = await supabase
+          .from('tf_orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('shop_id', shopId)
+          .gte('created_at', start.toISOString());
+        if (!error) {
+          seq = (count || 0) + 1;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Order] 统计当日订单序号失败: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    } else {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const startMs = start.getTime();
+      const todayCount = Array.from(memoryOrders.values()).filter(
+        (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= startMs,
+      ).length;
+      seq = todayCount + 1;
+    }
+
+    const mem = memoryOrderSeq.get(seqKey) || 0;
+    seq = Math.max(seq, mem + 1);
+    memoryOrderSeq.set(seqKey, seq);
+    return this.buildOrderNo(shopId, dateKey, seq);
+  }
+
+  private async persistOrderNo(orderId: string, orderNo: string): Promise<void> {
+    if (!hasSupabase() || !supabase || !orderNo) return;
+    try {
+      const { error } = await supabase
+        .from('tf_orders')
+        .update({ order_no: orderNo })
+        .eq('id', orderId);
+      if (error && !this.isMissingColumnError(error)) {
+        this.logger.warn(`[Order] 回写 order_no 失败: ${error.message}`);
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 回写 order_no 异常: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   private async updateOrderStatusDirect(
@@ -215,6 +321,7 @@ export class OrderService {
 
   private async createOrderLegacyFallback(params: {
     orderId: string;
+    orderNo?: string;
     dto: CreateOrderDto;
     total: number;
     deliveryFee: number;
@@ -224,7 +331,7 @@ export class OrderService {
     if (!supabase) {
       throw new BadRequestException('创建订单失败: Supabase 不可用');
     }
-    const { orderId, dto, total, deliveryFee, items, now } = params;
+    const { orderId, orderNo, dto, total, deliveryFee, items, now } = params;
 
     const orderPayloadCandidates: Record<string, unknown>[] = [
       // 旧线上库优先：仅已确认存在的列
@@ -280,6 +387,49 @@ export class OrderService {
       },
     ];
 
+    if (orderNo) {
+      // 优先尝试带业务单号的写入；缺列时自动回退无 order_no 的候选
+      orderPayloadCandidates.unshift(
+        {
+          id: orderId,
+          order_no: orderNo,
+          shop_id: dto.shopId,
+          user_id: dto.userId || '',
+          status: OrderStatus.PENDING_PAYMENT,
+          total,
+          delivery_fee: deliveryFee,
+          delivery_type: dto.deliveryType,
+          address: dto.address || '',
+          table_no: dto.tableNo || '',
+          remark: dto.remark || '',
+          contact_name: dto.contactName || '',
+          contact_phone: dto.contactPhone || '',
+          invoice_needed: !!dto.invoiceNeeded,
+          invoice_title: dto.invoiceNeeded ? (dto.invoiceTitle || null) : null,
+          invoice_tax_no: dto.invoiceNeeded ? (dto.invoiceTaxNo || null) : null,
+          created_at: now,
+          updated_at: now,
+        },
+        {
+          id: orderId,
+          order_no: orderNo,
+          shop_id: dto.shopId,
+          user_id: dto.userId || '',
+          status: OrderStatus.PENDING_PAYMENT,
+          total,
+          delivery_fee: deliveryFee,
+          delivery_type: dto.deliveryType,
+          address: dto.address || '',
+          table_no: dto.tableNo || '',
+          remark: dto.remark || '',
+          contact_name: dto.contactName || '',
+          contact_phone: dto.contactPhone || '',
+          created_at: now,
+          updated_at: now,
+        },
+      );
+    }
+
     let inserted = false;
     let lastError: { message?: string } | null = null;
     for (const payload of orderPayloadCandidates) {
@@ -315,8 +465,11 @@ export class OrderService {
   }
 
   private toRecord(row: any): OrderRecord {
+    const id = row.id;
+    const rawNo = row.order_no || row.orderNo;
     return {
-      id: row.id,
+      id,
+      orderNo: rawNo || this.compatOrderNo(id),
       shopId: row.shop_id,
       userId: row.user_id,
       riderId: row.rider_id || undefined,
@@ -449,6 +602,7 @@ export class OrderService {
 
     const now = new Date().toISOString();
     const orderId = uuidv4();
+    const orderNo = await this.allocateOrderNo(dto.shopId);
 
     // 服务端校验菜品价格：base price + 规格加价（分），不信任客户端传入的 price
     const verifiedItems: { menuItemId: string; name: string; quantity: number; price: number; specDesc: string; imageUrl: string }[] = [];
@@ -548,6 +702,7 @@ export class OrderService {
 
     const order: OrderRecord = {
       id: orderId,
+      orderNo,
       shopId: dto.shopId,
       userId: dto.userId || '',
       status: OrderStatus.PENDING_PAYMENT,
@@ -570,14 +725,14 @@ export class OrderService {
     if (hasSupabase() && supabase) {
       // 优先走原子 RPC；旧库函数/字段缺失时降级为分步写入，保证主流程可上线
       const orderDate = new Date().toISOString().split('T')[0];
-      const itemsJsonb = JSON.stringify(items.map((item) => ({
+      const itemsJsonb = items.map((item) => ({
         menuItemId: item.menuItemId,
         name: item.name,
         quantity: item.quantity,
         price: item.price,
         specDesc: item.specDesc,
         imageUrl: item.imageUrl,
-      })));
+      }));
 
       const { error: rpcErr } = await supabase.rpc('atomic_create_order', {
         p_order_id: orderId,
@@ -596,12 +751,13 @@ export class OrderService {
         p_invoice_needed: !!dto.invoiceNeeded,
         p_invoice_title: dto.invoiceNeeded ? (dto.invoiceTitle || null) : null,
         p_invoice_tax_no: dto.invoiceNeeded ? (dto.invoiceTaxNo || null) : null,
+        p_order_no: orderNo,
       });
 
       if (rpcErr) {
         const msg = rpcErr.message || '';
         const canFallback =
-          /p_invoice_|invoice_needed|invoice_title|invoice_tax_no|Could not find the function|delivery_fee|column|does not exist|PGRST202|42883/i.test(
+          /p_invoice_|p_order_no|order_no|invoice_needed|invoice_title|invoice_tax_no|Could not find the function|delivery_fee|column|does not exist|PGRST202|42883/i.test(
             msg,
           );
         if (!canFallback) {
@@ -615,6 +771,7 @@ export class OrderService {
         if (functionMissing) {
           await this.createOrderLegacyFallback({
             orderId,
+            orderNo,
             dto,
             total,
             deliveryFee,
@@ -641,6 +798,7 @@ export class OrderService {
           if (retryErr) {
             await this.createOrderLegacyFallback({
               orderId,
+              orderNo,
               dto,
               total,
               deliveryFee,
@@ -666,6 +824,11 @@ export class OrderService {
     } else {
       assertMemoryFallbackAllowed('OrderService');
       memoryOrders.set(orderId, order);
+    }
+
+    // 兼容旧 RPC/缺列：确保业务单号尽量落库（新单内存对象已含 orderNo）
+    if (hasSupabase() && supabase && order.orderNo) {
+      await this.persistOrderNo(orderId, order.orderNo);
     }
 
     // Send WebSocket event
@@ -842,16 +1005,21 @@ export class OrderService {
     userId: string,
     page = 1,
     pageSize = 20,
+    status?: string,
   ): Promise<PaginatedData<OrderRecord>> {
     if (hasSupabase() && supabase) {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
-      const { data, error, count } = await supabase
+      let query = supabase
         .from('tf_orders')
         .select('*', { count: 'exact' })
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .range(from, to);
+      if (status) {
+        query = query.eq('status', status);
+      }
+      const { data, error, count } = await query;
       if (error) throw new BadRequestException(`查询订单失败: ${error.message}`);
 
       const orders = (data || []).map((row) => {
@@ -875,11 +1043,14 @@ export class OrderService {
     }
 
     assertMemoryFallbackAllowed('OrderService');
-    const userOrders = Array.from(memoryOrders.values())
+    let userOrders = Array.from(memoryOrders.values())
       .filter((o) => o.userId === userId)
       .sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
+    if (status) {
+      userOrders = userOrders.filter((o) => o.status === status);
+    }
     return this.paginate(userOrders, page, pageSize);
   }
 
@@ -1350,9 +1521,17 @@ export class OrderService {
    */
   async exportOrdersCsv(
     shopId: string,
-    opts?: { status?: string; maxRows?: number },
-  ): Promise<{ csv: string; count: number; filename: string }> {
+    opts?: { status?: string; maxRows?: number; format?: 'csv' | 'xlsx' | 'both' },
+  ): Promise<{
+    csv: string;
+    xlsxBase64?: string;
+    count: number;
+    filename: string;
+    xlsxFilename?: string;
+    contentType?: string;
+  }> {
     const maxRows = Math.min(Math.max(opts?.maxRows || 1000, 1), 5000);
+    const format = opts?.format || 'both';
     const pageSize = Math.min(maxRows, 100);
     let page = 1;
     const all: OrderRecord[] = [];
@@ -1365,66 +1544,175 @@ export class OrderService {
       page += 1;
     }
     const rows = all.slice(0, maxRows);
-    const escape = (v: unknown) => {
-      const s = v == null ? '' : String(v);
-      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-      return s;
-    };
-    const fenToYuan = (fen: number) => ((Number(fen) || 0) / 100).toFixed(2);
-    const header = [
-      '订单号',
-      '短单号',
-      '状态',
-      '配送类型',
-      '金额(元)',
-      '配送费(元)',
-      '桌号',
-      '地址',
-      '联系人',
-      '电话',
-      '备注',
-      '需要发票',
-      '发票抬头',
-      '税号',
-      '商品摘要',
-      '创建时间',
-      '更新时间',
-    ];
-    const lines = [header.join(',')];
-    for (const o of rows) {
-      const itemsSummary = (o.items || [])
-        .map((it) => `${it.name}x${it.quantity}`)
-        .join('；');
-      lines.push(
-        [
-          o.id,
-          (o.id || '').slice(0, 8),
-          o.status,
-          o.deliveryType,
-          fenToYuan(o.total),
-          fenToYuan(o.deliveryFee),
-          o.tableNo || '',
-          o.address || '',
-          o.contactName || '',
-          o.contactPhone || '',
-          o.remark || '',
-          o.invoiceNeeded ? '是' : '否',
-          o.invoiceTitle || '',
-          o.invoiceTaxNo || '',
-          itemsSummary,
-          o.createdAt,
-          o.updatedAt,
-        ]
-          .map(escape)
-          .join(','),
-      );
-    }
-    const day = new Date().toISOString().slice(0, 10);
+    const day = this.formatOrderDateKey();
+    const dayDash = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
     const statusPart = opts?.status ? `_${opts.status}` : '';
+    const csvFilename = `orders${statusPart}_${dayDash}.csv`;
+    const xlsxFilename = `orders${statusPart}_${dayDash}.xlsx`;
+
+    const fenToYuan = (fen: number) => ((Number(fen) || 0) / 100).toFixed(2);
+    const formatDateTime = (iso?: string) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+    const displayNo = (o: OrderRecord) => o.orderNo || this.compatOrderNo(o.id);
+
+    let csv = '';
+    if (format === 'csv' || format === 'both') {
+      const escape = (v: unknown) => {
+        const s = v == null ? '' : String(v);
+        if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+        return s;
+      };
+      const header = [
+        '订单号',
+        '业务单号',
+        '状态',
+        '配送类型',
+        '金额(元)',
+        '配送费(元)',
+        '桌号',
+        '地址',
+        '联系人',
+        '电话',
+        '备注',
+        '需要发票',
+        '发票抬头',
+        '税号',
+        '商品摘要',
+        '创建时间',
+        '更新时间',
+      ];
+      const lines = [header.join(',')];
+      for (const o of rows) {
+        const itemsSummary = (o.items || [])
+          .map((it) => `${it.name}x${it.quantity}`)
+          .join('；');
+        lines.push(
+          [
+            o.id,
+            displayNo(o),
+            ORDER_STATUS_LABEL[o.status] || o.status,
+            DELIVERY_TYPE_LABEL[o.deliveryType] || o.deliveryType,
+            fenToYuan(o.total),
+            fenToYuan(o.deliveryFee),
+            o.tableNo || '',
+            o.address || '',
+            o.contactName || '',
+            o.contactPhone || '',
+            o.remark || '',
+            o.invoiceNeeded ? '是' : '否',
+            o.invoiceTitle || '',
+            o.invoiceTaxNo || '',
+            itemsSummary,
+            formatDateTime(o.createdAt),
+            formatDateTime(o.updatedAt),
+          ]
+            .map(escape)
+            .join(','),
+        );
+      }
+      csv = '\uFEFF' + lines.join('\n');
+    }
+
+    let xlsxBase64: string | undefined;
+    if (format === 'xlsx' || format === 'both') {
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'taste-food';
+      workbook.created = new Date();
+      const sheet = workbook.addWorksheet('订单导出', {
+        views: [{ state: 'frozen', ySplit: 1 }],
+      });
+      sheet.columns = [
+        { header: '订单号', key: 'id', width: 38 },
+        { header: '业务单号', key: 'orderNo', width: 22 },
+        { header: '状态', key: 'status', width: 12 },
+        { header: '配送类型', key: 'deliveryType', width: 12 },
+        { header: '金额(元)', key: 'total', width: 12 },
+        { header: '配送费(元)', key: 'deliveryFee', width: 12 },
+        { header: '桌号', key: 'tableNo', width: 10 },
+        { header: '地址', key: 'address', width: 28 },
+        { header: '联系人', key: 'contactName', width: 12 },
+        { header: '电话', key: 'contactPhone', width: 14 },
+        { header: '备注', key: 'remark', width: 20 },
+        { header: '需要发票', key: 'invoiceNeeded', width: 10 },
+        { header: '发票抬头', key: 'invoiceTitle', width: 18 },
+        { header: '税号', key: 'invoiceTaxNo', width: 18 },
+        { header: '商品摘要', key: 'itemsSummary', width: 36 },
+        { header: '创建时间', key: 'createdAt', width: 20 },
+        { header: '更新时间', key: 'updatedAt', width: 20 },
+      ];
+
+      const headerRow = sheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1F4E79' },
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      headerRow.height = 22;
+
+      for (const o of rows) {
+        const itemsSummary = (o.items || [])
+          .map((it) => `${it.name}x${it.quantity}`)
+          .join('；');
+        sheet.addRow({
+          id: o.id,
+          orderNo: displayNo(o),
+          status: ORDER_STATUS_LABEL[o.status] || o.status,
+          deliveryType: DELIVERY_TYPE_LABEL[o.deliveryType] || o.deliveryType,
+          total: Number(fenToYuan(o.total)),
+          deliveryFee: Number(fenToYuan(o.deliveryFee)),
+          tableNo: o.tableNo || '',
+          address: o.address || '',
+          contactName: o.contactName || '',
+          contactPhone: o.contactPhone || '',
+          remark: o.remark || '',
+          invoiceNeeded: o.invoiceNeeded ? '是' : '否',
+          invoiceTitle: o.invoiceTitle || '',
+          invoiceTaxNo: o.invoiceTaxNo || '',
+          itemsSummary,
+          createdAt: formatDateTime(o.createdAt),
+          updatedAt: formatDateTime(o.updatedAt),
+        });
+      }
+
+      const thin = {
+        style: 'thin' as const,
+        color: { argb: 'FFB0B0B0' },
+      };
+      sheet.eachRow((row, rowNumber) => {
+        row.eachCell((cell, colNumber) => {
+          cell.border = { top: thin, left: thin, bottom: thin, right: thin };
+          if (rowNumber > 1 && (colNumber === 5 || colNumber === 6)) {
+            cell.numFmt = '0.00';
+            cell.alignment = { horizontal: 'right' };
+          }
+        });
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const bytes = Buffer.isBuffer(buffer)
+        ? buffer
+        : Buffer.from(buffer as ArrayBuffer);
+      xlsxBase64 = bytes.toString('base64');
+    }
+
+    // 默认仍返回 csv 以兼容旧 admin；同时附带 xlsx
+    const primaryIsXlsx = format === 'xlsx';
     return {
-      csv: '\uFEFF' + lines.join('\n'),
+      csv: csv || '',
+      xlsxBase64,
       count: rows.length,
-      filename: `orders${statusPart}_${day}.csv`,
+      filename: primaryIsXlsx ? xlsxFilename : csvFilename,
+      xlsxFilename,
+      contentType: primaryIsXlsx
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'text/csv;charset=utf-8',
     };
   }
 

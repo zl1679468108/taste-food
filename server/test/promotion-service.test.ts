@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { DeliveryType, PromotionStatus, PromotionType } from '../src/common/constants/enums';
+import { DEFAULT_SHOP_ID } from '../src/common/constants/shop';
 import { PromotionController } from '../src/modules/promotion/promotion.controller';
 import { PromotionService } from '../src/modules/promotion/promotion.service';
 import { createOrderService } from './helpers/order-service';
@@ -152,26 +153,26 @@ test('promotion update and remove enforce shop ownership', async () => {
   await service.remove(created.id, ownerShopId);
 });
 
-test('promotion controller requires a bound admin shop for management writes', async () => {
+test('promotion controller falls back to DEFAULT_SHOP_ID when admin shop is unbound', async () => {
   const service = new PromotionService();
   const controller = new PromotionController(service);
-  const shopId = uniqueShopId('shop-promo-controller');
-  const created = await service.create({
-    shopId,
+
+  // 未绑定 shopId 时 create 应落到 DEFAULT_SHOP_ID
+  const createdResp = await controller.create({
     type: PromotionType.FULL_DISCOUNT,
-    name: '控制器活动',
+    name: '默认店铺活动',
     rule: { threshold: 1000, discount: 100 },
     status: PromotionStatus.INACTIVE,
-  });
+  } as any, undefined);
+  assert.equal(createdResp.data.shopId, DEFAULT_SHOP_ID);
 
-  await assert.rejects(
-    () => controller.update(created.id, { name: '无绑定修改' }, undefined),
-    (error: unknown) => error instanceof ForbiddenException,
-  );
-  const managed = await controller.findAllForManagement(shopId);
-  assert.equal(managed.data[0].id, created.id);
-  await controller.update(created.id, { name: '已更新' }, shopId);
-  await controller.remove(created.id, shopId);
+  const managed = await controller.findAllForManagement(undefined);
+  assert.ok(managed.data.some((p) => p.id === createdResp.data.id));
+
+  await controller.update(createdResp.data.id, { name: '已更新默认店铺活动' }, undefined);
+  const updated = await service.findOne(createdResp.data.id);
+  assert.equal(updated.name, '已更新默认店铺活动');
+  await controller.remove(createdResp.data.id, undefined);
 });
 
 test('order creation applies the largest active full-discount promotion only', async () => {

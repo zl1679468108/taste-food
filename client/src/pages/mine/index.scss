@@ -1,0 +1,255 @@
+@use '../../styles/design-tokens' as *;
+
+.mine-page {
+  min-height: 100vh;
+  background: $bg-page;
+  padding-bottom: calc(#{$space-6} + env(safe-area-inset-bottom));
+}
+
+.mine-hero {
+  position: relative;
+  overflow: hidden;
+  padding: 14px $space-4 36px;
+  background: $gradient-brand-soft;
+
+  &__decor {
+    position: absolute;
+    border-radius: $radius-full;
+    background: rgba($white, 0.12);
+    pointer-events: none;
+
+    &--one {
+      width: 110px;
+      height: 110px;
+      top: -30px;
+      right: -20px;
+    }
+
+    &--two {
+      width: 70px;
+      height: 70px;
+      left: -15px;
+      bottom: 10px;
+      background: rgba($white, 0.08);
+    }
+  }
+
+  &__card {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: $space-3;
+  }
+
+  &__avatar {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
+    background: $white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 5px 14px rgba(196, 74, 32, 0.22);
+  }
+
+  &__meta {
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__name-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: $space-1 + 2px;
+  }
+
+  &__name {
+    font-size: $font-3xl;
+    line-height: $leading-tight;
+    font-weight: $weight-bold;
+    color: $text-inverse;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__role {
+    padding: 2px 7px;
+    border-radius: $radius-pill;
+    background: $bg-overlay-soft;
+    border: 1px solid rgba($white, 0.28);
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-inverse;
+  }
+
+  &__hint {
+    display: block;
+    margin-top: 5px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: rgba($white, 0.88);
+  }
+}
+
+.mine-body {
+  position: relative;
+  z-index: 2;
+  margin-top: -20px;
+  padding: 0 $space-3 $space-2;
+}
+
+.mine-panel {
+  background: $bg-card;
+  border-radius: $radius-3xl;
+  box-shadow: $shadow-card;
+  overflow: hidden;
+
+  &__head {
+    padding: 14px 14px $space-1;
+  }
+
+  &__title {
+    font-size: $font-xs;
+    line-height: $leading-tight;
+    color: $text-secondary;
+    letter-spacing: 0.5px;
+  }
+
+  &--grid {
+    .mine-panel__head {
+      padding-bottom: 2px;
+    }
+  }
+}
+
+.mine-grid {
+  display: flex;
+  justify-content: space-around;
+  padding: $space-1 + 2px $space-1 + 2px 14px;
+
+  &__item {
+    flex: 1;
+    max-width: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 9px $space-1;
+    border-radius: 9px;
+
+    &:active {
+      background: $bg-muted;
+    }
+  }
+
+  &__icon {
+    width: 42px;
+    height: 42px;
+    border-radius: $radius-3xl;
+    background: $gradient-empty-icon;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  &__label {
+    font-size: $font-sm;
+    line-height: $leading-tight;
+    color: $text-primary;
+    font-weight: $weight-medium;
+  }
+}
+
+.mine-list {
+  padding: 2px $space-1 $space-1 + 2px;
+
+  &__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 $space-1 + 2px;
+    padding: 13px $space-2;
+    border-bottom: 1px solid $border-light;
+
+    &:active {
+      background: $bg-muted;
+      border-radius: $radius-xl;
+    }
+
+    &--last {
+      border-bottom: none;
+    }
+  }
+
+  &__icon {
+    width: 36px;
+    height: 36px;
+    border-radius: $radius-md;
+    background: $primary-light;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  &__body {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__label {
+    display: block;
+    font-size: $font-md;
+    line-height: $leading-tight;
+    color: $text-primary;
+    font-weight: $weight-medium;
+  }
+
+  &__desc {
+    display: block;
+    margin-top: 3px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-secondary;
+  }
+}
+
+.mine-logout {
+  margin-top: $space-3;
+  background: $bg-card;
+  border-radius: $radius-3xl;
+  padding: 15px;
+  text-align: center;
+  box-shadow: $shadow-sm;
+
+  &:active {
+    opacity: 0.88;
+  }
+
+  &__text {
+    font-size: $font-md;
+    line-height: $leading-tight;
+    color: $danger;
+    font-weight: $weight-medium;
+  }
+}
+
+.mine-guest {
+  min-height: 70vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $space-6 $space-4 calc(#{$space-6} + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+
+  .empty-state {
+    min-height: 0;
+    padding-top: $space-4;
+    padding-bottom: $space-4;
+  }
+}

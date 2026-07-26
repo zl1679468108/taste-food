@@ -10,6 +10,8 @@ import { DeliveryTrackPoint, Order, OrderStatus, DeliveryType } from '../../type
 import { onDeliveryTrackUpdated, onOrderUpdated, removePageListeners } from '../../services/socket';
 import StatusTimeline from '../../components/StatusTimeline';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import Icon from '../../components/Icon';
+import { getOrderStatusIcon } from '../../utils/iconMap';
 import EmptyState from '../../components/EmptyState';
 import orderActiveIcon from '../../assets/icons/order-active.png';
 import './index.scss';
@@ -300,20 +302,6 @@ const OrderDetailPage = () => {
     });
   };
 
-  /** 获取状态对应的 Emoji */
-  const getStatusEmoji = (status: string): string => {
-    const map: Record<string, string> = {
-      [OrderStatus.PENDING_PAYMENT]: '⏳',
-      [OrderStatus.PAID]: '✅',
-      [OrderStatus.ACCEPTED]: '👍',
-      [OrderStatus.PREPARING]: '👨‍🍳',
-      [OrderStatus.DELIVERING]: '🛵',
-      [OrderStatus.COMPLETED]: '🎉',
-      [OrderStatus.CANCELLED]: '🗑️',
-      [OrderStatus.REJECTED]: '❌',
-    };
-    return map[status] || '📋';
-  };
 
   if (loading) {
     return (
@@ -328,10 +316,10 @@ const OrderDetailPage = () => {
       return (
         <View className='order-detail'>
           <EmptyState
-            icon='⚠️'
+            icon='warning'
             title='加载失败'
-            description={canRetry ? '网络不稳定，请重试' : '订单暂时无法获取'}
-            actionText={canRetry ? '点击重试' : '返回订单列表'}
+            description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
+            actionText={canRetry ? '再试一次' : '返回订单列表'}
             onAction={() => {
               if (canRetry && orderIdRef.current) {
                 loadOrder(orderIdRef.current);
@@ -346,9 +334,9 @@ const OrderDetailPage = () => {
     return (
       <View className='order-detail'>
         <EmptyState
-          icon='📭'
+          icon='empty'
           title='订单不存在'
-          description='可能已被删除或链接无效'
+          description='可能已删除，或链接失效了'
           actionText='返回订单列表'
           onAction={() => Taro.switchTab({ url: '/pages/order-list/index' })}
         />
@@ -406,7 +394,9 @@ const OrderDetailPage = () => {
     <View className='order-detail'>
       {/* 状态卡片 */}
       <View className={`status-card status-card--${order.status}`}>
-        <Text className='status-card__icon'>{getStatusEmoji(order.status)}</Text>
+        <View className='status-card__icon-wrap'>
+          <Icon name={getOrderStatusIcon(order.status)} size={40} color='#FFFFFF' />
+        </View>
         <Text className='status-card__status'>{statusText}</Text>
         <Text className='status-card__time'>
           下单时间: {formatTime(order.createdAt)}
@@ -569,12 +559,16 @@ const OrderDetailPage = () => {
             <View className='order-review__readonly'>
               <View className='order-review__stars'>
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Text
+                  <View
                     key={star}
                     className={`order-review__star ${star <= review.rating ? 'order-review__star--active' : ''}`}
                   >
-                    ★
-                  </Text>
+                    <Icon
+                      name={star <= review.rating ? 'star-filled' : 'star'}
+                      size={18}
+                      color={star <= review.rating ? '#FF6B35' : '#DDDDDD'}
+                    />
+                  </View>
                 ))}
                 <Text className='order-review__rating-text'>{review.rating} 分</Text>
               </View>
@@ -595,13 +589,17 @@ const OrderDetailPage = () => {
               <Text className='order-review__label'>评分</Text>
               <View className='order-review__stars order-review__stars--editable'>
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <Text
+                  <View
                     key={star}
                     className={`order-review__star ${star <= reviewRating ? 'order-review__star--active' : ''}`}
                     onClick={() => setReviewRating(star)}
                   >
-                    ★
-                  </Text>
+                    <Icon
+                      name={star <= reviewRating ? 'star-filled' : 'star'}
+                      size={22}
+                      color={star <= reviewRating ? '#FF6B35' : '#DDDDDD'}
+                    />
+                  </View>
                 ))}
               </View>
               <Text className='order-review__label'>评价内容（选填）</Text>

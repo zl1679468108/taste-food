@@ -97,6 +97,7 @@ client/          Taro 微信小程序
 │   ├── components/  BottomSheet, EmptyState, RoleSwitcher, SkeletonLoader, StatusTimeline
 │   ├── stores/      cartStore, menuStore, orderStore, authStore
 │   ├── services/    socket.ts (WebSocket), request.ts (HTTP)
+│   ├── styles/      _design-tokens.scss（全局样式变量索引）, _mixins.scss
 │   ├── types/       api, cart, menu, order, shop
 │   └── utils/       constants, format, iconMap
 ├── config/          Taro 编译配置
@@ -106,6 +107,8 @@ admin/           PC 管理后台 (React + Ant Design Pro + UMI)
 │   ├── pages/       Dashboard, Login, Menu (Category/Item), Order, Promotion, Shop, User
 │   ├── components/  OrderStatusTag, PriceDisplay
 │   ├── services/    api, auth, menu, order, promotion, shop, user
+│   ├── theme.ts     设计令牌（brand + antdTheme，对齐小程序）
+│   ├── global.css   CSS 变量 --tf-*（与 theme.ts 同步）
 │   ├── app.tsx      布局配置、路由、请求拦截
 │   └── access.ts    权限控制
 ├── config/          UMI 编译配置
@@ -132,6 +135,41 @@ server/          NestJS 后端
 | API 路径 | kebab-case | `/api/menu-items` |
 | 枚举值 | UPPER_SNAKE_CASE | `PENDING_PAYMENT` |
 
+
+## 小程序样式变量（必遵）
+
+索引文件：`client/src/styles/_design-tokens.scss`  
+全局接入：`client/src/app.scss`（`page` 基础排版 + `.text-*` / `.font-*` 工具类）  
+混入：`client/src/styles/_mixins.scss`
+
+| 类别 | 常用 token | 说明 |
+|------|------------|------|
+| 文字色 | `$text-primary` `$text-secondary` `$text-tertiary` `$text-hint` `$text-inverse` `$text-price` | 禁止再写 `#333/#666/#999` |
+| 背景 | `$bg-page` `$bg-card` `$bg-muted` `$primary-light` | 页面底 / 卡片 / 弱底 |
+| 品牌 | `$primary` `$primary-end` `$gradient-brand` | 主色与按钮渐变 |
+| 字号 | `$font-2xs`…`$font-7xl`（默认正文 `$font-base`=14px） | designWidth=375，用 px token |
+| 字重/行高 | `$weight-*` `$leading-tight/normal/relaxed` | 标题紧、正文正常 |
+| 间距 | `$space-1`…`$space-12`（4 的倍数） | 页面左右优先 `$page-padding-x` |
+| 圆角/阴影 | `$radius-*` `$shadow-sm/md/lg/card/btn` | 卡片与按钮 |
+
+业务 scss 顶部：
+
+```scss
+@use '../../styles/design-tokens' as *;
+// 需要时：@use '../../styles/mixins' as *;
+```
+
+**禁止**：业务 scss 硬编码 `#hex`、裸 `font-size: Npx/rpx`、随意字号灰阶。  
+改界面先查 token 文件；没有再补 token，不要在页面里开特例色值。
+
+
+### PC 管理后台样式变量
+
+- 令牌：`admin/src/theme.ts`（`brand` / `antdTheme`）
+- CSS 变量：`admin/src/global.css`（`--tf-*`）
+- 与小程序 `client/src/styles/_design-tokens.scss` 语义对齐（主色/灰阶/文字/字号）
+- 页面内联色优先 `brand.xxx` 或 `var(--tf-*)`，价格色用 `brand.textPrice`
+
 ## 关键规则
 
 - 金额存储为整数（分），前端通过 `formatPrice()` 转换展示
@@ -152,7 +190,7 @@ pending_payment → paid → accepted → preparing → delivering → completed
 
 ## 数据库表 (tf_ 前缀)
 
-shops, categories, menu_items, spec_groups, spec_options, orders, order_items, delivery_info, promotions
+shops, categories, menu_items, spec_groups, spec_options, orders, order_items, delivery_info, promotions, user_sessions
 
 ## 运行命令
 
@@ -180,7 +218,7 @@ cd admin && npm start
 - **错误处理**：所有 API 逻辑必须包含 try-catch 结构，并返回标准响应格式
 - 所有业务数据必须持久化到 Supabase，禁止内存 Map
 - 多表写入（如订单创建）必须使用数据库事务
-- 高频组件提取到 `components/`，统一使用 SCSS + 设计令牌
+- 高频组件提取到 `components/`；小程序样式必须走 `styles/_design-tokens.scss`（见「小程序样式变量」）
 
 ## 需求-任务闭环流程（必须遵守）
 
@@ -225,7 +263,7 @@ prd.md §3.5.1 菜品收藏
     └── T47.3 收藏列表展示（独立页面）
 
 prd.md §3.5.2 Token 自动续期
-    ├── T48.1 后端双 Token 生成（access 15m + refresh 7d）
+    ├── T48.1 后端双 Token 生成（opaque access 2h + refresh 14d，见 T187）
     ├── T48.2 后端 refresh 接口（token 轮换）
     └── T48.3 前端自动刷新（14min 定时器）
 ```

@@ -5,114 +5,142 @@
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #F5F5F5;
+  background: $bg-page;
   overflow: hidden;
 }
 
 /* ---- 顶部店铺信息 ---- */
 .menu-header {
   flex-shrink: 0;
-  background: linear-gradient(135deg, #FF6B35, #FF8F65);
-  padding: 20px 16px 16px;
+  background: $gradient-brand;
+  padding: $space-5 $space-4 $space-4;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: $space-3;
 
   &__avatar {
     width: 48px;
     height: 48px;
-    background: rgba(255,255,255,0.2);
-    border-radius: 10px;
+    background: rgba($white, 0.2);
+    border-radius: $radius-md;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 28px;
+    font-size: $font-6xl;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
     flex-shrink: 0;
   }
 
   &__info {
     flex: 1;
-    color: #fff;
+    color: $text-inverse;
   }
 
   &__name {
-    font-size: 20px;
-    font-weight: 600;
+    font-size: $font-3xl;
+    font-weight: $weight-semibold;
+    line-height: $leading-tight;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $space-2;
   }
 
   &__actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $space-2;
+    flex-shrink: 0;
+  }
+
+  &__action-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: $radius-xl;
+    background: $bg-overlay-soft;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:active {
+      opacity: 0.8;
+    }
+
+    &--active {
+      background: $bg-mask-light;
+    }
   }
 
   &__status {
-    font-size: 12px;
-    background: rgba(255,255,255,0.25);
-    padding: 2px 8px;
-    border-radius: 10px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    background: rgba($white, 0.25);
+    padding: 2px $space-2;
+    border-radius: $radius-md;
   }
 
   &__desc {
-    font-size: 14px;
+    font-size: $font-base;
+    line-height: $leading-normal;
     opacity: 0.85;
-    margin-top: 4px;
+    margin-top: $space-1;
   }
 
   &__title-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: $space-2;
     min-width: 0;
   }
 
   &__open-badge {
     flex-shrink: 0;
-    font-size: 11px;
-    line-height: 1;
-    padding: 4px 8px;
-    border-radius: 10px;
-    background: rgba(82, 196, 26, 0.95);
-    color: #fff;
+    font-size: $font-xs;
+    line-height: $leading-none;
+    padding: $space-1 $space-2;
+    border-radius: $radius-md;
+    background: rgba($success, 0.95);
+    color: $text-inverse;
 
     &--closed {
-      background: rgba(0, 0, 0, 0.35);
+      background: rgba($black, 0.35);
     }
   }
 
   &__rest-hint {
     display: block;
     margin-top: 6px;
-    font-size: 12px;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
-    padding: 4px 8px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-inverse;
+    background: rgba($black, 0.2);
+    border-radius: $radius-sm;
+    padding: $space-1 $space-2;
   }
 }
 
 /* ---- 搜索框 ---- */
 .menu-search {
-  margin: 12px 12px 0;
-  background: #fff;
-  border-radius: 10px;
+  margin: $space-3 $space-3 0;
+  background: $bg-card;
+  border-radius: $radius-md;
   padding: 10px 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  gap: $space-2;
+  box-shadow: $shadow-sm;
 
   &__icon {
-    font-size: 16px;
-    color: #BDBDBD;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-hint;
   }
 
   &__placeholder {
-    font-size: 15px;
-    color: #BDBDBD;
+    font-size: $font-md;
+    line-height: $leading-normal;
+    color: $text-hint;
   }
 }
 
@@ -121,29 +149,29 @@
   flex: 1;
   display: flex;
   overflow: hidden;
-  margin-top: 8px;
+  margin-top: $space-2;
 }
 
 /* 分类侧边栏 */
 .category-sidebar {
   width: 160rpx;
   height: 100%;
-  background: #fff;
+  background: $bg-card;
   flex-shrink: 0;
 
   &__item {
     padding: 14px 6px;
     text-align: center;
-    font-size: 13px;
-    color: #757575;
+    font-size: $font-sm;
+    color: $text-secondary;
     cursor: pointer;
     position: relative;
     transition: all 0.2s;
 
     &--active {
-      background: #FFF0EB;
-      color: #FF6B35;
-      font-weight: 600;
+      background: $primary-light;
+      color: $text-price;
+      font-weight: $weight-semibold;
 
       &::before {
         content: '';
@@ -153,20 +181,22 @@
         transform: translateY(-50%);
         width: 3px;
         height: 24px;
-        background: #FF6B35;
+        background: $primary;
         border-radius: 0 3px 3px 0;
       }
     }
   }
 
   &__icon {
-    font-size: 22px;
+    font-size: $font-4xl;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
     display: block;
     margin-bottom: 2px;
   }
 
   &__name {
-    font-size: 13px;
+    font-size: $font-sm;
     line-height: 1.2;
   }
 }
@@ -176,144 +206,64 @@
   flex: 1;
   height: 100%;
   overflow-y: auto;
-  background: #F5F5F5;
+  background: $bg-page;
 
   &__content {
-    padding: 4px 12px 100px;
+    padding: 6px $space-3 120px;
   }
 }
 
 .category-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #212121;
-  padding: 12px 4px 8px;
+  font-size: $font-md;
+  font-weight: $weight-semibold;
+  line-height: $leading-tight;
+  color: $text-primary;
+  padding: $space-3 $space-1 $space-2;
   display: block;
 }
 
-/* 菜品卡片 */
-.menu-item-card {
-  background: #fff;
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 10px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  display: flex;
-
-  &__image {
-    width: 80px;
-    height: 80px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 36px;
-    flex-shrink: 0;
-
-    &.emoji-bg-hot { background: linear-gradient(135deg, #FFF3E0, #FFE0B2); }
-    &.emoji-bg-meat { background: linear-gradient(135deg, #FFEBEE, #FFCDD2); }
-    &.emoji-bg-veg { background: linear-gradient(135deg, #E8F5E9, #C8E6C9); }
-    &.emoji-bg-drink { background: linear-gradient(135deg, #E3F2FD, #BBDEFB); }
-    &.emoji-bg-rice { background: linear-gradient(135deg, #FFF8E1, #FFECB3); }
-  }
-
-  &__info {
-    flex: 1;
-    padding: 10px 12px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-  }
-
-  &__name {
-    font-size: 15px;
-    font-weight: 500;
-    color: #212121;
-    margin-bottom: 2px;
-  }
-
-  &__desc {
-    font-size: 12px;
-    color: #757575;
-    margin-bottom: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  &__sales {
-    font-size: 11px;
-    color: #9E9E9E;
-    margin-bottom: 4px;
-  }
-
-  &__bottom {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  &__price {
-    font-size: 18px;
-    font-weight: 600;
-    color: #FF6B35;
-
-    &-unit {
-      font-size: 12px;
-    }
-  }
-
-  &__add-btn {
-    width: 28px;
-    height: 28px;
-    background: #FF6B35;
-    color: #fff;
-    border: none;
-    border-radius: 50%;
-    font-size: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    line-height: 1;
-    box-shadow: 0 2px 6px rgba(255, 107, 53, 0.3);
-  }
-}
+/* 菜品卡片样式见 components/MenuItemCard */
 
 /* ---- 底部购物车栏 ---- */
 .cart-bar {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  min-height: 100rpx;
-  background: #333;
+  /* 页面内容区 bottom:0 已在原生 tabBar 上方，无需再叠加 safe-area */
+  bottom: $space-3;
+  left: $space-3;
+  right: $space-3;
+  height: 50px;
+  min-height: 50px;
+  background: $gray-900;
   display: flex;
   align-items: center;
-  padding: 0 32rpx 0 120rpx;
-  padding-bottom: constant(safe-area-inset-bottom);
-  padding-bottom: env(safe-area-inset-bottom);
-  z-index: 1000;
-  border-radius: 50rpx 50rpx 0 0;
-  margin: 0 24rpx 24rpx;
-  box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.15);
+  padding: 0 $space-3 0 60px;
+  z-index: 1300;
+  border-radius: $radius-pill;
+  margin: 0;
+  box-shadow: 0 4px 12px rgba($black, 0.18);
+  box-sizing: border-box;
 
   &__icon-wrap {
     position: absolute;
-    left: 24rpx;
-    top: -24rpx;
-    width: 96rpx;
-    height: 96rpx;
-    background: #FF6B35;
-    border-radius: 50%;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    background: $primary;
+    border-radius: $radius-full;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4rpx 16rpx rgba(255, 107, 53, 0.4);
-    border: 8rpx solid #333; 
+    box-shadow: 0 2px 8px rgba($primary, 0.4);
+    border: 3px solid $gray-900;
   }
 
   &__icon {
-    font-size: 22px;
-    color: #fff;
+    font-size: $font-4xl;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-inverse;
   }
 
   &__badge {
@@ -323,15 +273,16 @@
     min-width: 18px;
     height: 18px;
     border-radius: 9px;
-    background: #fff;
-    color: #FF6B35;
-    font-size: 11px;
-    font-weight: 600;
+    background: $white;
+    color: $text-price;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    font-weight: $weight-semibold;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 4px;
-    border: 1px solid #FF6B35;
+    padding: 0 $space-1;
+    border: 1px solid $primary;
   }
 
   &__info {
@@ -339,7 +290,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-left: 20rpx;
+    margin-left: 10px;
   }
 
   &__price-wrap {
@@ -348,26 +299,27 @@
   }
 
   &__total {
-    font-size: 36rpx;
-    font-weight: 700;
-    color: #fff;
+    font-size: $font-2xl;
+    font-weight: $weight-bold;
+    color: $text-inverse;
     line-height: 1.2;
   }
 
   &__note {
-    font-size: 20rpx;
-    color: rgba(255,255,255,0.6);
-    margin-top: 4rpx;
+    font-size: $font-2xs;
+    line-height: $leading-normal;
+    color: rgba($white, 0.6);
+    margin-top: 2px;
   }
 
   &__btn {
-    padding: 16rpx 44rpx;
-    border-radius: 40rpx;
-    font-size: 28rpx;
-    font-weight: 600;
-    background: linear-gradient(135deg, #FF6B35, #FF8F65);
-    color: #fff;
-    box-shadow: 0 4rpx 12rpx rgba(255, 107, 53, 0.4);
+    padding: $space-2 22px;
+    border-radius: $radius-pill;
+    font-size: $font-base;
+    font-weight: $weight-semibold;
+    background: $gradient-brand;
+    color: $text-inverse;
+    box-shadow: 0 2px 6px rgba($primary, 0.4);
     transition: all 0.2s;
 
     &:active {
@@ -383,8 +335,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: #fff;
-  border-radius: 32rpx 32rpx 0 0;
+  background: $bg-card;
+  border-radius: $radius-xl $radius-xl 0 0;
   max-height: 70vh;
   display: flex;
   flex-direction: column;
@@ -394,39 +346,62 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 28rpx 32rpx;
-    border-bottom: 1px solid #F0F0F0;
+    padding: 14px $space-4;
+    border-bottom: 1px solid $border-color;
   }
 
   &__title {
-    font-size: 16px;
-    font-weight: 600;
+    font-size: $font-lg;
+    font-weight: $weight-semibold;
+    line-height: $leading-tight;
   }
 
   &__clear {
-    font-size: 14px;
-    color: #BDBDBD;
+    font-size: $font-base;
+    line-height: $leading-normal;
+    color: $text-hint;
     cursor: pointer;
   }
 
   &__body {
     max-height: 50vh;
     overflow-y: auto;
-    padding-bottom: 120rpx;
+    padding-bottom: $space-3;
+
+    .empty-state {
+      min-height: 220px;
+    }
+  }
+
+  &--embedded {
+    position: static;
+    max-height: none;
+    padding-bottom: 0;
+    border-radius: 0;
+
+    .cart-popup__header {
+      padding-top: 0;
+    }
+
+    /* 底部购物车栏仍浮在弹层之上，预留空间避免最后一项被遮挡 */
+    .cart-popup__body {
+      padding-bottom: 70px;
+    }
   }
 
   &__empty {
-    padding: 80rpx 0;
+    padding: $space-6 $space-3;
     text-align: center;
-    color: #999;
-    font-size: 28rpx;
+    color: $text-secondary;
+    font-size: $font-base;
+    line-height: $leading-normal;
   }
 
   &__item {
     display: flex;
     align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid #F8F8F8;
+    padding: $space-3 $space-4;
+    border-bottom: 1px solid $gray-50;
   }
 
   &__item-info {
@@ -434,47 +409,53 @@
   }
 
   &__item-name {
-    font-size: 30rpx;
-    color: #212121;
+    font-size: $font-md;
+    color: $text-primary;
+    line-height: $leading-normal;
   }
 
   &__item-spec {
-    font-size: 24rpx;
-    color: #BDBDBD;
-    margin-top: 4rpx;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-hint;
+    margin-top: 2px;
   }
 
   &__item-price {
-    font-size: 32rpx;
-    font-weight: 600;
-    color: #FF6B35;
-    margin-right: 24rpx;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-price;
+    margin-right: $space-3;
   }
 
   &__item-actions {
     display: flex;
     align-items: center;
-    gap: 20rpx;
+    gap: 10px;
   }
 
   &__qty-btn {
-    width: 48rpx;
-    height: 48rpx;
-    border-radius: 50%;
-    border: 1px solid #EEEEEE;
-    background: #fff;
-    font-size: 32rpx;
+    width: 24px;
+    height: 24px;
+    border-radius: $radius-full;
+    border: 1px solid $border-color;
+    background: $bg-card;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #757575;
+    color: $text-secondary;
     cursor: pointer;
   }
 
   &__qty {
-    font-size: 30rpx;
-    font-weight: 500;
-    min-width: 32rpx;
+    font-size: $font-md;
+    line-height: $leading-normal;
+    font-weight: $weight-medium;
+    min-width: 16px;
     text-align: center;
   }
 }
@@ -486,32 +467,24 @@
   &__handle {
     display: flex;
     justify-content: center;
-    padding: 10px 0 4px;
+    padding: 10px 0 $space-1;
 
     &-bar {
       width: 36px;
       height: 4px;
-      background: #E0E0E0;
+      background: $gray-300;
       border-radius: 2px;
     }
   }
 
   &__header {
     display: flex;
-    padding: 12rpx 32rpx 24rpx;
-    gap: 20rpx;
+    padding: 6px $space-4 $space-3;
+    gap: 10px;
   }
 
   &__image {
-    width: 140rpx;
-    height: 140rpx;
-    border-radius: 16rpx;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 64rpx;
     flex-shrink: 0;
-    background: #FFF0EB;
   }
 
   &__info {
@@ -519,19 +492,21 @@
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    padding: 4rpx 0;
+    padding: 2px 0;
   }
 
   &__name {
-    font-size: 34rpx;
-    font-weight: 600;
-    color: #212121;
+    font-size: $font-xl;
+    font-weight: $weight-semibold;
+    line-height: $leading-tight;
+    color: $text-primary;
   }
 
   &__desc {
-    font-size: 24rpx;
-    color: #9E9E9E;
-    margin-top: 4rpx;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-tertiary;
+    margin-top: 2px;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 1;
@@ -539,16 +514,17 @@
   }
 
   &__price-row {
-    margin-top: 8rpx;
+    margin-top: $space-1;
   }
 
   &__price {
-    font-size: 36rpx;
-    font-weight: 700;
-    color: #FF6B35;
+    font-size: $font-2xl;
+    font-weight: $weight-bold;
+    color: $text-price;
 
     &-unit {
-      font-size: 24rpx;
+      font-size: $font-xs;
+      line-height: $leading-normal;
     }
   }
 
@@ -562,24 +538,24 @@
   &__groups {
     max-height: 50vh;
     overflow-y: auto;
-    padding: 0 32rpx;
+    padding: 0 $space-4;
   }
 
   /* ---- 已选摘要 ---- */
   &__selected {
-    padding: 16rpx 32rpx;
-    background: #F8F8F8;
-    margin: 20rpx 0 0;
-    font-size: 24rpx;
-    color: #666;
+    padding: $space-2 $space-4;
+    background: $gray-50;
+    margin: 10px 0 0;
+    font-size: $font-xs;
+    color: $text-secondary;
 
     &-label {
-      color: #999;
+      color: $text-tertiary;
     }
 
     &-value {
-      color: #FF6B35;
-      font-weight: 500;
+      color: $text-price;
+      font-weight: $weight-medium;
     }
   }
 
@@ -588,34 +564,35 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 24rpx 32rpx;
+    padding: $space-3 $space-4;
   }
 
   &__qty-label {
-    font-size: 30rpx;
-    font-weight: 600;
-    color: #212121;
+    font-size: $font-md;
+    line-height: $leading-normal;
+    font-weight: $weight-semibold;
+    color: $text-primary;
   }
 
   &__qty-controls {
     display: flex;
     align-items: center;
-    background: #F5F5F5;
-    border-radius: 30rpx;
-    padding: 4rpx;
+    background: $bg-page;
+    border-radius: $radius-pill;
+    padding: 2px;
   }
 
   &__qty-btn {
-    width: 56rpx;
-    height: 56rpx;
+    width: 28px;
+    height: 28px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 32rpx;
-    color: #333;
-    background: #fff;
-    border-radius: 50%;
-    box-shadow: 0 2rpx 8rpx rgba(0,0,0,0.05);
+    font-size: $font-lg;
+    color: $text-primary;
+    background: $bg-card;
+    border-radius: $radius-full;
+    box-shadow: 0 1px 4px rgba($black, 0.05);
 
     &:active {
       opacity: 0.7;
@@ -623,10 +600,11 @@
   }
 
   &__qty-value {
-    font-size: 32rpx;
-    font-weight: 600;
-    color: #333;
-    min-width: 72rpx;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    min-width: 36px;
     text-align: center;
   }
 
@@ -635,9 +613,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 24rpx 32rpx;
-    padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
-    border-top: 1px solid #F0F0F0;
+    padding: $space-3 $space-4 $space-4;
+    border-top: 1px solid $border-color;
+    flex-shrink: 0;
+    background: $bg-card;
   }
 
   &__footer-left {
@@ -646,24 +625,26 @@
   }
 
   &__subtotal-label {
-    font-size: 24rpx;
-    color: #666;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-secondary;
   }
 
   &__subtotal-price {
-    font-size: 40rpx;
-    color: #FF6B35;
-    font-weight: 700;
+    font-size: $font-3xl;
+    line-height: $leading-tight;
+    color: $text-price;
+    font-weight: $weight-bold;
   }
 
   &__add-cart-btn {
-    padding: 20rpx 60rpx;
-    border-radius: 40rpx;
-    background: linear-gradient(135deg, #FF6B35, #FF8F65);
-    color: #fff;
-    font-size: 30rpx;
-    font-weight: 600;
-    box-shadow: 0 4rpx 16rpx rgba(255, 107, 53, 0.3);
+    padding: 10px 30px;
+    border-radius: $radius-pill;
+    background: $gradient-brand;
+    color: $text-inverse;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    box-shadow: $shadow-btn;
 
     &:active {
       transform: scale(0.96);
@@ -672,45 +653,47 @@
 }
 
 .spec-group {
-  margin-top: 24rpx;
+  margin-top: $space-3;
 
   &__header {
     display: flex;
     align-items: center;
-    gap: 8rpx;
-    margin-bottom: 16rpx;
+    gap: $space-1;
+    margin-bottom: $space-2;
   }
 
   &__name {
-    font-size: 30rpx;
-    font-weight: 600;
-    color: #212121;
+    font-size: $font-md;
+    line-height: $leading-normal;
+    font-weight: $weight-semibold;
+    color: $text-primary;
   }
 
   &__required-tag {
     display: flex;
     align-items: center;
-    font-size: 22rpx;
+    font-size: $font-xs;
+    line-height: $leading-normal;
   }
 
   &__required-star {
-    color: #FF4D4F;
-    margin-right: 4rpx;
+    color: $danger;
+    margin-right: 2px;
   }
 
   &__required-text {
-    color: #999;
+    color: $text-tertiary;
   }
 }
 
 .spec-option {
   display: inline-block;
-  padding: 12rpx 32rpx;
-  margin: 8rpx 16rpx 8rpx 0;
-  border: 1px solid #ddd;
-  border-radius: 32rpx;
-  font-size: 28rpx;
-  color: #666;
+  padding: 6px $space-4;
+  margin: $space-1 $space-2 $space-1 0;
+  border: 1px solid $border-strong;
+  border-radius: $radius-pill;
+  font-size: $font-base;
+  color: $text-secondary;
   cursor: pointer;
   transition: all 0.2s;
 
@@ -719,44 +702,47 @@
   }
 
   &.selected {
-    border-color: #FF6B35;
-    color: #FF6B35;
-    background: rgba(255, 107, 53, 0.05);
+    border-color: $text-price;
+    color: $text-price;
+    background: rgba($primary, 0.05);
   }
 
   &__price {
-    font-size: 24rpx;
-    color: #FF6B35;
-    margin-left: 8rpx;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-price;
+    margin-left: $space-1;
   }
 }
 
 .spec-popup__loading {
-  padding: 80rpx;
+  padding: $space-10;
   text-align: center;
-  color: #999;
-  font-size: 28rpx;
+  color: $text-tertiary;
+  font-size: $font-base;
+  line-height: $leading-normal;
 }
 
 /* Emoji 颜色映射 */
-.emoji-bg-hot { background: linear-gradient(135deg, #ff6b6b, #ffa07a); }
-.emoji-bg-meat { background: linear-gradient(135deg, #e17055, #fdcb6e); }
-.emoji-bg-veg { background: linear-gradient(135deg, #00b894, #55efc4); }
-.emoji-bg-drink { background: linear-gradient(135deg, #74b9ff, #a29bfe); }
-.emoji-bg-rice { background: linear-gradient(135deg, #fdcb6e, #e17055); }
+.item-bg-hot { background: $gradient-cat-hot; }
+.item-bg-meat { background: $gradient-cat-meat; }
+.item-bg-veg { background: $gradient-cat-veg; }
+.item-bg-drink { background: $gradient-cat-drink; }
+.item-bg-rice { background: $gradient-cat-rice; }
 
 /* 搜索栏扩展 */
 .menu-page__search-bar {
-  padding: 16rpx 24rpx;
-  background: #fff;
+  padding: $space-2 $space-3;
+  background: $bg-card;
 
   .menu-page__search-input {
     width: 100%;
-    height: 64rpx;
-    padding: 0 20rpx;
-    background: #f5f5f5;
-    border-radius: 32rpx;
-    font-size: 26rpx;
+    height: 32px;
+    padding: 0 10px;
+    background: $bg-page;
+    border-radius: $radius-pill;
+    font-size: $font-sm;
+    line-height: $leading-normal;
   }
 }
 
@@ -767,22 +753,22 @@
 }
 
 .cart-bar__btn--disabled {
-  background: #999 !important;
+  background: $gray-500 !important;
   opacity: 0.75;
   box-shadow: none !important;
 }
 
 
 .dine-banner {
-  margin: 8px 12px 0;
-  padding: 10px 12px;
+  margin: $space-2 $space-3 0;
+  padding: 10px $space-3;
   border-radius: 12px;
-  background: rgba(255, 107, 0, 0.08);
-  border: 1px solid rgba(255, 107, 0, 0.25);
+  background: $primary-ghost;
+  border: 1px solid rgba($primary, 0.25);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: $space-2;
 
   &__text {
     flex: 1;
@@ -791,22 +777,48 @@
 
   &__title {
     display: block;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: $font-base;
+    font-weight: $weight-semibold;
+    line-height: $leading-tight;
     color: $text-primary;
   }
 
   &__sub {
     display: block;
     margin-top: 2px;
-    font-size: 12px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
     color: $text-secondary;
   }
 
   &__clear {
     flex-shrink: 0;
-    font-size: 12px;
-    color: $primary;
-    padding: 4px 8px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-price;
+    padding: $space-1 $space-2;
   }
+}
+
+
+.dine-banner__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+
+/* 购物车行缩略图 */
+.cart-popup__item {
+  display: flex;
+  align-items: center;
+  gap: $space-2;
+}
+
+.cart-popup__item-thumb {
+  width: 44px !important;
+  height: 44px !important;
+  border-radius: $radius-sm;
+  overflow: hidden;
+  flex-shrink: 0;
 }

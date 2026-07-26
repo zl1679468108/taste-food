@@ -7,6 +7,7 @@ import {
 import { Observable, tap } from 'rxjs';
 import { AuditService } from './audit.service';
 import { UserRole } from '../../common/constants/enums';
+import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -74,7 +75,7 @@ export class AuditInterceptor implements NestInterceptor {
         next: () => {
           const { resource, resourceId } = parseResource(startedPath);
           void this.auditService.record({
-            shopId: user.shopId,
+            shopId: user.shopId || DEFAULT_SHOP_ID,
             userId: user.userId!,
             role: String(user.role || 'admin'),
             method,

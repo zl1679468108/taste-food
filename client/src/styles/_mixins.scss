@@ -1,4 +1,5 @@
 /* 通用 SCSS mixin */
+@use './design-tokens' as *;
 
 @mixin ellipsis($lines: 1) {
   @if $lines == 1 {
@@ -26,7 +27,7 @@
   justify-content: space-between;
 }
 
-@mixin hairline($color: #e0e0e0, $direction: bottom) {
+@mixin hairline($color: $border-strong, $direction: bottom) {
   position: relative;
 
   &::after {
@@ -67,4 +68,39 @@
     width: 0;
     height: 0;
   }
+}
+
+@mixin page-base {
+  min-height: 100vh;
+  background: $bg-page;
+  color: $text-primary;
+  font-size: $font-base;
+  line-height: $leading-normal;
+}
+
+@mixin card-surface {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-sm;
+}
+
+@mixin text-title {
+  font-size: $font-xl;
+  font-weight: $weight-semibold;
+  line-height: $leading-tight;
+  color: $text-primary;
+}
+
+@mixin text-body {
+  font-size: $font-base;
+  font-weight: $weight-regular;
+  line-height: $leading-normal;
+  color: $text-primary;
+}
+
+@mixin text-caption {
+  font-size: $font-xs;
+  font-weight: $weight-regular;
+  line-height: $leading-normal;
+  color: $text-tertiary;
 }

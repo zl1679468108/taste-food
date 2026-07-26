@@ -1,5 +1,6 @@
 import { Component, PropsWithChildren } from 'react';
 import { View, Text } from '@tarojs/components';
+import Icon from '../Icon';
 import './index.scss';
 
 interface BottomSheetProps {
@@ -8,6 +9,8 @@ interface BottomSheetProps {
   title?: string;
   showClose?: boolean;
   compact?: boolean;
+  /** 内容区去掉默认 padding，由内部自行控制边距 */
+  flush?: boolean;
 }
 
 interface BottomSheetState {
@@ -41,7 +44,7 @@ export default class BottomSheet extends Component<PropsWithChildren<BottomSheet
   }
 
   render() {
-    const { visible, title, showClose = true, compact, children } = this.props;
+    const { visible, title, showClose = true, compact, flush, children } = this.props;
     const { mounted } = this.state;
 
     if (!mounted) return null;
@@ -52,7 +55,7 @@ export default class BottomSheet extends Component<PropsWithChildren<BottomSheet
         onClick={() => this.handleClose()}
       >
         <View
-          className={`bottom-sheet-panel ${visible ? 'bottom-sheet-panel--visible' : ''} ${compact ? 'bottom-sheet-panel--compact' : ''}`}
+          className={`bottom-sheet-panel ${visible ? 'bottom-sheet-panel--visible' : ''} ${compact ? 'bottom-sheet-panel--compact' : ''} ${flush ? 'bottom-sheet-panel--flush' : ''}`}
           onClick={(e) => e.stopPropagation()}
           onTransitionEnd={() => this.handleTransitionEnd()}
         >
@@ -62,7 +65,7 @@ export default class BottomSheet extends Component<PropsWithChildren<BottomSheet
               <Text className="bottom-sheet-panel__title">{title}</Text>
               {showClose && (
                 <View className="bottom-sheet-panel__close" onClick={() => this.handleClose()}>
-                  ✕
+                  <Icon name="close" size={16} color="#999999" />
                 </View>
               )}
             </View>

@@ -1,6 +1,7 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import { View, Text, Button } from '@tarojs/components';
 import Taro from '@tarojs/taro';
+import Icon from '../Icon';
 import './index.scss';
 
 interface Props {
@@ -39,7 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
       }
       return (
         <View className='error-boundary'>
-          <Text className='error-boundary__icon'>⚠️</Text>
+          <View className='error-boundary__icon'><Icon name='warning' size={40} color='#FF6B35' /></View>
           <Text className='error-boundary__title'>页面出错了</Text>
           <Text className='error-boundary__message'>
             {this.state.error?.message || '未知错误'}

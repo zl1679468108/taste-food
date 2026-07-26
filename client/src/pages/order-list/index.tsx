@@ -28,13 +28,12 @@ const FILTER_TABS = [
 ];
 
 const OrderListPage = () => {
-  // Store 订阅（函数组件中正确订阅变化）
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const user = useAuthStore((s) => s.user);
 
-  // 本地状态
   const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [listLoading, setListLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -45,7 +44,11 @@ const OrderListPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
 
-  /** 加载店铺名称 */
+  const activeFilterRef = useRef(activeFilter);
+  activeFilterRef.current = activeFilter;
+  const requestSeqRef = useRef(0);
+  const hasLoadedOnceRef = useRef(false);
+
   const loadShopName = async () => {
     try {
       const res = await get<any>(`/shops/${DEFAULT_SHOP_ID}`);
@@ -55,19 +58,24 @@ const OrderListPage = () => {
     }
   };
 
-  /** 加载订单列表 */
   const loadOrders = async (pageNum: number, filter?: string) => {
-    const currentFilter = filter !== undefined ? filter : activeFilter;
+    const currentFilter = filter !== undefined ? filter : activeFilterRef.current;
+    const seq = ++requestSeqRef.current;
 
     if (!isLoggedIn) {
-      setLoading(false);
+      setInitialLoading(false);
+      setListLoading(false);
       return;
     }
 
     if (pageNum === 1) {
-      setLoading(true);
       setLoadError(false);
       setCanRetry(false);
+      if (!hasLoadedOnceRef.current) {
+        setInitialLoading(true);
+      } else {
+        setListLoading(true);
+      }
     } else {
       setLoadingMore(true);
     }
@@ -83,29 +91,40 @@ const OrderListPage = () => {
       }
 
       const response = await get<PaginatedData<Order>>('/orders', params);
-      const { items, total } = response.data;
-      const maxPage = Math.ceil(total / pageSize);
 
-      setOrders((prev) => (pageNum === 1 ? items : [...prev, ...items]));
+      // 丢弃过期请求，避免筛选切换后旧响应覆盖新列表
+      if (seq !== requestSeqRef.current) return;
+
+      const { items, total } = response.data;
+      // 前端兜底：确保列表与当前筛选状态一致
+      const matched = currentFilter
+        ? (items || []).filter((item) => item.status === currentFilter)
+        : items || [];
+      const maxPage = Math.ceil((total || 0) / pageSize);
+
+      setOrders((prev) => (pageNum === 1 ? matched : [...prev, ...matched]));
       setLoadError(false);
       setCanRetry(false);
-      setLoading(false);
-      setLoadingMore(false);
       setPage(pageNum);
       setHasMore(pageNum < maxPage);
+      hasLoadedOnceRef.current = true;
     } catch (error: any) {
-      setLoading(false);
-      setLoadingMore(false);
+      if (seq !== requestSeqRef.current) return;
       if (pageNum === 1) {
         setLoadError(true);
         setCanRetry(isRetryableError(error));
         setOrders([]);
       }
       console.error('加载订单列表失败:', error);
+    } finally {
+      if (seq === requestSeqRef.current) {
+        setInitialLoading(false);
+        setListLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
-  // 保持 loadOrders 的最新引用，供 socket 回调调用（避免闭包过期）
   const loadOrdersRef = useRef(loadOrders);
   loadOrdersRef.current = loadOrders;
 
@@ -122,52 +141,43 @@ const OrderListPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** 下拉刷新 */
   Taro.usePullDownRefresh(() => {
     setRefreshing(true);
-    // 使用 finally 确保 stopPullDownRefresh 始终执行，避免异常时动画卡死
     loadOrders(1).finally(() => {
       Taro.stopPullDownRefresh();
       setRefreshing(false);
     });
   });
 
-  /** 切换筛选 */
   const switchFilter = (filter: string) => {
+    if (filter === activeFilter) return;
+    // 立即更新筛选态，并清空旧列表，避免“状态对不上”
     setActiveFilter(filter);
+    activeFilterRef.current = filter;
+    setOrders([]);
     setPage(1);
+    setHasMore(true);
+    setLoadError(false);
     loadOrders(1, filter);
   };
 
-  /** 加载更多 */
   const loadMore = () => {
-    if (hasMore && !loadingMore) {
+    if (hasMore && !loadingMore && !listLoading) {
       loadOrders(page + 1);
     }
   };
 
-  /** 跳转订单详情 */
   const goToDetail = (orderId: string) => {
     Taro.navigateTo({ url: `/pages/order-detail/index?orderId=${orderId}` });
   };
-
-  /** 获取状态颜色 */
-
-  if (loading) {
-    return (
-      <View className='order-list-page'>
-        <SkeletonLoader mode='card' count={4} />
-      </View>
-    );
-  }
 
   if (!isLoggedIn) {
     return (
       <View className='order-list-page'>
         <EmptyState
-          icon='🔒'
+          icon='lock'
           title='请先登录'
-          description='登录后可查看订单'
+          description='登录后就能查看订单进度'
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -183,31 +193,44 @@ const OrderListPage = () => {
         onChange={switchFilter}
       />
 
-      {loadError ? (
-        <EmptyState
-          icon='⚠️'
-          title='加载失败'
-          description={canRetry ? '网络不稳定，请重试' : '订单列表暂时无法获取'}
-          actionText={canRetry ? '点击重试' : '去点餐'}
-          onAction={() => {
-            if (canRetry) {
-              loadOrders(1);
-            } else {
-              Taro.switchTab({ url: '/pages/menu/index' });
-            }
-          }}
-        />
+      {initialLoading ? (
+        <View className='order-list-page__body'>
+          <SkeletonLoader mode='card' count={4} />
+        </View>
+      ) : loadError ? (
+        <View className='order-list-page__body'>
+          <EmptyState
+            icon='warning'
+            title='加载失败'
+            description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
+            actionText={canRetry ? '再试一次' : '去点餐'}
+            onAction={() => {
+              if (canRetry) {
+                loadOrders(1);
+              } else {
+                Taro.switchTab({ url: '/pages/menu/index' });
+              }
+            }}
+          />
+        </View>
+      ) : listLoading ? (
+        <View className='order-list-page__body'>
+          <SkeletonLoader mode='card' count={4} />
+        </View>
       ) : orders.length === 0 ? (
-        <EmptyState
-          icon='📋'
-          title='暂无订单'
-          description='去点一份喜欢的吧'
-          actionText='去点餐'
-          onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
-        />
+        <View className='order-list-page__body'>
+          <EmptyState
+            icon='order'
+            title={activeFilter ? '这里还没有订单' : '还没有订单'}
+            description={activeFilter ? '换个状态看看，或去点一份喜欢的' : '去点一份喜欢的吧'}
+            actionText='去点餐'
+            onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
+          />
+        </View>
       ) : (
         <View className='order-list-page__list'>
           <VirtualList
+            key={`orders-${activeFilter || 'all'}`}
             data={orders}
             itemHeight={ORDER_CARD_HEIGHT}
             height='calc(100vh - 48px)'
@@ -220,17 +243,21 @@ const OrderListPage = () => {
                 onClick={() => goToDetail(order.id)}
               />
             )}
+            footer={
+              <>
+                {loadingMore && (
+                  <View className='load-more'>
+                    <Text>加载中...</Text>
+                  </View>
+                )}
+                {!hasMore && orders.length > 0 && !loadingMore && (
+                  <View className='load-more'>
+                    <Text>—— 没有更多了 ——</Text>
+                  </View>
+                )}
+              </>
+            }
           />
-          {loadingMore && (
-            <View className='load-more'>
-              <Text>加载中...</Text>
-            </View>
-          )}
-          {!hasMore && orders.length > 0 && (
-            <View className='load-more'>
-              <Text>—— 没有更多了 ——</Text>
-            </View>
-          )}
         </View>
       )}
     </View>

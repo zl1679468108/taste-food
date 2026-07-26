@@ -177,6 +177,13 @@ const RiderPage = () => {
 
   return (
     <View className='rider-page'>
+      <View className='rider-page__mine-entry' onClick={() => Taro.switchTab({ url: '/pages/mine/index' })}>
+        <View className='rider-page__mine-entry-left'>
+          <Text className='rider-page__mine-entry-title'>我的账号</Text>
+          <Text className='rider-page__mine-entry-desc'>账号信息 · 退出登录</Text>
+        </View>
+        <Text className='rider-page__mine-entry-go'>进入</Text>
+      </View>
       <FilterTabs
         tabs={[
           { key: 'pool', label: '待抢单' },
@@ -193,17 +200,17 @@ const RiderPage = () => {
           <SkeletonLoader mode='card' count={3} />
         ) : loadError ? (
           <EmptyState
-            icon='⚠️'
+            icon='warning'
             title='加载失败'
-            description={canRetry ? '网络不稳定，请重试' : '订单暂时无法获取'}
-            actionText={canRetry ? '点击重试' : '重新加载'}
+            description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
+            actionText={canRetry ? '再试一次' : '重新加载'}
             onAction={() => loadData()}
           />
         ) : orders.length === 0 ? (
           <EmptyState
-            icon='🛵'
+            icon='order'
             title={activeTab === 'pool' ? '暂无待抢订单' : '暂无配送中订单'}
-            description={activeTab === 'pool' ? '有新单会实时提醒' : '抢单后会显示在这里'}
+            description={activeTab === 'pool' ? '有新单会及时提醒你' : '抢单后会显示在这里'}
           />
         ) : (
           orders.map(order => (

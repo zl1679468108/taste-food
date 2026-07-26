@@ -1,27 +1,35 @@
 @use '../../styles/design-tokens' as *;
 
 .status-timeline {
-  padding: $space-4 $space-4;
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
+  padding: $card-padding;
+  box-shadow: $shadow-sm;
 
   &__title {
+    display: block;
     font-size: $font-md;
     font-weight: $weight-semibold;
-    color: $gray-800;
+    color: $text-primary;
     margin-bottom: $space-4;
+    line-height: $leading-snug;
   }
 
   &__item {
     display: flex;
-    padding-bottom: $space-4;
+    min-height: 44px;
+    padding-bottom: 14px;
     position: relative;
 
     &:last-child {
       padding-bottom: 0;
+      min-height: auto;
     }
   }
 
   &__dot-col {
-    width: 24px;
+    width: 20px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -29,11 +37,12 @@
   }
 
   &__dot {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     border-radius: $radius-full;
     flex-shrink: 0;
     z-index: 1;
+    margin-top: $space-1;
 
     &--done {
       background: $success;
@@ -41,7 +50,7 @@
 
     &--current {
       background: $info;
-      animation: timeline-pulse 2s infinite;
+      box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.18);
     }
 
     &--pending {
@@ -52,7 +61,8 @@
   &__line {
     width: 2px;
     flex: 1;
-    margin-top: 4px;
+    min-height: $space-6;
+    margin-top: $space-1;
 
     &--done {
       background: $success;
@@ -65,13 +75,23 @@
 
   &__content {
     flex: 1;
-    padding-left: $space-2;
+    min-width: 0;
+    padding-left: 10px;
+  }
+
+  &__label-row {
+    display: flex;
+    align-items: center;
+    gap: $space-2;
+    min-width: 0;
   }
 
   &__label {
+    display: block;
     font-size: $font-base;
     font-weight: $weight-medium;
-    color: $gray-400;
+    color: $text-hint;
+    line-height: $leading-snug;
 
     &--done {
       color: $success;
@@ -84,23 +104,20 @@
   }
 
   &__time {
+    display: block;
     font-size: $font-xs;
-    color: $gray-500;
-    margin-top: 2px;
+    color: $text-tertiary;
+    margin-top: $space-1;
+    line-height: $leading-snug;
   }
 
   &__badge {
-    display: inline-block;
-    font-size: 24rpx;
-    padding: 1px 6px;
-    border-radius: 8px;
-    background: rgba(59, 130, 246, 0.1);
+    flex-shrink: 0;
+    font-size: $font-xs;
+    line-height: $leading-none;
+    padding: 3px 6px;
+    border-radius: $radius-sm;
+    background: rgba(33, 150, 243, 0.1);
     color: $info;
-    margin-left: 4px;
   }
-}
-
-@keyframes timeline-pulse {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2); }
-  50%      { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0.1); }
 }

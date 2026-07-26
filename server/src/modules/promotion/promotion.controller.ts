@@ -10,7 +10,6 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
-  ForbiddenException,
 } from '@nestjs/common';
 import { PromotionService } from './promotion.service';
 import { CreatePromotionDto, UpdatePromotionDto, PromotionResponseDto } from './dto/promotion.dto';
@@ -25,11 +24,9 @@ import { success, ApiResponse } from '../../common/interfaces/api-response.inter
 export class PromotionController {
   constructor(private readonly promotionService: PromotionService) {}
 
-  private requireAdminShopId(shopId?: string): string {
-    if (!shopId) {
-      throw new ForbiddenException('管理员账号未绑定店铺');
-    }
-    return shopId;
+  /** 单店铺场景：admin 未绑定 shopId 时兜底 DEFAULT_SHOP_ID */
+  private resolveAdminShopId(shopId?: string): string {
+    return shopId || DEFAULT_SHOP_ID;
   }
 
   /**
@@ -42,7 +39,7 @@ export class PromotionController {
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<PromotionResponseDto[]>> {
     const promotions = await this.promotionService.findAllForManagement(
-      this.requireAdminShopId(userShopId),
+      this.resolveAdminShopId(userShopId),
     );
     return success(promotions);
   }
@@ -92,7 +89,7 @@ export class PromotionController {
     const promotion = await this.promotionService.update(
       id,
       dto,
-      this.requireAdminShopId(userShopId),
+      this.resolveAdminShopId(userShopId),
     );
     return success(promotion, '促销更新成功');
   }
@@ -107,7 +104,7 @@ export class PromotionController {
     @Param('id') id: string,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<null>> {
-    await this.promotionService.remove(id, this.requireAdminShopId(userShopId));
+    await this.promotionService.remove(id, this.resolveAdminShopId(userShopId));
     return success(null, '促销删除成功');
   }
 }

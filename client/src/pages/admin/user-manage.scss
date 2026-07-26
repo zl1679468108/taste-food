@@ -1,60 +1,65 @@
+@use '../../styles/design-tokens' as *;
+
 .user-manage {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f8fafc;
+  background: $bg-muted;
 
   .header {
-    background: #fff;
-    padding: 20px;
-    border-bottom: 1px solid #f1f5f9;
+    background: $bg-card;
+    padding: $space-5;
+    border-bottom: 1px solid $border-light;
+
     .title {
-      font-size: 20px;
-      font-weight: bold;
-      color: #1e293b;
+      font-size: $font-3xl;
+      font-weight: $weight-bold;
+      color: $text-primary;
       display: block;
     }
+
     .subtitle {
-      font-size: 13px;
-      color: #64748b;
-      margin-top: 4px;
+      font-size: $font-sm;
+      color: $text-secondary;
+      margin-top: $space-1;
     }
   }
 
   .user-list {
     flex: 1;
-    padding: 12px;
+    padding: $space-3;
     box-sizing: border-box;
 
     .status-info {
       text-align: center;
-      padding: 40px 0;
-      color: #94a3b8;
+      padding: $space-10 0;
+      color: $text-tertiary;
     }
 
     .user-card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 12px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+      background: $bg-card;
+      border-radius: $radius-lg;
+      padding: $space-4;
+      margin-bottom: $space-3;
+      box-shadow: $shadow-sm;
 
       &__main {
         display: flex;
         align-items: center;
-        margin-bottom: 16px;
+        margin-bottom: $space-4;
 
         .user-avatar {
-          width: 48px;
-          height: 48px;
-          border-radius: 24px;
-          background: #f1f5f9;
+          width: $space-12;
+          height: $space-12;
+          border-radius: $radius-full;
+          background: $bg-hover;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 24px;
+          font-size: $font-5xl;
           overflow: hidden;
-          margin-right: 12px;
+          margin-right: $space-3;
+
           .img {
             width: 100%;
             height: 100%;
@@ -64,49 +69,57 @@
 
         .user-info {
           flex: 1;
+
           &__name-row {
             display: flex;
             align-items: center;
-            margin-bottom: 4px;
+            margin-bottom: $space-1;
+
             .name {
-              font-size: 16px;
-              font-weight: bold;
-              color: #334155;
-              margin-right: 8px;
+              font-size: $font-lg;
+              font-weight: $weight-bold;
+              color: $text-primary;
+              margin-right: $space-2;
             }
+
             .role-tag {
-              font-size: 10px;
+              font-size: $font-xs;
               padding: 1px 6px;
               border: 1px solid;
-              border-radius: 4px;
+              border-radius: $radius-xs;
             }
           }
+
           .join-date {
-            font-size: 12px;
-            color: #94a3b8;
+            font-size: $font-xs;
+            color: $text-tertiary;
           }
         }
       }
 
       &__stats {
         display: flex;
-        border-top: 1px solid #f1f5f9;
-        padding-top: 12px;
+        border-top: 1px solid $border-light;
+        padding-top: $space-3;
+
         .stat-item {
           flex: 1;
           display: flex;
           flex-direction: column;
+
           .label {
-            font-size: 11px;
-            color: #94a3b8;
-            margin-bottom: 4px;
+            font-size: $font-xs;
+            color: $text-tertiary;
+            margin-bottom: $space-1;
           }
+
           .value {
-            font-size: 14px;
-            color: #475569;
-            font-weight: 500;
+            font-size: $font-base;
+            color: $text-secondary;
+            font-weight: $weight-medium;
+
             &.price {
-              color: #f59e0b;
+              color: $warning;
             }
           }
         }

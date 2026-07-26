@@ -1,19 +1,153 @@
 @use '../../styles/design-tokens' as *;
 @use '../../styles/mixins' as *;
 
+.menu-item-card {
+  display: flex;
+  background: $bg-card;
+  border-radius: $radius-sm;
+  overflow: hidden;
+  margin-bottom: $space-2;
+  box-shadow: $shadow-card;
 
-.menu-item-card__img {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-}
+  &:active {
+    opacity: 0.96;
+  }
 
-.menu-item-card__favorite {
-  display: inline-block;
-  margin-left: 8px;
-  font-size: 14px;
-}
+  &__thumb {
+    width: 88px !important;
+    height: auto !important;
+    min-height: 88px;
+    align-self: stretch;
+    flex-shrink: 0;
+    border-radius: 0 !important;
+    border-right: 1rpx solid rgba($black, 0.03);
+    position: relative;
 
-.menu-item-card__desc {
-  @include ellipsis(2);
+    .food-thumb__img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  &__info {
+    flex: 1;
+    min-width: 0;
+    padding: 9px 10px $space-2 9px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  &__top {
+    min-width: 0;
+  }
+
+  &__name {
+    display: block;
+    font-size: $font-md;
+    line-height: $leading-snug;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    @include ellipsis(1);
+  }
+
+  &__desc {
+    display: block;
+    margin-top: 3px;
+    font-size: $font-xs;
+    line-height: 1.4;
+    color: $text-secondary;
+    @include ellipsis(1);
+  }
+
+  &__bottom {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  &__meta {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+  }
+
+  &__price-unit {
+    font-size: $font-xs;
+    font-weight: $weight-semibold;
+    color: $text-price;
+    line-height: $leading-none;
+  }
+
+  &__price {
+    font-size: $font-xl;
+    font-weight: $weight-bold;
+    color: $text-price;
+    line-height: $leading-none;
+  }
+
+  &__sales {
+    font-size: $font-2xs;
+    color: $text-hint;
+    line-height: 1.3;
+  }
+
+  &__actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  &__favorite {
+    width: 26px;
+    height: 26px;
+    border-radius: $radius-full;
+    background: $gray-50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:active {
+      background: $bg-page;
+    }
+
+    &.is-active {
+      background: rgba($danger, 0.08);
+    }
+  }
+
+  &__add-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: $radius-full;
+    background: $primary;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 7px rgba($primary, 0.28);
+
+    &:active {
+      transform: scale(0.94);
+    }
+  }
+
+  &__add-icon {
+    color: $text-inverse;
+    font-size: $font-xl;
+    line-height: $leading-none;
+    font-weight: $weight-regular;
+  }
 }

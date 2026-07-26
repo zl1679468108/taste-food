@@ -1,4 +1,5 @@
 import React from 'react';
+import { brand } from '@/theme';
 
 interface PriceDisplayProps {
   price: number;
@@ -7,7 +8,7 @@ interface PriceDisplayProps {
 
 const PriceDisplay: React.FC<PriceDisplayProps> = ({ price, style }) => {
   return (
-    <span style={{ color: '#f5222d', fontWeight: 500, ...style }}>
+    <span style={{ color: brand.textPrice, fontWeight: 500, ...style }}>
       ¥{(price / 100).toFixed(2)}
     </span>
   );

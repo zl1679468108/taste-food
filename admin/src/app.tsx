@@ -1,8 +1,9 @@
 import type { RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
 import { message, Dropdown, Space } from 'antd';
-import { LogoutOutlined } from '@ant-design/icons';
+import { LogoutOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getCurrentUser } from './services/auth';
+import { brand } from './theme';
 
 const loginPath = '/login';
 
@@ -59,14 +60,16 @@ export async function getInitialState(): Promise<{
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
   return {
     logo: (
-      <div style={{ 
-        fontSize: 28, 
-        lineHeight: '28px',
+      <div style={{
+        width: 28,
+        height: 28,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        color: brand.primary,
+        fontSize: 22,
       }}>
-        🍜
+        <CoffeeOutlined />
       </div>
     ),
     title: '小买卖管理后台',
@@ -112,7 +115,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     },
     onPageNotFound: () => { history.push('/'); },
     footerRender: () => (
-      <div style={{ textAlign: 'center', padding: '16px 0', color: '#999' }}>
+      <div style={{ textAlign: 'center', padding: '16px 0', color: brand.textTertiary }}>
         小买卖点餐系统 ©2026
       </div>
     ),
@@ -125,6 +128,10 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     splitMenus: false,
     navTheme: 'light',
     colorWeak: false,
-    contentStyle: { margin: 0 },
+    contentStyle: { margin: 0, padding: '0 0 24px' },
+    // 全局去掉面包屑，页面只保留标题+刷新组件
+    breadcrumbRender: false,
+    pageTitleRender: false,
   };
 };
+

@@ -6,6 +6,7 @@ import { formatTime } from '../../utils/format';
 import { PaginatedData } from '../../types/api';
 import { DEFAULT_PAGE_SIZE } from '../../env';
 import './user-manage.scss';
+import Icon from '../../components/Icon';
 
 interface UserSummary {
   id: string;
@@ -97,7 +98,7 @@ const UserManagePage = () => {
               <View key={user.id} className='user-card'>
                 <View className='user-card__main'>
                   <View className='user-avatar'>
-                    {user.avatarUrl ? <View className='img' style={{ backgroundImage: `url(${user.avatarUrl})` }} /> : <Text>👤</Text>}
+                    {user.avatarUrl ? <View className='img' style={{ backgroundImage: `url(${user.avatarUrl})` }} /> : <Icon name='user' size={22} color='#999999' />}
                   </View>
                   <View className='user-info'>
                     <View className='user-info__name-row'>

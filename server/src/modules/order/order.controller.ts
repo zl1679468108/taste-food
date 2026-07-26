@@ -72,7 +72,7 @@ export class OrderController {
     let result: PaginatedData<OrderRecord>;
 
     if (user.role === UserRole.ADMIN && query.user_id) {
-      result = await this.orderService.findByUserId(query.user_id, page, pageSize);
+      result = await this.orderService.findByUserId(query.user_id, page, pageSize, query.status);
     } else if (user.role === UserRole.ADMIN && query.rider_id) {
       result = await this.orderService.findByRiderId(query.rider_id, query.status, page, pageSize);
     } else if (user.role === UserRole.ADMIN) {
@@ -87,7 +87,8 @@ export class OrderController {
     } else if (user.role === UserRole.RIDER) {
       result = await this.orderService.findByRiderId(user.userId, query.status, page, pageSize);
     } else if (user.role === UserRole.CUSTOMER) {
-      result = await this.orderService.findByUserId(user.userId, page, pageSize);
+      // 顾客订单列表支持按 status 筛选（待支付/已支付等 Tab）
+      result = await this.orderService.findByUserId(user.userId, page, pageSize, query.status);
     } else {
       result = { items: [], total: 0, page, pageSize };
     }
@@ -100,13 +101,27 @@ export class OrderController {
   async exportOrders(
     @Query('status') status: string | undefined,
     @Query('maxRows') maxRowsRaw: string | undefined,
+    @Query('format') formatRaw: string | undefined,
     @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<{ csv: string; count: number; filename: string }>> {
+  ): Promise<
+    ApiResponse<{
+      csv: string;
+      xlsxBase64?: string;
+      count: number;
+      filename: string;
+      xlsxFilename?: string;
+      contentType?: string;
+    }>
+  > {
     const shopId = userShopId || DEFAULT_SHOP_ID;
     const maxRows = maxRowsRaw ? parseInt(maxRowsRaw, 10) : 1000;
+    const raw = String(formatRaw || 'both').toLowerCase();
+    const format: 'csv' | 'xlsx' | 'both' =
+      raw === 'csv' || raw === 'xlsx' || raw === 'both' ? raw : 'both';
     const data = await this.orderService.exportOrdersCsv(shopId, {
       status: status || undefined,
       maxRows: Number.isFinite(maxRows) ? maxRows : 1000,
+      format,
     });
     return success(data, '导出成功');
   }

@@ -5,44 +5,138 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: $space-8 $space-4;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 52vh;
+  padding: $space-8 $space-6 $space-6;
+  text-align: center;
+
+  &--compact {
+    min-height: 0;
+    padding: $space-5 $space-4 $space-4;
+
+    .empty-state__icon-wrap {
+      width: 72px;
+      height: 72px;
+      border-radius: 28px;
+      margin-bottom: $space-3;
+    }
+
+    .empty-state__icon {
+      font-size: $font-icon-md;
+      margin-bottom: $space-3;
+    }
+
+    .empty-state__title {
+      font-size: $font-md;
+      line-height: $leading-normal;
+      margin-bottom: 6px;
+    }
+
+    .empty-state__desc {
+      font-size: $font-sm;
+      line-height: $leading-normal;
+      margin-bottom: $space-3;
+    }
+
+    .empty-state__action {
+      height: 36px;
+      min-width: 112px;
+      padding: 0 $space-5;
+    }
+
+    .empty-state__action-text {
+      font-size: $font-sm;
+      line-height: $leading-normal;
+    }
+  }
+
+  &__icon-wrap {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    border-radius: 32px;
+    background: $gradient-empty-icon;
+    box-shadow:
+      $shadow-empty-icon,
+      inset 0 1px 0 rgba($white, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: $space-5;
+    overflow: hidden;
+  }
+
+  &__icon-glow {
+    position: absolute;
+    width: 56px;
+    height: 56px;
+    border-radius: $radius-full;
+    background: radial-gradient(
+      circle,
+      rgba($white, 0.9) 0%,
+      rgba($white, 0) 72%
+    );
+    top: $space-2;
+    left: 14px;
+    pointer-events: none;
+  }
 
   &__icon {
-    font-size: 136rpx;
+    font-size: $font-icon-xl;
+    line-height: $leading-none;
     margin-bottom: $space-4;
   }
 
   &__title {
-    font-size: $font-xl;
-    font-weight: $weight-medium;
-    color: $gray-800;
+    font-size: $font-lg;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-tight;
     margin-bottom: $space-2;
+    letter-spacing: 0.2px;
   }
 
   &__desc {
+    max-width: 210px;
     font-size: $font-base;
-    color: $gray-500;
+    color: $text-secondary;
     text-align: center;
-    line-height: 1.5;
-    margin-bottom: $space-4;
+    line-height: $leading-normal;
+    margin-bottom: $space-5;
   }
 
   &__action {
+    min-width: 128px;
     height: 40px;
-    padding: 0 24px;
+    padding: 0 28px;
     border-radius: $radius-2xl;
     background: $gradient-brand;
-    color: #fff;
-    font-size: $font-md;
-    font-weight: $weight-medium;
     box-shadow: $shadow-btn;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: transform $duration-fast $ease-out, opacity $duration-fast $ease-out,
+      box-shadow $duration-fast $ease-out;
 
+    &--hover,
     &:active {
-      opacity: 0.85;
+      opacity: 0.92;
+      transform: scale(0.96);
+      box-shadow: 0 1px 4px rgba($primary, 0.22);
     }
+  }
+
+  &__action-text {
+    color: $text-inverse;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    line-height: $leading-none;
+  }
+
+  /* 描述缺省时，按钮上边距由 title 承担 */
+  &__title + &__action {
+    margin-top: $space-3;
   }
 }

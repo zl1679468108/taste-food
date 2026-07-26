@@ -7,6 +7,7 @@ import { shortOrderId, formatTime } from '../../utils/format';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import './reviews.scss';
+import Icon from '../../components/Icon';
 
 interface ReviewItem {
   id: string;
@@ -121,10 +122,10 @@ export default function AdminReviewsPage() {
     return (
       <View className='admin-reviews-page'>
         <EmptyState
-          icon='⚠️'
+          icon='warning'
           title='加载失败'
-          description={canRetry ? '网络不稳定，请重试' : '评价列表暂时无法获取'}
-          actionText={canRetry ? '点击重试' : '重新加载'}
+          description={canRetry ? '网络不太稳，点一下再试试' : '评价暂时加载不出来'}
+          actionText={canRetry ? '再试一次' : '重新加载'}
           onAction={() => loadReviews(1)}
         />
       </View>
@@ -135,9 +136,9 @@ export default function AdminReviewsPage() {
     return (
       <View className='admin-reviews-page'>
         <EmptyState
-          icon='⭐'
+          icon='star'
           title='暂无评价'
-          description='顾客完成订单后可提交评分'
+          description='顾客完成订单后会显示在这里'
         />
       </View>
     );
@@ -150,12 +151,16 @@ export default function AdminReviewsPage() {
           <View className='review-card__header'>
             <View className='review-card__stars'>
               {[1, 2, 3, 4, 5].map((star) => (
-                <Text
+                <View
                   key={star}
                   className={`review-card__star ${star <= item.rating ? 'review-card__star--active' : ''}`}
                 >
-                  ★
-                </Text>
+                  <Icon
+                    name={star <= item.rating ? 'star-filled' : 'star'}
+                    size={16}
+                    color={star <= item.rating ? '#FF6B35' : '#DDDDDD'}
+                  />
+                </View>
               ))}
               <Text className='review-card__score'>{item.rating} 分</Text>
             </View>

@@ -6,16 +6,18 @@
  * - 真机必须把 API_BASE_URL / WS_URL 设为电脑局域网 IP，例如：
  *   http://192.168.1.10:3010/api  /  ws://192.168.1.10:3010
  * - 模拟器可用 127.0.0.1（推荐）或局域网 IP
- * - 小程序中 process.env 需在 Taro 编译配置中注入
+ * - 小程序中 process.env.XXX 必须由 Taro DefinePlugin 在编译期替换为字面量
+ *   （见 config/index.ts merge dev/prod + config/dev.ts env）
+ * - 若未注入，运行时没有 Node process，会直接白屏
  */
 
-// API 基础地址
+// API 基础地址（编译期由 config/dev.ts 或 config/prod.ts 注入）
 export const API_BASE_URL: string =
-  process.env.API_BASE_URL || 'http://127.0.0.1:3010/api';
+  process.env.API_BASE_URL || 'http://192.168.0.112:3010/api';
 
 // WebSocket 地址
 export const WS_URL: string =
-  process.env.WS_URL || 'ws://127.0.0.1:3010';
+  process.env.WS_URL || 'ws://192.168.0.112:3010';
 
 // Supabase 配置
 export const SUPABASE_URL: string =

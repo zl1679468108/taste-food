@@ -1,29 +1,35 @@
+@use '../../styles/design-tokens' as *;
+
 .admin-reviews-page {
   min-height: 100vh;
-  background: #f5f5f5;
-  padding: 12px;
+  background: $bg-page;
+  padding: $space-3 $space-3 $space-5;
   box-sizing: border-box;
+
+  > .empty-state {
+    min-height: 60vh;
+  }
 
   &__more {
     text-align: center;
-    padding: 16px 0 24px;
-    color: #999;
-    font-size: 13px;
+    padding: $space-4 0 $space-6;
+    color: $text-tertiary;
+    font-size: $font-sm;
   }
 }
 
 .review-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: $bg-card;
+  border-radius: $radius-lg;
+  padding: 14px $space-4;
+  margin-bottom: $space-3;
+  box-shadow: $shadow-sm;
 
   &__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 8px;
+    margin-bottom: $space-2;
   }
 
   &__stars {
@@ -33,63 +39,66 @@
   }
 
   &__star {
-    font-size: 16px;
-    color: #ddd;
+    font-size: $font-lg;
+    color: $border-strong;
 
     &--active {
-      color: #FFB400;
+      color: $star;
     }
   }
 
   &__score {
     margin-left: 6px;
-    font-size: 13px;
-    color: #FF6B35;
-    font-weight: 600;
+    font-size: $font-sm;
+    color: $primary;
+    font-weight: $weight-semibold;
   }
 
   &__time {
-    font-size: 12px;
-    color: #999;
+    font-size: $font-xs;
+    color: $text-tertiary;
   }
 
   &__content {
     display: block;
-    font-size: 14px;
-    color: #333;
-    line-height: 1.5;
-    margin-bottom: 8px;
+    font-size: $font-base;
+    color: $text-primary;
+    line-height: $leading-normal;
+    margin-bottom: $space-2;
   }
 
   &__order {
     display: block;
-    font-size: 12px;
-    color: #999;
+    font-size: $font-xs;
+    color: $text-tertiary;
   }
 }
 
 .review-card__reply {
   margin-top: 10px;
-  padding: 8px 10px;
-  background: #f7f8fa;
-  border-radius: 8px;
+  padding: $space-2 10px;
+  background: $bg-muted;
+  border-radius: $radius-sm;
 }
+
 .review-card__reply-label {
   display: block;
-  font-size: 12px;
-  color: #888;
-  margin-bottom: 4px;
+  font-size: $font-xs;
+  color: $text-secondary;
+  margin-bottom: $space-1;
 }
+
 .review-card__reply-text {
-  font-size: 13px;
-  color: #333;
+  font-size: $font-sm;
+  color: $text-primary;
 }
+
 .review-card__reply-btn {
   margin-top: 10px;
   display: inline-flex;
-  padding: 4px 12px;
-  border-radius: 12px;
-  background: #ff6b00;
-  color: #fff;
-  font-size: 12px;
+  padding: $space-1 $space-3;
+  border-radius: $radius-lg;
+  background: $primary;
+  color: $text-inverse;
+  font-size: $font-xs;
 }

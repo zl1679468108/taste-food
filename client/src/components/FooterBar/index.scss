@@ -5,15 +5,21 @@
   bottom: 0;
   left: 0;
   right: 0;
-  min-height: 120rpx;
-  background: #fff;
+  min-height: 60px;
+  background: $bg-card;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32rpx;
-  @include safe-area-bottom;
+  padding: 10px $space-4;
+  padding-bottom: calc(10px + constant(safe-area-inset-bottom));
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
   box-shadow: $shadow-top;
   z-index: 1000;
+  box-sizing: border-box;
+
+  &--action-only {
+    justify-content: stretch;
+  }
 
   &__left {
     display: flex;
@@ -22,23 +28,27 @@
 
   &__label {
     font-size: $font-sm;
+    line-height: $leading-normal;
     color: $text-primary;
   }
 
   &__total {
     font-size: $font-2xl;
-    color: $primary;
+    line-height: $leading-tight;
+    color: $text-price;
     font-weight: $weight-bold;
   }
 
   &__action {
-    padding: 20rpx 60rpx;
+    padding: 10px 30px;
     background: $gradient-brand;
-    color: #fff;
+    color: $text-inverse;
     font-size: $font-md;
     font-weight: $weight-semibold;
-    border-radius: 40rpx;
+    border-radius: $radius-pill;
     box-shadow: $shadow-btn;
+    transition: transform $duration-fast $ease-out, opacity $duration-fast $ease-out,
+      box-shadow $duration-fast $ease-out;
 
     &.is-disabled {
       background: $gray-300;
@@ -47,7 +57,38 @@
     }
 
     &:active {
+      opacity: 0.92;
       transform: scale(0.96);
+      box-shadow: 0 1px 4px rgba(255, 107, 53, 0.22);
+    }
+  }
+
+  &__full-action {
+    width: 100%;
+    height: 44px;
+    border-radius: $radius-pill;
+    background: $gradient-brand;
+    color: $text-inverse;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: $shadow-btn;
+    transition: transform $duration-fast $ease-out, opacity $duration-fast $ease-out,
+      box-shadow $duration-fast $ease-out;
+
+    &.is-disabled {
+      background: $gray-300;
+      box-shadow: none;
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    &:active {
+      opacity: 0.92;
+      transform: scale(0.96);
+      box-shadow: 0 1px 4px rgba(255, 107, 53, 0.22);
     }
   }
 }

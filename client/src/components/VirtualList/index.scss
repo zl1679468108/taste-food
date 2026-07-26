@@ -1,5 +1,11 @@
+@use '../../styles/design-tokens' as *;
+
 .tf-virtual-list {
   width: 100%;
+
+  &__content {
+    width: 100%;
+  }
 
   &__phantom {
     position: relative;
@@ -16,5 +22,9 @@
 
   &__item {
     box-sizing: border-box;
+  }
+
+  &__footer {
+    width: 100%;
   }
 }

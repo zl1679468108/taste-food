@@ -1,7 +1,7 @@
 # 小买卖点餐系统 — 产品需求文档
 
-> **版本**: v15.13<br>
-> **更新日期**: 2026-07-25<br>
+> **版本**: 1.0.1<br>
+> **更新日期**: 2026-07-26<br>
 > **仓库**: `/Users/zhaolong/前端/vibe-coding-project/taste-food`  
 > **任务看板**: `docs/tasks.md`  
 > **开发状态**: ✅ 已达个人主体约 90% 可演示上线（支付默认沙箱；真实微信支付暂缓；旧库 schema 由服务端兼容回退）
@@ -35,7 +35,8 @@
 | 功能 | 优先级 | 任务 | 状态 |
 |------|--------|------|------|
 | ✅ 微信登录 | P0 | T01 | done |
-| ✅ 角色切换 | P0 | T01 | done |
+| ✅ 我的页 / 退出登录 | P1 | T188 | done 2026-07-26 |
+| ❌ 角色切换（已移除） | — | T189 | 一账号一身份，不提供端内切换 |
 | ✅ 菜单浏览 | P0 | T02, T03, T26 | done |
 | ✅ 搜索菜品 | P1 | T15 | done |
 | ✅ 购物车 | P0 | T04, T24 | done |
@@ -153,6 +154,8 @@
 | ✅ 订单评价 | P2 | T154 | ✅ 2026-07-24 | 完成后评分+文字；商家/后台可查看 |
 | ✅ 通用弱网/错误重试/空态引导 | P2 | T155 | ✅ 2026-07-24 | 请求失败可重试、弱网提示、空态 CTA |
 | ✅ 下单备注与发票信息 | P2 | T156 | ✅ 2026-07-24 | 订单备注、是否开票、抬头/税号；商家与 admin 可见 |
+| ✅ 小程序全局样式变量统一 | P1 | T194 | ✅ 2026-07-26 | 字体/字号/颜色/间距/行高 design tokens，模块 scss 去硬编码 |
+| ✅ 样式变量落地验收与 PC 对齐 | P1 | T195 | ✅ 2026-07-26 | 小程序文字层级验收；admin theme/CSS 变量对齐 client tokens |
 
 **本轮不做**: 批量异步导出任务（可后续追加；已支持同步 CSV 导出）。配送轨迹地图已在 §3.17 补齐。
 
@@ -207,7 +210,14 @@
 ### 4.1 认证
 | 方法 | 路径 | 说明 | 鉴权 |
 |------|------|------|------|
-| POST | `/api/auth/wechat-login` | 微信登录 | 否 |
+| POST | `/api/auth/wechat-login` | 微信登录，返回 access(`token`)+refresh | 否 |
+| POST | `/api/auth/refresh` | 用 refresh 换发新 access（refresh 默认不轮换） | 否 |
+
+**Token 方案（对齐 family-bookkeeping）**：
+- **不使用 JWT**；不透明双 Token（Access 默认 2h + Refresh 默认 14d）
+- Access / Refresh 均 SHA-256 hash 存 `tf_user_sessions`，可服务端吊销
+- 请求头：`Authorization: Bearer <accessToken>`
+- 字段兼容：接口仍返回 `token`（access）+ `refreshToken`
 
 ### 4.2 店铺
 | 方法 | 路径 | 说明 | 鉴权 |
@@ -323,12 +333,14 @@
 | `tf_menu_items` | 菜品 | id, shop_id, category_id, name, price, monthly_sales, spec_group_ids, status, image_url, description |
 | `tf_spec_groups` | 规格组 | id, shop_id, name, is_required, max_select |
 | `tf_spec_options` | 规格选项 | id, spec_group_id, name, price_adjust |
-| `tf_orders` | 订单 | id, shop_id, user_id, rider_id, status, total, delivery_fee, delivery_type, address, table_no, contact_name, contact_phone, remark, invoice_needed, invoice_title, invoice_tax_no |
+| `tf_orders` | 订单 | id, order_no, shop_id, user_id, rider_id, status, total, delivery_fee, delivery_type, address, table_no, contact_name, contact_phone, remark, invoice_needed, invoice_title, invoice_tax_no |
 | `tf_order_items` | 订单项 | id, order_id, shop_id, menu_item_id, name, quantity, price, spec_desc, image_url |
 | `tf_delivery_info` | 配送信息 | id, order_id, shop_id, courier_name, courier_phone, estimated_delivery_at, delivered_at |
 | `tf_delivery_tracks` | 配送轨迹点 | id, order_id, shop_id, rider_id, latitude, longitude, speed, accuracy, source, recorded_at |
 | `tf_promotions` | 优惠活动 | id, shop_id, name, type, rule, status, start_date, end_date |
 | `tf_users` | 用户 | id, openid, user_id, role, shop_id, nick_name, avatar_url |
+| `tf_user_sessions` | 登录会话（opaque 双 Token） | id, user_id, token_hash, expires_at, refresh_token_hash, refresh_expires_at, created_at |
+| `tf_refresh_tokens` | [Legacy] 旧 JWT refresh 表 | id, token_hash, user_id, expires_at, revoked；1.0.1 起主路径不再写入 |
 | `tf_payments` | 支付记录 | id, order_id, shop_id, user_id, amount, method, status, paid_at |
 | `tf_favorites` | 菜品收藏 | id, user_id, menu_item_id, shop_id, created_at（UNIQUE(user_id, menu_item_id)） |
 | `tf_daily_stats` | 每日销售统计 | id, shop_id, stat_date, total_orders, total_revenue, completed_orders, cancelled_orders（UNIQUE(shop_id, stat_date)） |
@@ -339,7 +351,9 @@
 | `tf_reviews` | 订单评价 | id, order_id, shop_id, user_id, rating, content, reply_content, reply_at, created_at（UNIQUE(order_id)） |
 
 > `business_hours` 建议结构：`{ mon:[{start,end}], ..., sun:[...] }`，空数组表示当日休息。<br>
-> 多租户规范：所有业务表均含 `shop_id` 字段用于店铺隔离。
+> 多租户规范：所有业务表均含 `shop_id` 字段用于店铺隔离。<br>
+> `order_no` 规则：`TF + YYYYMMDD + 店铺短码4位 + 当日序号4位`（例 `TF2026072600AB0001`）；旧单可空，展示回退短码。<br>
+> 认证会话：Access 默认 2h / Refresh 默认 14d，hash 存 `tf_user_sessions`（对齐 family-bookkeeping，非 JWT）。
 > 数据库约束：text 枚举字段（status/delivery_type/role/type/method）均含 CHECK 约束防止非法值；外键含 ON DELETE 行为（CASCADE/RESTRICT/SET NULL）。
 
 ### 5.2 订单状态流转
@@ -424,7 +438,7 @@ pending_payment → paid → accepted → preparing → delivering → completed
 
 ### 8.2 已知限制
 1. **真实微信支付（T43）** 暂缓，需企业商户号；当前默认 `PAYMENT_PROVIDER=sandbox`。
-2. **线上 Supabase schema 落后于** `docs/database-init.sql`：缺部分列/RPC/表（如 `atomic_*`、`tf_delivery_tracks`、`tf_refresh_tokens`、`rider_id`）。服务端已做兼容回退，完整能力需执行 T181 迁移。
+2. **线上 Supabase schema**：`order_no` / `tf_user_sessions` 已在 1.0.1 执行并回并 `database-init.sql`；其余旧库缺口（如部分 `atomic_*`、历史缺列）仍靠服务端兼容回退，完整对齐见 T181。
 3. 旧库无 `rider_id` 时抢单归属仅进程内有效；重启后历史单骑手归属不完整。
 4. daily_stats 等依赖 RPC 的聚合在旧库可能弱于完整版。
 

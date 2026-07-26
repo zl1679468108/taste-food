@@ -49,7 +49,7 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private readonly authService: AuthService) {}
 
   /**
-   * 从客户端连接中提取并校验 JWT token。
+   * 从客户端连接中提取并校验 Access Token（opaque 双 Token）。
    * 仅支持 handshake.auth.token 传递，禁止通过 URL query 传递（避免 token 泄漏到日志/反代）。
    * 校验失败返回 null，调用方应断开连接。
    */

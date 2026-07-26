@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, Image } from '@tarojs/components';
+import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, del, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
@@ -8,6 +8,7 @@ import { DEFAULT_SHOP_ID } from '../../env';
 import { formatPriceWithSymbol } from '../../utils/format';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import FoodThumb from '../../components/FoodThumb';
 import './index.scss';
 
 interface FavoriteMenuItem {
@@ -113,7 +114,7 @@ export default function FavoritesPage() {
   if (loading) {
     return (
       <View className='favorites-page'>
-        <SkeletonLoader mode='list' count={4} />
+        <SkeletonLoader mode='favorites' count={4} />
       </View>
     );
   }
@@ -122,9 +123,9 @@ export default function FavoritesPage() {
     return (
       <View className='favorites-page'>
         <EmptyState
-          icon='🔒'
+          icon='lock'
           title='请先登录'
-          description='登录后可查看收藏菜品'
+          description='登录后就能查看收藏的菜'
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -136,10 +137,10 @@ export default function FavoritesPage() {
     return (
       <View className='favorites-page'>
         <EmptyState
-          icon='⚠️'
+          icon='warning'
           title='加载失败'
-          description={canRetry ? '网络不稳定，请重试' : '收藏列表暂时无法获取'}
-          actionText={canRetry ? '点击重试' : '重新加载'}
+          description={canRetry ? '网络不太稳，点一下再试试' : '收藏暂时加载不出来'}
+          actionText={canRetry ? '再试一次' : '重新加载'}
           onAction={loadFavorites}
         />
       </View>
@@ -150,9 +151,9 @@ export default function FavoritesPage() {
     return (
       <View className='favorites-page'>
         <EmptyState
-          icon='🤍'
+          icon='heart'
           title='还没有收藏'
-          description='去菜单里点亮心形收藏喜欢的菜品吧'
+          description='在菜单里点亮心形，收藏常点的菜'
           actionText='去点餐'
           onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
         />
@@ -171,19 +172,14 @@ export default function FavoritesPage() {
               className='favorite-card'
               aria-label={`收藏菜品 ${item.menuItem?.name || ''}`}
             >
-              <View className='favorite-card__image'>
-                {item.menuItem?.imageUrl ? (
-                  <Image
-                    className='favorite-card__img'
-                    src={item.menuItem.imageUrl}
-                    mode='aspectFill'
-                    lazyLoad
-                    aria-label={item.menuItem.name}
-                  />
-                ) : (
-                  <Text>🍽️</Text>
-                )}
-              </View>
+              <FoodThumb
+                className='favorite-card__image'
+                src={item.menuItem?.imageUrl}
+                name={item.menuItem?.name}
+                tone='default'
+                size='sm'
+                round
+              />
               <View className='favorite-card__info'>
                 <View>
                   <Text className='favorite-card__name'>{item.menuItem?.name || '菜品已下架'}</Text>

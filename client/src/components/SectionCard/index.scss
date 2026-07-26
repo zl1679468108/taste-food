@@ -1,22 +1,28 @@
 @use '../../styles/design-tokens' as *;
 
 .tf-section-card {
-  background: #fff;
+  background: $bg-card;
   border-radius: $radius-xl;
-  padding: 32rpx;
-  margin-bottom: 20rpx;
+  padding: $card-padding;
+  margin-bottom: 10px;
   box-shadow: $shadow-sm;
-  border: 1px solid $gray-200;
+  border: 1px solid $border-color;
 
   &__header {
     display: flex;
     align-items: center;
-    gap: 12rpx;
-    margin-bottom: 24rpx;
+    gap: 6px;
+    margin-bottom: $space-3;
+  }
+
+  &__icon-svg {
+    margin-right: 6px;
   }
 
   &__icon {
-    font-size: 32rpx;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
     opacity: 0.85;
   }
 
@@ -25,6 +31,7 @@
     font-size: $font-base;
     font-weight: $weight-semibold;
     color: $text-primary;
+    line-height: $leading-snug;
   }
 
   &__extra {

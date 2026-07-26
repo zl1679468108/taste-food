@@ -1,19 +1,33 @@
 /* ============================================
-   Design Tokens — 小买卖点餐系统
-   对齐 ui-prototype.html 原型设计系统
+   Design Tokens — taste-food 小程序全局样式变量
+   约定：
+   1. 颜色 / 字号 / 字重 / 间距 / 圆角 / 阴影 / 行高 一律走 token
+   2. 设计稿基准 designWidth=375，字号与间距用 px（Taro 自动转 rpx）
+   3. 禁止在业务 scss 硬编码 #hex、裸 font-size:Npx/rpx
    ============================================ */
 
-/* ---------- 色彩体系（对齐原型） ---------- */
+/* ---------- 品牌色 ---------- */
 $primary:        #FF6B35;
 $primary-light:  #FFF0EB;
 $primary-dark:   #E55A2B;
 $primary-end:    #FF8F65;
+$primary-soft:   rgba(255, 107, 53, 0.12);
+$primary-ghost:  rgba(255, 107, 53, 0.08);
 
+/* ---------- 功能色 ---------- */
 $success:        #00C853;
+$success-dark:   #00A844;
 $warning:        #FFB300;
+$warning-dark:   #F39C12;
 $danger:         #FF5252;
+$danger-dark:    #E53935;
 $info:           #2196F3;
+$info-dark:      #1976D2;
+$star:           #FFB400;
 
+/* ---------- 中性色阶 ---------- */
+$white:     #FFFFFF;
+$black:     #000000;
 $gray-50:   #FAFAFA;
 $gray-100:  #F5F5F5;
 $gray-200:  #EEEEEE;
@@ -25,79 +39,203 @@ $gray-700:  #616161;
 $gray-800:  #424242;
 $gray-900:  #212121;
 
-$gradient-brand:   linear-gradient(135deg, #FF6B35, #FF8F65);
+/* ---------- 语义色：文字 ---------- */
+$text-primary:     $gray-900;   /* 主标题 / 正文强调 */
+$text-secondary:   $gray-600;   /* 次级说明 */
+$text-tertiary:    $gray-500;   /* 辅助信息，对齐旧 #999 */
+$text-hint:        $gray-400;   /* 占位 / 弱提示 */
+$text-disabled:    $gray-400;
+$text-inverse:     $white;      /* 深色底上的白字 */
+$text-link:        $primary;
+$text-price:       $primary;
+$text-danger:      $danger;
+$text-success:     $success;
+
+/* ---------- 语义色：表面 / 背景 ---------- */
+$bg-page:          $gray-100;
+$bg-card:          $white;
+$bg-muted:         $gray-50;
+$bg-hover:         $gray-100;
+$bg-mask:          rgba(0, 0, 0, 0.45);
+$bg-mask-light:    rgba(0, 0, 0, 0.18);
+$bg-overlay-soft:  rgba(255, 255, 255, 0.22);
+
+/* ---------- 语义色：边框 / 分割 ---------- */
+$border-color:     $gray-200;
+$border-strong:    $gray-300;
+$border-light:     $gray-100;
+$divider:          $gray-100;
+
+/* ---------- 渐变 ---------- */
+$gradient-brand:   linear-gradient(135deg, $primary, $primary-end);
+$gradient-brand-soft: linear-gradient(145deg, $primary 0%, #FF8A5B 48%, #FFA07A 100%);
 $gradient-warm:    linear-gradient(135deg, #FFF3E0, #FFE0B2);
 $gradient-red:     linear-gradient(135deg, #FFEBEE, #FFCDD2);
 $gradient-green:   linear-gradient(135deg, #E8F5E9, #C8E6C9);
 $gradient-blue:    linear-gradient(135deg, #E3F2FD, #BBDEFB);
 $gradient-gold:    linear-gradient(135deg, #FFF8E1, #FFECB3);
-
 $gradient-stat:    linear-gradient(135deg, #FFF3E0, #FFE0B2);
-$gradient-admin:   linear-gradient(135deg, #FF6B35, #FF8F65);
+$gradient-admin:   $gradient-brand;
 
-$text-primary:     #212121;
-$text-secondary:   #757575;
-$text-hint:        #BDBDBD;
+/* 订单状态头图渐变 */
+$gradient-status-pending:   linear-gradient(135deg, $warning-dark, #E67E22);
+$gradient-status-paid:      linear-gradient(135deg, #3498DB, #2980B9);
+$gradient-status-accepted:  linear-gradient(135deg, #9B59B6, #8E44AD);
+$gradient-status-preparing: linear-gradient(135deg, #E67E22, #D35400);
+$gradient-status-delivering:linear-gradient(135deg, #1ABC9C, #16A085);
+$gradient-status-completed: linear-gradient(135deg, #2ECC71, #27AE60);
+$gradient-status-cancelled: linear-gradient(135deg, #95A5A6, #7F8C8D);
+$gradient-status-rejected:  linear-gradient(135deg, $danger, $danger-dark);
 
-/* ---------- 字体系统 ---------- */
-$font-xs:    24rpx;
-$font-sm:    26rpx;
-$font-base:  28rpx;
-$font-md:    30rpx;
-$font-lg:    34rpx;
-$font-xl:    36rpx;
-$font-2xl:   40rpx;
-$font-3xl:   44rpx;
-$font-4xl:   48rpx;
-$font-5xl:   56rpx;
-$font-6xl:   68rpx;
 
-$weight-regular: 400;
-$weight-medium:  500;
-$weight-semibold:600;
-$weight-bold:    700;
+/* ---------- 场景色（登录提示 / 地图 / 分类占位） ---------- */
+$bg-tip:           #FFF8F0;
+$border-tip:       #FFEDD5;
+$text-tip-title:   #C05621;
+$text-tip-body:    #9C6C3C;
+$bg-map:           #EDF6F5;
 
-$font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
-  'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+$gradient-cat-hot:   linear-gradient(135deg, #FF6B6B, #FFA07A);
+$gradient-cat-meat:  linear-gradient(135deg, #E17055, #FDCB6E);
+$gradient-cat-veg:   linear-gradient(135deg, #00B894, #55EFC4);
+$gradient-cat-drink: linear-gradient(135deg, #74B9FF, #A29BFE);
+$gradient-cat-rice:  linear-gradient(135deg, #FDCB6E, #E17055);
 
-/* ---------- 间距系统 ---------- */
-$space-1: 4px;
-$space-2: 8px;
-$space-3: 12px;
-$space-4: 16px;
-$space-5: 20px;
-$space-6: 24px;
-$space-8: 32px;
+$font-icon-sm:  32px;
+$font-icon-md:  48px;
+$font-icon-lg:  56px;
+$font-icon-xl:  60px;
+$font-icon-2xl: 64px;
 
-/* ---------- 圆角系统（对齐原型） ---------- */
+/* ---------- 字体族 ---------- */
+$font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+  'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
+  sans-serif;
+
+/* ---------- 字号阶梯（375 设计稿 px） ---------- */
+/* 12 / 13 / 14 / 15 / 16 / 17 / 18 / 20 / 22 / 24 / 28 / 34 */
+$font-2xs:   10px;  /* 极小标签 */
+$font-xs:    12px;  /* caption / badge */
+$font-sm:    13px;  /* 辅助文案 */
+$font-base:  14px;  /* 正文默认 */
+$font-md:    15px;  /* 略强调正文 */
+$font-lg:    16px;  /* 小标题 / 按钮 */
+$font-xl:    17px;  /* 区块标题 */
+$font-2xl:   18px;  /* 页内主标题 */
+$font-3xl:   20px;  /* 店铺名 / 价格大字 */
+$font-4xl:   22px;  /* 状态大标题 */
+$font-5xl:   24px;  /* 展示数字 */
+$font-6xl:   28px;  /* 超大展示 */
+$font-7xl:   34px;  /* 英雄数字（少用） */
+
+/* 语义字号别名 */
+$font-caption:  $font-xs;
+$font-body:     $font-base;
+$font-subtitle: $font-md;
+$font-title:    $font-xl;
+$font-display:  $font-4xl;
+$font-hero:     $font-6xl;
+
+/* ---------- 字重 ---------- */
+$weight-regular:  400;
+$weight-medium:   500;
+$weight-semibold: 600;
+$weight-bold:     700;
+
+/* ---------- 行高 ---------- */
+$leading-none:    1;
+$leading-tight:   1.25;
+$leading-snug:    1.375;
+$leading-normal:  1.5;
+$leading-relaxed: 1.625;
+
+/* ---------- 间距阶梯 ---------- */
+$space-0:  0;
+$space-1:  4px;
+$space-2:  8px;
+$space-3:  12px;
+$space-4:  16px;
+$space-5:  20px;
+$space-6:  24px;
+$space-7:  28px;
+$space-8:  32px;
+$space-10: 40px;
+$space-12: 48px;
+
+/* 语义间距 */
+$page-padding-x:   $space-3;   /* 页面左右 12px */
+$card-padding:     $space-4;   /* 卡片内边距 16px */
+$section-gap:      $space-3;   /* 区块间距 12px */
+$list-item-gap:    $space-2;   /* 列表项间距 8px */
+
+/* ---------- 圆角 ---------- */
+$radius-xs:   4px;
 $radius-sm:   6px;
 $radius-md:   10px;
 $radius-lg:   14px;
 $radius-xl:   16px;
 $radius-2xl:  20px;
 $radius-3xl:  24px;
+$radius-pill: 999px;
 $radius-full: 50%;
 
-/* ---------- 阴影系统（对齐原型） ---------- */
+/* ---------- 阴影 ---------- */
 $shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.06);
 $shadow-md:  0 2px 8px rgba(0, 0, 0, 0.08);
 $shadow-lg:  0 4px 16px rgba(0, 0, 0, 0.12);
 $shadow-top: 0 -2px 10px rgba(0, 0, 0, 0.06);
 $shadow-btn: 0 2px 6px rgba(255, 107, 53, 0.3);
+$shadow-card: 0 2px 12px rgba(33, 33, 33, 0.05);
 
 /* ---------- 动效 ---------- */
 $ease-out: cubic-bezier(0.2, 0, 0, 1);
 $cubic-bezier-popup: cubic-bezier(0.32, 0.72, 0, 1);
 $cubic-bezier-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+$duration-fast: 0.15s;
+$duration-normal: 0.25s;
+
+/* ---------- 空态插画底 ---------- */
+$gradient-empty-icon: linear-gradient(145deg, #fff7f3 0%, #ffe8de 52%, #fff0eb 100%);
+$shadow-empty-icon: 0 10px 28px rgba(255, 107, 53, 0.12), 0 2px 8px rgba(255, 107, 53, 0.06);
 
 /* ---------- 骨架屏 shimmer ---------- */
 @mixin shimmer {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
+  background: linear-gradient(
+    100deg,
+    #f1f2f4 0%,
+    #f1f2f4 36%,
+    #fafbfc 50%,
+    #f1f2f4 64%,
+    #f1f2f4 100%
+  );
+  background-size: 220% 100%;
 }
 
 /* ---------- 安全区域 ---------- */
-@mixin safe-area-bottom {
-  padding-bottom: constant(safe-area-inset-bottom);
-  padding-bottom: env(safe-area-inset-bottom);
+@mixin safe-area-bottom($extra: 0px) {
+  padding-bottom: calc(#{$extra} + constant(safe-area-inset-bottom));
+  padding-bottom: calc(#{$extra} + env(safe-area-inset-bottom));
 }
+
+/* ---------- 字号映射速查（旧值 → token） ----------
+  11-12px / 22-24rpx → $font-xs
+  13px    / 26rpx    → $font-sm
+  14px    / 28rpx    → $font-base
+  15px    / 30rpx    → $font-md
+  16px    / 32rpx    → $font-lg
+  17-18px / 34-36rpx → $font-xl / $font-2xl
+  20px    / 40rpx    → $font-3xl
+  22px    / 44rpx    → $font-4xl
+  24px    / 48rpx    → $font-5xl
+  28px+              → $font-6xl / $font-7xl
+
+  颜色速查：
+  #333/#212121 → $text-primary
+  #666/#757575 → $text-secondary
+  #999/#9E9E9E → $text-tertiary
+  #BDBDBD      → $text-hint
+  #fff         → $white / $text-inverse
+  #F5F5F5      → $bg-page / $gray-100
+  #FF6B35      → $primary
+  #FFF0EB      → $primary-light
+*/

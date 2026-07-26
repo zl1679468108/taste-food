@@ -25,9 +25,9 @@ interface User {
 
 /** Auth Store 状态 */
 interface AuthState {
-  /** JWT token */
+  /** Access Token（opaque，短时效） */
   token: string | null;
-  /** Refresh token */
+  /** Refresh Token（opaque，长时效） */
   refreshToken: string | null;
   /** 用户信息 */
   user: User | null;
@@ -58,10 +58,10 @@ interface AuthState {
   getRoleLabel: (role: string) => string;
 }
 
-// Access Token 有效期：15 分钟
-const ACCESS_TOKEN_EXPIRES_MS = 15 * 60 * 1000;
-// 提前 1 分钟刷新
-const REFRESH_BUFFER_MS = 60 * 1000;
+// Access Token 有效期：2 小时（与服务端 ACCESS_TOKEN_TTL_MS 默认对齐）
+const ACCESS_TOKEN_EXPIRES_MS = 2 * 60 * 60 * 1000;
+// 提前 5 分钟刷新
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const isTestEnv = process.env.NODE_ENV === 'test';
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -197,7 +197,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       clearInterval(refreshTimer);
     }
 
-    // 每 14 分钟刷新一次（Access Token 有效期 15 分钟，提前 1 分钟刷新）
+    // 定时刷新 Access（默认 2h 有效，提前 5 分钟刷新；也可依赖 401 拦截器）
     const timer = setInterval(() => {
       const { isLoggedIn, refreshToken } = get();
       if (isLoggedIn && refreshToken) {
@@ -275,12 +275,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   getRoleLabel: (role: string): string => {
     switch (role) {
       case 'admin':
-        return '👨‍🍳 商家';
+        return '商家'
       case 'customer':
       case 'guest':
-        return '🛒 顾客';
+        return '顾客'
       case 'rider':
-        return '🛵 骑手';
+        return '骑手'
       default:
         return role;
     }

@@ -2,6 +2,9 @@ import request from '@/utils/request';
 
 export interface Order {
   id: string;
+  /** 业务订单号（若后端提供则优先展示） */
+  orderNo?: string;
+  order_no?: string;
   shopId: string;
   userId: string;
   riderId?: string;
@@ -77,10 +80,23 @@ export const updateOrderStatus = (id: string, status: string) =>
 export const cancelOrder = (id: string) =>
   request.post(`/api/orders/${id}/cancel`);
 
-/** 导出订单 CSV（服务端生成，最多 maxRows） */
-export const exportOrders = (params?: { status?: string; maxRows?: number }) =>
-  request.get('/api/orders/export', { params }) as Promise<{
-    csv: string;
-    count: number;
-    filename: string;
-  }>;
+/** 导出订单（服务端生成；可能返回 csv 字符串或 xlsx base64/blob 字段） */
+export interface OrderExportResult {
+  /** CSV 文本（含 BOM 亦可） */
+  csv?: string;
+  /** xlsx 文件 base64 */
+  xlsxBase64?: string;
+  xlsx?: string;
+  /** 兼容其它命名 */
+  base64?: string;
+  content?: string;
+  /** 直接可用的 blob（部分封装） */
+  blob?: Blob;
+  count: number;
+  filename: string;
+  xlsxFilename?: string;
+  contentType?: string;
+}
+
+export const exportOrders = (params?: { status?: string; maxRows?: number; format?: 'csv' | 'xlsx' | 'both' }) =>
+  request.get('/api/orders/export', { params: { format: 'xlsx', ...params } }) as Promise<OrderExportResult>;

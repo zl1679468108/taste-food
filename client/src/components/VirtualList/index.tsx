@@ -13,6 +13,8 @@ interface VirtualListProps<T> {
   onScrollToLower?: () => void;
   className?: string;
   lowerThreshold?: number;
+  /** 列表底部内容（紧随最后一项，如“没有更多了”） */
+  footer?: ReactNode;
 }
 
 /**
@@ -29,6 +31,7 @@ function VirtualListInner<T>({
   onScrollToLower,
   className = '',
   lowerThreshold = 80,
+  footer,
 }: VirtualListProps<T>) {
   const [scrollTop, setScrollTop] = useState(0);
 
@@ -64,24 +67,27 @@ function VirtualListInner<T>({
       showScrollbar={false}
       scrollWithAnimation={false}
     >
-      <View className='tf-virtual-list__phantom' style={{ height: `${totalHeight}px` }}>
-        <View
-          className='tf-virtual-list__window'
-          style={{ transform: `translateY(${offsetY}px)` }}
-        >
-          {visibleItems.map((item, i) => {
-            const index = start + i;
-            return (
-              <View
-                key={keyExtractor(item, index)}
-                className='tf-virtual-list__item'
-                style={{ height: `${itemHeight}px` }}
-              >
-                {renderItem(item, index)}
-              </View>
-            );
-          })}
+      <View className='tf-virtual-list__content'>
+        <View className='tf-virtual-list__phantom' style={{ height: `${totalHeight}px` }}>
+          <View
+            className='tf-virtual-list__window'
+            style={{ transform: `translateY(${offsetY}px)` }}
+          >
+            {visibleItems.map((item, i) => {
+              const index = start + i;
+              return (
+                <View
+                  key={keyExtractor(item, index)}
+                  className='tf-virtual-list__item'
+                  style={{ height: `${itemHeight}px` }}
+                >
+                  {renderItem(item, index)}
+                </View>
+              );
+            })}
+          </View>
         </View>
+        {footer ? <View className='tf-virtual-list__footer'>{footer}</View> : null}
       </View>
     </ScrollView>
   );

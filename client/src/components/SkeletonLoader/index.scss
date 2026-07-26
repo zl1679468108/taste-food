@@ -3,135 +3,387 @@
 .skeleton {
   &__shimmer {
     @include shimmer;
-    animation: skeleton-shimmer 1.5s infinite;
+    animation: skeleton-shimmer 1.35s $ease-out infinite;
     border-radius: $radius-sm;
   }
 }
 
 @keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
 }
 
-/* list 模式 */
+/* list 模式：菜单侧边栏 + 菜品卡片 */
 .skeleton-list {
   display: flex;
-  padding: $space-3;
+  padding: $space-2 $space-3 0;
   gap: $space-3;
+  min-height: 60vh;
+  box-sizing: border-box;
 
   &__sidebar {
-    width: 85px;
+    width: 80px;
     display: flex;
     flex-direction: column;
-    gap: $space-3;
-    padding: $space-3 0;
+    gap: 10px;
+    padding: $space-2 0;
+    background: $bg-card;
+    border-radius: $radius-lg $radius-lg 0 0;
+    overflow: hidden;
 
     .skeleton__shimmer {
-      height: 40px;
-      width: 100%;
-      border-radius: 0;
+      height: 48px;
+      width: calc(100% - 12px);
+      margin: 0 6px;
+      border-radius: $radius-md;
     }
   }
 
   &__content {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: $space-3;
-    padding: $space-3 0;
-  }
-
-  .skeleton-card {
-    display: flex;
-    gap: $space-3;
-    padding: $space-3;
-    background: #fff;
-    border-radius: $radius-lg;
-
-    &__img {
-      width: 80px;
-      height: 80px;
-      border-radius: $radius-md;
-      flex-shrink: 0;
-    }
-
-    &__info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: $space-2;
-      justify-content: center;
-    }
-
-    &__line {
-      height: 14px;
-      width: 70%;
-      border-radius: $radius-sm;
-    }
-
-    &__line-short {
-      height: 12px;
-      width: 40%;
-      border-radius: $radius-sm;
-    }
+    gap: 0;
+    padding-bottom: 100px;
   }
 }
 
-/* card 模式 */
-.skeleton-card-mode {
-  padding: $space-4;
-  background: #fff;
-  margin: $space-3;
+.skeleton-menu-item {
+  display: flex;
+  gap: $space-3;
+  padding: 0;
+  margin-bottom: $space-2;
+  background: $bg-card;
+  border-radius: $radius-sm;
+  overflow: hidden;
+  box-shadow: $shadow-card;
+
+  &__img {
+    width: 84px;
+    height: 84px;
+    border-radius: 0;
+    flex-shrink: 0;
+  }
+
+  &__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $space-2;
+    justify-content: space-between;
+    padding: 10px $space-3 10px 0;
+  }
+
+  &__line {
+    height: 14px;
+    width: 62%;
+    border-radius: 7px;
+  }
+
+  &__line-short {
+    height: 11px;
+    width: 78%;
+    border-radius: $radius-sm;
+  }
+
+  &__bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 2px;
+  }
+
+  &__price {
+    height: 14px;
+    width: 52px;
+    border-radius: 7px;
+  }
+
+  &__btn {
+    height: 26px;
+    width: 26px;
+    border-radius: $radius-full;
+  }
+}
+
+/* card 模式：订单卡片列表 */
+.skeleton-order-list {
+  padding: $space-1 0 $space-4;
+}
+
+.skeleton-order-card {
+  background: $bg-card;
+  margin: 10px $space-3;
   border-radius: $radius-lg;
+  padding: $space-4;
+  box-shadow: $shadow-sm;
 
   &__header {
-    height: 16px;
-    width: 40%;
-    margin-bottom: $space-4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: $space-3;
   }
 
-  &__block {
-    height: 44px;
+  &__shop {
+    height: 15px;
+    width: 42%;
+    border-radius: $radius-sm;
+  }
+
+  &__status {
+    height: 22px;
+    width: 56px;
+    border-radius: 11px;
+  }
+
+  &__goods {
+    height: 12px;
+    width: 68%;
     margin-bottom: $space-2;
-    border-radius: $radius-md;
-  }
+    border-radius: $radius-sm;
 
-  &__divider {
-    height: 1px;
-    background: $gray-200;
-    margin: $space-3 0;
+    &--short {
+      width: 42%;
+      margin-bottom: 14px;
+    }
   }
 
   &__footer {
     display: flex;
     justify-content: space-between;
-    margin-top: $space-3;
+    align-items: center;
+    padding-top: $space-3;
+    border-top: 1px solid $border-light;
+  }
 
-    .skeleton__shimmer {
-      height: 14px;
-      width: 80px;
-    }
+  &__time {
+    height: 12px;
+    width: 72px;
+    border-radius: $radius-sm;
+  }
+
+  &__total {
+    height: 14px;
+    width: 96px;
+    border-radius: 7px;
   }
 }
 
-/* detail 模式 */
-.skeleton-detail {
-  padding: $space-4;
+/* address 模式：地址卡片 */
+.skeleton-address-list {
+  padding: $space-3 $space-3 $space-6;
+}
 
-  &__hero {
-    height: 120px;
-    border-radius: $radius-lg;
-    margin-bottom: $space-4;
-  }
+.skeleton-address-card {
+  background: $bg-card;
+  border-radius: 12px;
+  padding: 14px $space-4;
+  margin-bottom: $space-3;
+  border: 1px solid $border-color;
+  box-shadow: 0 1px 5px rgba($black, 0.03);
 
   &__row {
     display: flex;
-    gap: $space-3;
-    margin-bottom: $space-3;
+    align-items: center;
+    gap: $space-2;
+    margin-bottom: 10px;
+  }
 
-    .skeleton__shimmer {
-      height: 14px;
-      flex: 1;
+  &__name {
+    height: 14px;
+    width: 56px;
+    border-radius: 7px;
+  }
+
+  &__phone {
+    height: 12px;
+    width: 88px;
+    border-radius: $radius-sm;
+  }
+
+  &__tag {
+    height: 18px;
+    width: 36px;
+    border-radius: $radius-sm;
+  }
+
+  &__detail {
+    height: 12px;
+    width: 92%;
+    margin-bottom: $space-2;
+    border-radius: $radius-sm;
+
+    &--short {
+      width: 58%;
+      margin-bottom: 0;
+    }
+  }
+
+  &__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: $space-4;
+    margin-top: $space-3;
+    padding-top: $space-3;
+    border-top: 1px solid $border-light;
+  }
+
+  &__action {
+    height: 12px;
+    width: 40px;
+    border-radius: $radius-sm;
+  }
+}
+
+/* favorites 模式 */
+.skeleton-favorites-list {
+  padding: $space-3 $space-3 $space-6;
+}
+
+.skeleton-favorite-card {
+  display: flex;
+  gap: $space-3;
+  background: $bg-card;
+  border-radius: 12px;
+  padding: $space-3;
+  margin-bottom: $space-3;
+  box-shadow: 0 1px 4px rgba($black, 0.04);
+
+  &__img {
+    width: 72px;
+    height: 72px;
+    border-radius: $radius-md;
+    flex-shrink: 0;
+  }
+
+  &__info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  &__line {
+    height: 14px;
+    width: 56%;
+    border-radius: 7px;
+  }
+
+  &__line-short {
+    height: 11px;
+    width: 78%;
+    margin-top: 6px;
+    border-radius: $radius-sm;
+  }
+
+  &__bottom {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: $space-2;
+  }
+
+  &__price {
+    height: 14px;
+    width: 52px;
+    border-radius: 7px;
+  }
+
+  &__actions {
+    display: flex;
+    gap: $space-2;
+  }
+
+  &__btn {
+    height: 24px;
+    width: 52px;
+    border-radius: 12px;
+  }
+}
+
+/* detail 模式：订单详情 */
+.skeleton-detail {
+  padding: 0 0 $space-7;
+  min-height: 70vh;
+
+  &__hero {
+    height: 132px;
+    margin-bottom: $space-3;
+    border-radius: 0;
+  }
+
+  &__timeline {
+    background: $bg-card;
+    margin: 0 $space-3 10px;
+    border-radius: $radius-lg;
+    padding: $space-4;
+    box-shadow: $shadow-sm;
+  }
+
+  &__timeline-item {
+    display: flex;
+    gap: $space-3;
+    margin-bottom: $space-4;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  &__dot {
+    width: 12px;
+    height: 12px;
+    border-radius: $radius-full;
+    flex-shrink: 0;
+    margin-top: $space-1;
+  }
+
+  &__timeline-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__line {
+    height: 13px;
+    width: 36%;
+    margin-bottom: $space-2;
+    border-radius: 7px;
+  }
+
+  &__line-short {
+    height: 11px;
+    width: 58%;
+    border-radius: $radius-sm;
+  }
+
+  &__card {
+    background: $bg-card;
+    margin: 0 $space-3 10px;
+    border-radius: $radius-lg;
+    padding: $space-4;
+    box-shadow: $shadow-sm;
+  }
+
+  &__card-title {
+    height: 14px;
+    width: 28%;
+    margin-bottom: 14px;
+    border-radius: 7px;
+  }
+
+  &__card-row {
+    height: 12px;
+    width: 100%;
+    margin-bottom: 10px;
+    border-radius: $radius-sm;
+
+    &:last-child {
+      width: 68%;
+      margin-bottom: 0;
     }
   }
 }

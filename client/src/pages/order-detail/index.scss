@@ -1,94 +1,118 @@
 /* ========== 订单详情页样式 ========== */
+@use '../../styles/design-tokens' as *;
 
 .order-detail {
   min-height: 100vh;
-  background: #f5f5f5;
-  padding-bottom: 80px;
+  background: $bg-page;
+  padding-bottom: calc(80px + env(safe-area-inset-bottom));
+
+  /* 空态 / 失败态垂直居中，避免顶部塌陷 */
+  > .empty-state {
+    min-height: 70vh;
+  }
 }
 
 /* 状态卡片 */
 .status-card {
-  padding: 30px 20px;
+  padding: 30px $space-5;
   text-align: center;
-  color: #fff;
+  color: $text-inverse;
 
-  &--pending_payment { background: linear-gradient(135deg, #f39c12, #e67e22); }
-  &--paid { background: linear-gradient(135deg, #3498db, #2980b9); }
-  &--accepted { background: linear-gradient(135deg, #9b59b6, #8e44ad); }
-  &--preparing { background: linear-gradient(135deg, #e67e22, #d35400); }
-  &--delivering { background: linear-gradient(135deg, #1abc9c, #16a085); }
-  &--completed { background: linear-gradient(135deg, #2ecc71, #27ae60); }
-  &--cancelled { background: linear-gradient(135deg, #95a5a6, #7f8c8d); }
-  &--rejected { background: linear-gradient(135deg, #FF5252, #E53935); }
+  &--pending_payment { background: $gradient-status-pending; }
+  &--paid { background: $gradient-status-paid; }
+  &--accepted { background: $gradient-status-accepted; }
+  &--preparing { background: $gradient-status-preparing; }
+  &--delivering { background: $gradient-status-delivering; }
+  &--completed { background: $gradient-status-completed; }
+  &--cancelled { background: $gradient-status-cancelled; }
+  &--rejected { background: $gradient-status-rejected; }
+
+  &__icon-wrap {
+    width: 56px;
+    height: 56px;
+    margin: 0 auto $space-3;
+    border-radius: $radius-full;
+    background: $bg-overlay-soft;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
   &__icon {
-    font-size: 48px;
+    font-size: $font-icon-md;
     display: block;
     margin-bottom: 10px;
   }
 
   &__status {
-    font-size: 20px;
-    font-weight: 600;
-    margin-bottom: 4px;
+    display: block;
+    font-size: $font-4xl;
+    font-weight: $weight-semibold;
+    line-height: $leading-snug;
+    margin-bottom: $space-2;
   }
 
   &__time {
-    font-size: 13px;
-    opacity: 0.85;
+    display: block;
+    font-size: $font-sm;
+    opacity: 0.9;
+    line-height: $leading-normal;
   }
 }
 
 /* 订单信息卡片 */
 .info-card {
-  background: #fff;
-  margin: -12px 12px 10px;
-  border-radius: 12px;
-  padding: 16px;
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
+  padding: $card-padding;
   position: relative;
   z-index: 1;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: $shadow-sm;
 }
 
 .info-row {
   display: flex;
   padding: 6px 0;
-  font-size: 13px;
-  color: #666;
+  font-size: $font-sm;
+  color: $text-secondary;
+  line-height: $leading-normal;
 
   &__label {
     width: 70px;
     flex-shrink: 0;
-    color: #999;
+    color: $text-tertiary;
   }
 
   &__value {
     flex: 1;
-    color: #333;
+    color: $text-primary;
   }
 }
 
 /* 商品列表 */
 .order-goods {
-  background: #fff;
-  margin: 0 12px 10px;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
+  padding: $card-padding;
+  box-shadow: $shadow-sm;
 }
 
 .order-goods__title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 12px;
+  font-size: $font-md;
+  font-weight: $weight-semibold;
+  color: $text-primary;
+  line-height: $leading-snug;
+  margin-bottom: $space-3;
 }
 
 .order-goods__item {
   display: flex;
   align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid #f5f5f5;
+  gap: $space-2;
+  padding: 10px 0;
+  border-bottom: 1px solid $divider;
 
   &:last-child {
     border-bottom: none;
@@ -96,73 +120,84 @@
 
   &-name {
     flex: 1;
-    font-size: 14px;
-    color: #333;
+    min-width: 0;
+    font-size: $font-base;
+    color: $text-primary;
+    line-height: $leading-normal;
   }
 
   &-price {
-    font-size: 14px;
-    color: #FF6B35;
-    margin-right: 8px;
+    flex-shrink: 0;
+    font-size: $font-base;
+    line-height: $leading-normal;
+    color: $text-price;
+    text-align: right;
   }
 
   &-qty {
-    font-size: 13px;
-    color: #999;
-    min-width: 30px;
+    flex-shrink: 0;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-tertiary;
+    min-width: $space-7;
     text-align: right;
   }
 }
 
 /* 价格明细 */
 .price-detail {
-  background: #fff;
-  margin: 0 12px 10px;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
+  padding: $card-padding;
+  box-shadow: $shadow-sm;
 }
 
 .price-detail__row {
   display: flex;
   justify-content: space-between;
   padding: 5px 0;
-  font-size: 13px;
-  color: #666;
+  font-size: $font-sm;
+  color: $text-secondary;
+  line-height: $leading-normal;
 
   &--total {
-    font-size: 16px;
-    font-weight: 600;
-    color: #333;
-    border-top: 1px solid #f5f5f5;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    border-top: 1px solid $divider;
     padding-top: 10px;
     margin-top: 6px;
   }
 
   &-value {
-    color: #FF6B35;
+    color: $text-price;
   }
 
   &-value--bold {
-    font-size: 20px;
-    font-weight: 600;
-    color: #FF6B35;
+    font-size: $font-3xl;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-price;
   }
 }
 
 /* 订单号和时间 */
 .order-meta {
-  background: #fff;
-  margin: 0 12px 10px;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
+  padding: $card-padding;
+  box-shadow: $shadow-sm;
 }
 
 .order-meta__item {
-  font-size: 13px;
-  color: #999;
-  padding: 3px 0;
+  display: block;
+  font-size: $font-sm;
+  color: $text-tertiary;
+  line-height: $leading-normal;
+  padding: $space-1 0;
 }
 
 /* 底部操作栏 */
@@ -172,28 +207,28 @@
   left: 0;
   right: 0;
   min-height: 56px;
-  background: #fff;
+  background: $bg-card;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 12px 16px;
-  padding-bottom: calc(12px + constant(safe-area-inset-bottom));
-  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  padding: $space-3 $space-4;
+  padding-bottom: calc(#{$space-3} + constant(safe-area-inset-bottom));
+  padding-bottom: calc(#{$space-3} + env(safe-area-inset-bottom));
   gap: 10px;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+  box-shadow: $shadow-top;
   z-index: 100;
 }
 
 .order-actions__btn {
   flex: 1;
   height: 38px;
-  padding: 0 20px;
-  border-radius: 19px;
-  font-size: 14px;
-  font-weight: 600;
-  border: 1.5px solid #ddd;
-  background: #fff;
-  color: #666;
+  padding: 0 $space-5;
+  border-radius: $radius-pill;
+  font-size: $font-base;
+  font-weight: $weight-semibold;
+  border: 1.5px solid $border-strong;
+  background: $bg-card;
+  color: $text-secondary;
   text-align: center;
   line-height: 38px;
 
@@ -202,21 +237,21 @@
   }
 
   &--primary {
-    background: linear-gradient(135deg, #FF6B35, #FF8F65);
-    color: #fff;
+    background: $gradient-brand;
+    color: $text-inverse;
     border: none;
   }
 
   &--secondary {
-    background: #FFF0EB;
-    color: #FF6B35;
+    background: $primary-light;
+    color: $text-price;
     border: none;
   }
 
   &--danger {
-    background: #F5F5F5;
-    border-color: #ddd;
-    color: #757575;
+    background: $bg-page;
+    border-color: $border-strong;
+    color: $text-secondary;
   }
 
   &--loading {
@@ -228,9 +263,9 @@
 .order-actions__tip {
   flex: 1;
   text-align: center;
-  font-size: 14px;
-  color: #757575;
-  line-height: 1.5;
+  font-size: $font-base;
+  color: $text-secondary;
+  line-height: $leading-normal;
 }
 
 /* 加载状态 */
@@ -238,103 +273,110 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 300px;
-  color: #999;
-  font-size: 15px;
+  min-height: 60vh;
+  color: $text-tertiary;
+  font-size: $font-md;
+  line-height: $leading-normal;
 }
 
 .status-card__estimated {
-  font-size: 22px;
-  color: #FF6B35;
-  margin-top: 4px;
   display: block;
+  font-size: $font-sm;
+  opacity: 0.9;
+  margin-top: 6px;
+  line-height: $leading-normal;
 }
 
 /* 配送轨迹地图 */
 .delivery-map {
-  background: #fff;
-  margin: 0 12px 10px;
-  border-radius: 12px;
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
   padding: 14px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: $shadow-sm;
 
   &__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 10px;
-    gap: 12px;
+    gap: $space-3;
   }
 
   &__title {
-    font-size: 15px;
-    font-weight: 600;
-    color: #333;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-snug;
   }
 
   &__status {
     flex-shrink: 0;
     max-width: 180px;
-    font-size: 12px;
-    color: #FF6B35;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-price;
     text-align: right;
   }
 
   &__map {
     width: 100%;
     height: 220px;
-    border-radius: 8px;
+    border-radius: $radius-sm;
     overflow: hidden;
-    background: #edf6f5;
+    background: $bg-map;
   }
 
   &__meta {
-    min-height: 28px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
-    padding-top: 10px;
+    gap: $space-1;
+    margin-top: $space-3;
+    padding: 10px $space-2 2px;
+    border-top: 1px solid $divider;
   }
 
   &__meta-item {
     flex: 1;
-    font-size: 12px;
-    color: #666;
+    font-size: $font-xs;
+    color: $text-secondary;
     text-align: center;
-    line-height: 1.3;
+    line-height: $leading-snug;
   }
 
   &__meta-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: #FF6B35;
+    width: 18px;
+    height: 2px;
+    border-radius: 1px;
+    background: $primary;
     flex-shrink: 0;
+    opacity: 0.7;
   }
 }
 
-
 /* 订单评价 */
 .order-review {
-  background: #fff;
-  margin: 0 12px 10px;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  background: $bg-card;
+  margin: 0 $space-3 10px;
+  border-radius: $radius-lg;
+  padding: $card-padding;
+  box-shadow: $shadow-sm;
 
   &__title {
-    font-size: 15px;
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 12px;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    margin-bottom: $space-3;
     display: block;
+    line-height: $leading-snug;
   }
 
   &__label {
-    font-size: 13px;
-    color: #666;
-    margin: 8px 0 6px;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-secondary;
+    margin: $space-2 0 6px;
     display: block;
   }
 
@@ -342,40 +384,47 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-bottom: $space-2;
 
     &--editable .order-review__star {
-      font-size: 28px;
+      font-size: $font-6xl;
+      line-height: $leading-tight;
+      font-weight: $weight-semibold;
     }
   }
 
   &__star {
-    font-size: 22px;
-    color: #ddd;
-    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: $font-4xl;
+    color: $border-strong;
+    line-height: $leading-none;
 
     &--active {
-      color: #FFB400;
+      color: $star;
     }
   }
 
   &__rating-text {
     margin-left: 6px;
-    font-size: 13px;
-    color: #FF6B35;
-    font-weight: 600;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-price;
+    font-weight: $weight-semibold;
   }
 
   &__content {
-    font-size: 14px;
-    color: #444;
-    line-height: 1.5;
+    font-size: $font-base;
+    color: $text-primary;
+    line-height: $leading-normal;
     display: block;
   }
 
   &__hint {
-    font-size: 13px;
-    color: #999;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-tertiary;
     display: block;
   }
 
@@ -383,21 +432,22 @@
     width: 100%;
     min-height: 88px;
     box-sizing: border-box;
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: #f7f7f7;
-    font-size: 14px;
-    color: #333;
+    padding: 10px $space-3;
+    border-radius: $radius-sm;
+    background: $bg-muted;
+    font-size: $font-base;
+    color: $text-primary;
+    line-height: $leading-normal;
   }
 
   &__submit {
-    margin-top: 12px;
-    height: 40px;
-    border-radius: 20px;
-    background: linear-gradient(135deg, #FF6B35, #FF8F65);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 600;
+    margin-top: $space-3;
+    height: $space-10;
+    border-radius: $radius-pill;
+    background: $gradient-brand;
+    color: $text-inverse;
+    font-size: $font-base;
+    font-weight: $weight-semibold;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -415,18 +465,21 @@
 
 .order-review__reply {
   margin-top: 10px;
-  padding: 10px 12px;
-  background: #f7f8fa;
-  border-radius: 8px;
+  padding: 10px $space-3;
+  background: $bg-muted;
+  border-radius: $radius-sm;
 }
+
 .order-review__reply-label {
   display: block;
-  font-size: 12px;
-  color: #888;
-  margin-bottom: 4px;
+  font-size: $font-xs;
+  line-height: $leading-normal;
+  color: $text-tertiary;
+  margin-bottom: $space-1;
 }
+
 .order-review__reply-text {
-  font-size: 14px;
-  color: #333;
-  line-height: 1.5;
+  font-size: $font-base;
+  color: $text-primary;
+  line-height: $leading-normal;
 }

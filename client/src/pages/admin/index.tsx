@@ -16,6 +16,7 @@ import {
 } from '../../services/socket';
 import type { OrderNewEvent } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
+import Icon from '../../components/Icon';
 import './index.scss';
 
 /** 商家新订单横幅数据（优先用 WS 摘要字段） */
@@ -368,7 +369,7 @@ const AdminPage = () => {
         <View className='new-order-banner'>
           <View className='new-order-banner__body'>
             <View className='new-order-banner__header'>
-              <Text className='new-order-banner__icon'>🔔</Text>
+              <View className='new-order-banner__icon'><Icon name='bell' size={22} color='#FFFFFF' /></View>
               <View className='new-order-banner__titles'>
                 <Text className='new-order-banner__text'>新待接订单</Text>
                 <Text className='new-order-banner__meta'>
@@ -381,15 +382,15 @@ const AdminPage = () => {
               <Text className='new-order-banner__amount'>
                 {formatPriceWithSymbol(newOrderBanner.total)}
               </Text>
-              <Text
+              <View
                 className='new-order-banner__close'
                 onClick={(e) => {
                   e.stopPropagation();
                   closeNewOrderBanner();
                 }}
               >
-                ✕
-              </Text>
+                <Icon name='close' size={14} color='#FFFFFF' />
+              </View>
             </View>
             <View className='new-order-banner__actions'>
               <View
@@ -437,17 +438,25 @@ const AdminPage = () => {
         </View>
       </View>
 
+      <View className='admin-page__mine-entry' onClick={() => Taro.switchTab({ url: '/pages/mine/index' })}>
+        <View className='admin-page__mine-entry-left'>
+          <Text className='admin-page__mine-entry-title'>我的账号</Text>
+          <Text className='admin-page__mine-entry-desc'>账号信息 · 退出登录</Text>
+        </View>
+        <Text className='admin-page__mine-entry-text'>进入</Text>
+      </View>
+
       <View className='admin-actions'>
         <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/menu-manage' })}>
-          <Text className='action-btn__icon'>🍴</Text>
+          <View className='action-btn__icon'><Icon name='menu' size={16} color='#FF6B35' /></View>
           <Text>菜品管理</Text>
         </View>
         <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/user-manage' })}>
-          <Text className='action-btn__icon'>👥</Text>
+          <View className='action-btn__icon'><Icon name='users' size={16} color='#FF6B35' /></View>
           <Text>会员管理</Text>
         </View>
         <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/reviews' })}>
-          <Text className='action-btn__icon'>⭐</Text>
+          <View className='action-btn__icon'><Icon name='star' size={16} color='#FF6B35' /></View>
           <Text>评价列表</Text>
         </View>
       </View>
@@ -479,7 +488,9 @@ const AdminPage = () => {
           </View>
         ) : allOrders.length === 0 ? (
           <View className='empty-state'>
-            <Text className='empty-state__icon'>📋</Text>
+            <View className='empty-state__icon-wrap'>
+              <Icon name='order' size={40} color='#CCCCCC' />
+            </View>
             <Text className='empty-state__text'>暂无订单</Text>
           </View>
         ) : (
@@ -566,7 +577,7 @@ const AdminPage = () => {
                 className='action-modal__close'
                 onClick={() => setModalVisible(false)}
               >
-                ✕
+                <Icon name='close' size={16} color='#999999' />
               </View>
             </View>
             <View className='action-modal__body'>

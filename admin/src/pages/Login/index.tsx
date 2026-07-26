@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Button, Typography, Space, Divider, message, Form, Input } from 'antd';
-import { ShopOutlined, SafetyOutlined, UserOutlined, LockOutlined } from '@ant-design/icons';
+import { ShopOutlined, SafetyOutlined, UserOutlined, LockOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { history, useModel } from '@umijs/max';
 import { loginAsAdmin } from '@/services/auth';
 import { brand } from '@/theme';
@@ -79,7 +79,9 @@ const LoginPage: React.FC = () => {
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div>
-            <div style={{ fontSize: 64, lineHeight: '64px', marginBottom: 16 }}>🍜</div>
+            <div style={{ fontSize: 56, lineHeight: '56px', marginBottom: 16, color: brand.primary }}>
+              <CoffeeOutlined />
+            </div>
             <Title level={2} style={{ marginBottom: 8 }}>
               小买卖管理后台
             </Title>

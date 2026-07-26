@@ -9,6 +9,134 @@
 
 ## 当前待办
 
+### P1 — 门店图库批量维护与小程序缓存（T195）— in_progress 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T195.1 | tf_media_assets + batch/list/delete API | server | §4 / §3.4 | P1 | in_progress | shop_id 隔离；批量上传；列表含占用；agent Maxwell |
+| T195.2 | Admin MediaPicker + 菜品绑图 | admin | §3.4 | P1 | in_progress | 图库弹窗、已用标识、批量导入；agent Wegener |
+| T195.3 | 种子批量导入 + 小程序菜单图缓存 | client/scripts | §3.1.2 | P1 | in_progress | dishes 灌库；进店缓存；弱化映射；agent McClintock |
+
+
+### P1 — 样式变量落地验收与 PC 对齐（T195）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T195.1 | 小程序关键页文字层级验收修复 | client | §3.12 | P1 | ✅ done 2026-07-26 | 补 line-height/字重；标题 tight、正文 normal |
+| T195.2 | PC admin 设计令牌对齐小程序 | admin | §3.4 / §3.12 | P1 | ✅ done 2026-07-26 | theme.ts + global.css 语义变量；PriceDisplay 价格色 |
+| T195.3 | 文档/AGENTS 索引与提交 | docs | §3.12 | P1 | in_progress 2026-07-26 | AGENTS 已索引；提交进行中 |
+
+
+### P1 — 小程序全局样式变量统一（T194）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T194.1 | 扩展 design-tokens + app 全局排版 | client | §3.12 | P1 | ✅ done 2026-07-26 | 语义色/字号/间距/行高/图标字号 + 全局工具类 |
+| T194.2 | 菜单模块样式变量化 | client/menu | §3.1.2 | P1 | ✅ done 2026-07-26 | menu + MenuItemCard/BottomSheet/FoodThumb 等 |
+| T194.3 | 订单模块样式变量化 | client/order | §3.1.3 / §3.1.4 | P1 | ✅ done 2026-07-26 | order-list/detail/confirm + OrderCard 等 |
+| T194.4 | 我的/登录/地址/收藏样式变量化 | client | §3.1 | P1 | ✅ done 2026-07-26 | mine/auth/address/favorites + EmptyState |
+| T194.5 | 商家后台/骑手页样式变量化 | client/admin | §3.2 / §3.3 | P1 | ✅ done 2026-07-26 | admin/* + rider；业务 scss 零裸 hex/字号 |
+
+
+### P1 — 菜品真实图与缩略图体系（T192）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T192.1 | 本地菜品图资源 21 张 | client | §3.1.2 | P1 | ✅ done 2026-07-26 | assets/dishes 烧烤/素菜/酒水/主食，单张 <150KB |
+| T192.2 | dish-images 映射 + FoodThumb 回退链 | client | §3.1.2 | P1 | ✅ done 2026-07-26 | src→菜名→占位；onError 降级；购物车/确认单缩略图 |
+
+### P1 — 空态/骨架/间距体验打磨（T193）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T193.1 | EmptyState 视觉与 compact | client | §3.12 | P1 | ✅ done 2026-07-26 | 渐变图标底、品牌按钮、全页/弹层双密度 |
+| T193.2 | Skeleton/文案/间距统一 | client | §3.1 / §3.12 | P1 | ✅ done 2026-07-26 | shimmer 对齐卡片；登录/失败/空列表文案；列表安全区 |
+
+
+### P3 — 清理过期无引用文件（T190）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T190.1 | 删除过期无引用文件 | docs/client | §3.7 | P3 | ✅ done 2026-07-26 | 删 api.yaml(JWT 过期)、test-connect.js、generate-icons.py、logs 运行日志 |
+
+### P1 — 全站 SVG/Tab 图标语义与观感优化（T189）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T189.1 | 重绘 Icon 组件全部 SVG path | client | §3.1 / §3.12 | P1 | ✅ done 2026-07-26 | 统一 2px 圆角描边；food 去“插头”感；meat 改烤串；分类语义对齐 |
+| T189.2 | 新增 cart 并替换购物车误用 | client | §3.1.2 / §3.1.3 | P1 | ✅ done 2026-07-26 | 购物车栏/飞入动画/外卖配送图标改用 cart |
+| T189.3 | 重做 tabBar PNG 图标 | client | §3.1 | P1 | ✅ done 2026-07-26 | 菜单刀叉、订单小票、我的头像；灰/品牌色双态 |
+| T189.4 | 清除残留 emoji/符号图标 | client/admin | §3.1 / §3.2 / §3.4 | P1 | ✅ done 2026-07-26 | 全站改 SVG/Ant icon；新增 bell/user/users/edit/trash/info/star-filled |
+
+
+### P1 — 小程序「我的」页集中账号能力（T188）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T188.1 | 新增 mine 页（身份/功能/退出） | client | §3.1 | P1 | ✅ done 2026-07-26 | tabBar「我的」；顾客/商家/骑手菜单分发 |
+| T188.2 | 三端入口与登录跳转 | client | §3.1 / §3.2 / §3.3 | P1 | ✅ done 2026-07-26 | admin/rider「我的」入口；登录直达工作台 |
+| T188.3 | 移除分散退出与角色浮钮 | client | §3.1 | P1 | ✅ done 2026-07-26 | 删除 AccountBar/RoleSwitcher；能力收敛到 mine |
+
+### P1 — 认证对齐 family-bookkeeping 不透明双 Token（T187）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T187.1 | TokenService + tf_user_sessions | server | §4.1 | P1 | ✅ done 2026-07-26 | Access 2h + Refresh 14d；SHA-256 hash 存会话 |
+| T187.2 | AuthService/Guard 去 JWT | server | §4.1 | P1 | ✅ done 2026-07-26 | validate/refresh 查 tf_user_sessions；refresh 默认不轮换 |
+| T187.3 | 小程序自动刷新 TTL 对齐 | client | §4.1 | P1 | ✅ done 2026-07-26 | 2h 提前 5m；接口字段仍 token+refreshToken |
+
+### P0 — 订单列表筛选栏与状态对齐（T186）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T186.1 | FilterTabs 样式与激活滚动 | client | §3.1.4 | P0 | ✅ done 2026-07-26 | sticky 白底、inline-flex 横向滚动、激活项 scrollIntoView |
+| T186.2 | 订单筛选竞态与状态对齐 | client | §3.1.4 / §4.4 | P0 | ✅ done 2026-07-26 | 请求序号防覆盖、切换即清空、前端兜底过滤、筛选时保留 Tab |
+
+
+### P1 — 小程序 UI 细节与筛选修复（T185）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T185.1 | 确认订单备注 placeholder 去掉 | client | §3.1.3 | P1 | ✅ done 2026-07-26 | 备注输入框 placeholder 置空，保留快捷标签 |
+| T185.2 | 骨架屏与真实 DOM 对齐 | client | §3.1 / §3.12 | P1 | ✅ done 2026-07-26 | 新增 address/favorites/order card/detail 骨架模式 |
+| T185.3 | 订单详情样式与时间格式 | client | §3.1.4 | P1 | ✅ done 2026-07-26 | 状态卡分行、进度时间 formatTime、商品/订单号布局、配送轨迹图例 |
+| T185.4 | 订单列表 status 筛选修复 | server/client | §3.1.4 / §4.4 | P0 | ✅ done 2026-07-26 | findByUserId 支持 status；顾客列表 Tab 正确过滤 |
+| T185.5 | 列表“没有更多了”紧随末项 | client | §3.1.4 | P1 | ✅ done 2026-07-26 | VirtualList footer 内渲染，去掉视口外大空隙 |
+| T185.6 | 菜单头部图标化 + 全站 SVG | client/admin | §3.1 / §3.4 | P1 | ✅ done 2026-07-26 | 新增 Icon 组件；收藏/地址/搜索图标按钮；去 emoji |
+
+### P1 — 小程序退出登录入口（T184）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T184.1 | AccountBar 账号条组件 | client | §3.1 | P1 | ✅ done 2026-07-26 | 已由 T188 收敛至「我的」页 |
+| T184.2 | 订单/商家/骑手页接入退出 | client | §3.1 / §3.2 / §3.3 | P1 | ✅ done 2026-07-26 | 已由 T188 移除分散入口 |
+| T184.3 | 角色切换浮钮可发现性 | client | §3.1 | P1 | ✅ done 2026-07-26 | 已由 T188/T189 删除端内角色切换 |
+
+### P2 — admin 体验与订单号/导出收口（T183）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T183.1 | 看板去重刷新 + 统一搜索/卡片/small/fixed | admin | §3.4 | P2 | ✅ done 2026-07-26 | SearchFilterBar/TableCard/sticky/small/操作列 fixed |
+| T183.2 | 订单 Excel 导出 + 业务单号 order_no | admin/server | §3.4 / §4.4 | P2 | ✅ done 2026-07-26 | TF+YYYYMMDD+店铺短码+序号；/orders/export xlsx |
+| T183.3 | 错误拦截去重 toast + 促销 shopId 兜底 | admin/server | §3.4 / §4.6 | P2 | ✅ done 2026-07-26 | skipErrorMessage；admin 未绑定店铺 fallback |
+| T183.4 | 用户/店铺/桌台/审计页体验统一 | admin | §3.4 / §3.14 / §3.16 | P2 | ✅ done 2026-07-26 | 用户列加宽；桌台按店铺；审计功能已维护 |
+
+### P0 — 创建订单 RPC p_items 类型修复（T182）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T182.1 | 修复 atomic_create_order p_items 传参 | server | §4.4 | P0 | ✅ done 2026-07-26 | 去掉 JSON.stringify，直接传数组；避免 jsonb_array_elements 报 cannot extract elements from a scalar |
+| T182.2 | 复现原外送下单请求验收 | server | §4.4 | P0 | ✅ done 2026-07-26 | 烤鸡翅+烤鸡胗外送创建成功，返回 pending_payment |
+
+
+### P2 — admin 页面头与菜单体验收口（T181）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T181.1 | 去掉面包屑/描述标题，统一标题+刷新 | admin | §3.4 | P2 | ✅ done 2026-07-26 | 移除 PageContainer 标题描述；全局关闭 breadcrumb；统一 PageHeaderActions |
+| T181.2 | 标题栏吸顶 + 分页默认 20 | admin | §3.4 | P2 | ✅ done 2026-07-26 | PageHeaderActions sticky；DEFAULT_PAGE_SIZE=20；订单/用户/审计联动 pageSize |
+| T181.3 | 首页去最近订单 + 菜单重排 | admin | §3.4 | P2 | ✅ done 2026-07-26 | Dashboard 移除最近订单；菜单按业务优先级：看板/订单/菜品/促销/用户/店铺/审计 |
+
 ### P1 — 旧库 schema 漂移兼容与上线冒烟（T180）— ✅ 2026-07-25
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
@@ -397,7 +525,7 @@
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
 | T43 | 真实微信支付集成 | payment | §3.5 | P2 | 📋 paused | 暂缓，需企业资质 |
-| T181 | 将 docs/database-init.sql 应用到线上 Supabase | database | §5.1 | P1 | 📋 paused | 补齐 RPC/缺列/tf_delivery_tracks/tf_refresh_tokens 后可去掉兼容回退 |
+| T181 | 将 docs/database-init.sql 应用到线上 Supabase | database | §5.1 | P1 | 📋 paused | 1.0.1 已执行 order_no + tf_user_sessions；剩余 atomic_*/历史缺列等仍待完整对齐 |
 
 ## 统计
 
@@ -459,4 +587,4 @@
 
 ---
 
-*最后更新: 2026-07-25（T180 旧库 schema 兼容与全链路冒烟验收完成；个人主体可演示上线，T43 仍暂缓）*
+*最后更新: 2026-07-26（T189 移除端内切换身份；T188 我的页）*

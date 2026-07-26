@@ -8,3 +8,8 @@ export { default as FilterTabs } from './FilterTabs';
 export { default as OrderCard } from './OrderCard';
 export type { FilterTabItem } from './FilterTabs';
 export { default as VirtualList } from './VirtualList';
+export { default as Icon } from './Icon';
+export type { IconName } from './Icon';
+export { isIconName } from './Icon';
+export { default as FoodThumb, resolveFoodTone } from './FoodThumb';
+export type { FoodThumbTone } from './FoodThumb';

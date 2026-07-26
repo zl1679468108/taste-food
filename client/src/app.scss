@@ -1,55 +1,118 @@
 @use './styles/design-tokens' as *;
 @use './styles/mixins' as *;
 
-/* 全局样式 */
+/* ========== 全局基础 ========== */
 page {
-  background-color: $gray-100;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial,
-    sans-serif;
-  font-size: 14px;
+  background-color: $bg-page;
+  font-family: $font-family;
+  font-size: $font-base;
+  font-weight: $weight-regular;
+  line-height: $leading-normal;
   color: $text-primary;
   box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 重置样式 */
 view,
 text,
-scroll-view {
+scroll-view,
+button,
+input,
+textarea {
   box-sizing: border-box;
 }
 
-/* 通用按钮样式 */
+/* ========== 通用按钮 ========== */
 .button-primary {
-  background-color: $primary;
-  color: #ffffff;
-  border-radius: 8px;
-  padding: 10px 24px;
-  font-size: 16px;
-  font-weight: 500;
+  background: $gradient-brand;
+  color: $text-inverse;
+  border-radius: $radius-md;
+  padding: 10px $space-6;
+  font-size: $font-lg;
+  font-weight: $weight-medium;
+  line-height: $leading-tight;
   text-align: center;
+  box-shadow: $shadow-btn;
+
+  &:active {
+    opacity: 0.88;
+  }
 }
 
-.button-primary:active {
-  opacity: 0.8;
+.button-secondary {
+  background: $primary-light;
+  color: $text-price;
+  border-radius: $radius-md;
+  padding: 10px $space-6;
+  font-size: $font-lg;
+  font-weight: $weight-medium;
+  line-height: $leading-tight;
+  text-align: center;
+
+  &:active {
+    opacity: 0.88;
+  }
 }
 
-/* 通用卡片样式 */
+.button-ghost {
+  background: $bg-card;
+  color: $text-secondary;
+  border: 1px solid $border-color;
+  border-radius: $radius-md;
+  padding: 10px $space-6;
+  font-size: $font-lg;
+  font-weight: $weight-medium;
+  line-height: $leading-tight;
+  text-align: center;
+
+  &:active {
+    background: $bg-hover;
+  }
+}
+
+/* ========== 通用卡片 ========== */
 .card {
-  background-color: #ffffff;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  background-color: $bg-card;
+  border-radius: $radius-lg;
+  padding: $card-padding;
+  margin-bottom: $section-gap;
+  box-shadow: $shadow-sm;
 }
 
-/* 安全区域 */
+/* ========== 安全区 ========== */
 .safe-area-bottom {
   @include safe-area-bottom;
 }
 
+/* ========== 排版工具类 ========== */
+.text-primary { color: $text-primary; }
+.text-secondary { color: $text-secondary; }
+.text-tertiary { color: $text-tertiary; }
+.text-hint { color: $text-hint; }
+.text-price { color: $text-price; }
+.text-inverse { color: $text-inverse; }
+.text-danger { color: $text-danger; }
+.text-success { color: $text-success; }
 
-/* 通用工具类 */
+.font-2xs { font-size: $font-2xs; }
+.font-xs { font-size: $font-xs; }
+.font-sm { font-size: $font-sm; }
+.font-base { font-size: $font-base; }
+.font-md { font-size: $font-md; }
+.font-lg { font-size: $font-lg; }
+.font-xl { font-size: $font-xl; }
+.font-2xl { font-size: $font-2xl; }
+.font-3xl { font-size: $font-3xl; }
+
+.weight-regular { font-weight: $weight-regular; }
+.weight-medium { font-weight: $weight-medium; }
+.weight-semibold { font-weight: $weight-semibold; }
+.weight-bold { font-weight: $weight-bold; }
+
+.leading-tight { line-height: $leading-tight; }
+.leading-normal { line-height: $leading-normal; }
+.leading-relaxed { line-height: $leading-relaxed; }
+
 .text-ellipsis {
   @include ellipsis(1);
 }
@@ -58,6 +121,7 @@ scroll-view {
   @include ellipsis(2);
 }
 
+/* ========== 布局工具类 ========== */
 .flex-center {
   @include flex-center;
 }
@@ -65,7 +129,6 @@ scroll-view {
 .flex-between {
   @include flex-between;
 }
-
 
 .scrollbar-hide {
   @include scrollbar-hide;

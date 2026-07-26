@@ -2,74 +2,82 @@
 
 .order-confirm {
   min-height: 100vh;
-  background: $gray-100;
-  padding-bottom: calc(140rpx + env(safe-area-inset-bottom));
+  background: $bg-page;
+  padding-bottom: calc(70px + env(safe-area-inset-bottom));
 
   &__content {
-    padding: 20rpx;
+    padding: $space-3 10px $space-3;
   }
 }
 
 .section-card {
-  background: #fff;
-  border-radius: 20rpx;
-  padding: 32rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 4rpx 20rpx rgba(0,0,0,0.04); // 增强阴影，贴近设计稿
-  border: 1px solid #F0F0F0; // 增加细边框，提升精致感
+  background: $bg-card;
+  border-radius: $radius-xl;
+  padding: $card-padding;
+  margin-bottom: 10px;
+  box-shadow: $shadow-sm; // 增强阴影，贴近设计稿
+  border: 1px solid $border-color; // 增加细边框，提升精致感
 }
 
 .section-header {
   display: flex;
   align-items: center;
-  gap: 12rpx;
-  margin-bottom: 24rpx;
+  gap: 6px;
+  margin-bottom: $space-3;
 
   .section-icon {
-    font-size: 32rpx;
+    font-size: $font-lg;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
     opacity: 0.8;
   }
   .section-title {
-    font-size: 28rpx; // 字号稍微缩小，显得更专业
-    font-weight: 600;
-    color: #333;
+    font-size: $font-base; // 字号稍微缩小，显得更专业
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-snug;
   }
 }
 
 /* 配送方式 */
 .delivery-type-list {
   display: flex;
-  gap: 16rpx;
-  margin-bottom: 24rpx;
+  gap: $space-2;
+  margin-bottom: $space-3;
 
   .delivery-type-card {
     flex: 1;
-    height: 140rpx;
-    background: #F9F9F9;
-    border: 2rpx solid transparent;
-    border-radius: 16rpx;
+    height: 70px;
+    background: $bg-muted;
+    border: 1px solid transparent;
+    border-radius: $radius-sm;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8rpx;
+    gap: $space-1;
     transition: all 0.2s;
 
     &__icon {
-      font-size: 40rpx;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     &__label {
-      font-size: 24rpx;
-      color: #666;
+      font-size: $font-xs;
+      line-height: $leading-normal;
+      color: $text-secondary;
     }
 
     &.active {
-      background: #FFF5F1;
-      border: 2rpx solid #FF6B35;
-      box-shadow: 0 4rpx 12rpx rgba(255, 107, 53, 0.1);
+      background: $primary-light;
+      border: 1px solid $primary;
+      box-shadow: 0 2px 6px rgba(255, 107, 53, 0.1);
       .delivery-type-card__label {
-        color: $primary;
-        font-weight: 600;
+        color: $text-price;
+        font-weight: $weight-semibold;
       }
     }
   }
@@ -77,20 +85,17 @@
 
 .delivery-info-form {
   .form-input {
-    background: #F9F9F9;
-    height: 80rpx;
-    border-radius: 12rpx;
-    padding: 0 24rpx;
-    font-size: 28rpx;
-    margin-bottom: 16rpx;
+    background: $bg-muted;
+    height: $space-10;
+    border-radius: $radius-sm;
+    padding: 0 $space-3;
+    font-size: $font-base;
+    line-height: $leading-normal;
+    margin-bottom: $space-2;
   }
-  .pickup-hint {
-    padding: 20rpx;
-    background: #FFF9F5;
-    border-radius: 12rpx;
-    font-size: 26rpx;
-    color: $primary;
-    text-align: center;
+  .form-row {
+    display: flex;
+    gap: $space-2;
   }
 }
 
@@ -98,22 +103,22 @@
 .goods-item {
   display: flex;
   align-items: center;
-  padding: 16rpx 0;
-  border-bottom: 1px solid #F8F8F8;
+  padding: $space-2 0;
+  border-bottom: 1px solid $border-light;
 
   &:last-child {
     border-bottom: none;
   }
 
   &__image {
-    width: 90rpx;
-    height: 90rpx;
-    background: #FFF0EB;
-    border-radius: 12rpx;
+    width: 45px;
+    height: 45px;
+    background: $primary-light;
+    border-radius: $radius-sm;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-right: 20rpx;
+    margin-right: 10px;
   }
 
   &__info {
@@ -121,16 +126,18 @@
   }
 
   &__name {
-    font-size: 30rpx;
-    color: #333;
-    font-weight: 600;
+    font-size: $font-md;
+    color: $text-primary;
+    font-weight: $weight-semibold;
     display: block;
+    line-height: $leading-snug;
   }
 
   &__spec {
-    font-size: 22rpx;
-    color: #999;
-    margin-top: 6rpx;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-tertiary;
+    margin-top: 3px;
   }
 
   &__right {
@@ -138,48 +145,51 @@
   }
 
   &__price {
-    font-size: 28rpx;
-    font-weight: 600;
-    color: #333;
+    font-size: $font-base;
+    line-height: $leading-normal;
+    font-weight: $weight-semibold;
+    color: $text-primary;
     display: block;
   }
 
   &__qty {
-    font-size: 22rpx;
-    color: #999;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-tertiary;
   }
 }
 
 /* 备注 */
 .remark-input-wrap {
-  background: #F9F9F9;
-  border-radius: 12rpx;
-  padding: 16rpx 24rpx;
-  margin-bottom: 16rpx;
+  background: $bg-muted;
+  border-radius: $radius-sm;
+  padding: $space-2 $space-3;
+  margin-bottom: $space-2;
 
   .remark-input {
-    font-size: 26rpx;
-    color: #333;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-primary;
   }
 }
 
 .remark-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 16rpx;
+  gap: $space-2;
 
   .remark-tag {
-    padding: 8rpx 24rpx;
-    background: $gray-100;
-    color: #666;
-    font-size: 24rpx;
-    border-radius: 24rpx;
+    padding: $space-1 $space-3;
+    background: $bg-page;
+    color: $text-secondary;
+    font-size: $font-xs;
+    border-radius: $radius-pill;
     border: 1px solid transparent;
 
     &.active {
-      background: #FFF0EB;
-      color: $primary;
-      border-color: $primary;
+      background: $primary-light;
+      color: $text-price;
+      border-color: $text-price;
     }
   }
 }
@@ -188,26 +198,27 @@
 .price-item {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 16rpx;
+  margin-bottom: $space-2;
 
   &:last-child {
     margin-bottom: 0;
   }
 
   .price-label {
-    font-size: 26rpx;
-    color: #666;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-secondary;
   }
   .price-value {
-    font-size: 28rpx;
-    color: #333;
+    font-size: $font-base;
+    color: $text-primary;
     &--free {
-      color: #52C41A;
-      font-weight: 500;
+      color: $success;
+      font-weight: $weight-medium;
     }
     &--discount {
-      color: $primary;
-      font-weight: 600;
+      color: $text-price;
+      font-weight: $weight-semibold;
     }
   }
 }
@@ -218,14 +229,14 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 120rpx;
-  background: #fff;
+  height: 60px;
+  background: $bg-card;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 32rpx;
+  padding: 0 $space-4;
   padding-bottom: env(safe-area-inset-bottom);
-  box-shadow: 0 -2rpx 10rpx rgba(0,0,0,0.05);
+  box-shadow: $shadow-top;
   z-index: 1000;
 
   .footer-left {
@@ -233,27 +244,29 @@
     align-items: baseline;
 
     .total-label {
-      font-size: 26rpx;
-      color: #333;
+      font-size: $font-sm;
+      line-height: $leading-normal;
+      color: $text-primary;
     }
     .total-price {
-      font-size: 44rpx;
-      color: $primary;
-      font-weight: 700;
+      font-size: $font-4xl;
+      line-height: $leading-tight;
+      color: $text-price;
+      font-weight: $weight-bold;
     }
   }
 
   .submit-btn {
-    padding: 20rpx 60rpx;
+    padding: 10px 30px;
     background: $gradient-brand;
-    color: #fff;
-    font-size: 30rpx;
-    font-weight: 600;
-    border-radius: 40rpx;
-    box-shadow: 0 4rpx 12rpx rgba(255, 107, 53, 0.3);
+    color: $text-inverse;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    border-radius: $radius-pill;
+    box-shadow: $shadow-btn;
 
     &.disabled {
-      background: #ccc;
+      background: $gray-400;
       box-shadow: none;
     }
 
@@ -278,110 +291,137 @@
 }
 
 .price-value--muted {
-  color: #999;
-  font-size: 24rpx;
+  color: $text-tertiary;
+  font-size: $font-xs;
+  line-height: $leading-normal;
 }
 
 .promotion-loading {
   padding: 6px 0;
-  font-size: 24rpx;
-  color: $primary;
+  font-size: $font-xs;
+  line-height: $leading-normal;
+  color: $text-price;
 }
 
 .price-value--muted {
-  margin-left: 8px;
-  color: #666;
+  margin-left: $space-2;
+  color: $text-secondary;
 }
 
 .empty-cart-icon {
-  font-size: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 地址簿选择 */
 .address-book-block {
-  margin-bottom: 16rpx;
+  margin-bottom: $space-2;
 }
 
 .address-book-block__hint {
-  font-size: 24rpx;
-  color: #999;
+  font-size: $font-xs;
+  line-height: $leading-normal;
+  color: $text-tertiary;
 }
 
 .address-book-card {
-  background: #fff8f5;
+  background: $primary-light;
   border: 1px solid rgba(255, 107, 53, 0.25);
-  border-radius: 12rpx;
-  padding: 20rpx;
-  margin-bottom: 8rpx;
+  border-radius: $radius-sm;
+  padding: 10px;
+  margin-bottom: $space-1;
+
+  &--shop {
+    margin-bottom: 0;
+  }
 
   &__row {
     display: flex;
     align-items: center;
-    gap: 12rpx;
-    margin-bottom: 8rpx;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: $space-1;
   }
 
   &__name {
-    font-size: 28rpx;
-    font-weight: 600;
-    color: #333;
+    font-size: $font-base;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-snug;
   }
 
   &__phone {
-    font-size: 24rpx;
-    color: #666;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-secondary;
   }
 
   &__badge {
-    font-size: 20rpx;
-    color: #fff;
+    font-size: $font-xs;
+    color: $text-inverse;
     background: $primary;
-    border-radius: 8rpx;
-    padding: 2rpx 10rpx;
+    border-radius: $radius-xs;
+    padding: 1px 5px;
+
+    &.soft {
+      background: $primary-light;
+      color: $text-price;
+      border: 1px solid rgba(255, 107, 53, 0.35);
+    }
   }
 
   &__detail {
-    font-size: 26rpx;
-    color: #444;
+    font-size: $font-sm;
+    color: $text-primary;
     display: block;
+    line-height: $leading-normal;
   }
 
   &__switch {
-    margin-top: 10rpx;
-    font-size: 22rpx;
-    color: $primary;
+    margin-top: 5px;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-price;
     display: block;
   }
 }
 
 .address-book-empty {
-  background: #f9f9f9;
-  border-radius: 12rpx;
-  padding: 20rpx;
-  margin-bottom: 8rpx;
+  background: $gray-50;
+  border-radius: $radius-sm;
+  padding: $space-3 10px;
+  margin-bottom: $space-1;
 
   &__text {
-    font-size: 26rpx;
-    color: #666;
+    font-size: $font-sm;
+    color: $text-secondary;
     display: block;
-    margin-bottom: 12rpx;
+    margin-bottom: $space-2;
+    line-height: $leading-normal;
   }
 
   &__actions {
     display: flex;
-    gap: 20rpx;
+    gap: $space-2;
   }
 
   &__btn {
-    font-size: 24rpx;
-    color: #fff;
+    font-size: $font-xs;
+    color: $text-inverse;
     background: $primary;
-    border-radius: 24rpx;
-    padding: 8rpx 24rpx;
+    border-radius: $radius-pill;
+    padding: 5px $space-3;
+    transition: opacity 0.15s $ease-out, transform 0.15s $ease-out;
+
+    &:active {
+      opacity: 0.9;
+      transform: scale(0.97);
+    }
 
     &.ghost {
-      background: #fff;
-      color: $primary;
+      background: $bg-card;
+      color: $text-price;
       border: 1px solid $primary;
     }
   }
@@ -392,16 +432,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12rpx;
+  margin-bottom: 6px;
 
   &__label {
-    font-size: 26rpx;
-    color: #333;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-primary;
   }
 }
 
 .invoice-fields {
   display: flex;
   flex-direction: column;
-  gap: 12rpx;
+  gap: 6px;
 }

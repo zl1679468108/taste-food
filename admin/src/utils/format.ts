@@ -19,6 +19,22 @@ import { shortOrderId as sharedShortOrderId } from '@taste-food/shared/format';
 // admin 历史 formatPrice 返回带 ¥ 符号，映射为 shared 的 formatPriceWithSymbol
 export { formatPriceWithSymbol as formatPrice } from '@taste-food/shared/format';
 
+/** 短订单号（去 # 前缀），用于表格紧凑展示 */
 export function shortOrderId(id: string): string {
+  if (!id) return '-';
   return sharedShortOrderId(id).replace(/^#/, '');
+}
+
+/**
+ * 订单号展示辅助。
+ * - withHash=false（默认）：`A1B2C3D4`
+ * - withHash=true：`#A1B2C3D4`
+ */
+export function formatOrderNo(
+  id?: string | null,
+  options?: { withHash?: boolean },
+): string {
+  if (!id) return '-';
+  const short = shortOrderId(id);
+  return options?.withHash ? `#${short}` : short;
 }

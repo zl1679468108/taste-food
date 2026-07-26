@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Card, Col, Row, Table, Typography, Space, Spin, Segmented, Button, message,
+  Card, Col, Row, Space, Spin, Segmented,
 } from 'antd';
 import {
   ShoppingCartOutlined,
@@ -10,30 +10,21 @@ import {
   RiseOutlined,
   LineChartOutlined,
   PieChartOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons';
 import { Line, Pie } from '@ant-design/charts';
 import {
   getOrderStats,
-  getOrders,
   getDailyStats,
   getStatusDistribution,
-  Order,
   OrderStats,
   DailyStatsItem as ApiDailyStatsItem,
   StatusDistributionItem,
 } from '@/services/order';
-import { formatTime, shortOrderId, formatPrice } from '@/utils/format';
-import OrderStatusTag from '@/components/OrderStatusTag';
-import PriceDisplay from '@/components/PriceDisplay';
-import DeliveryTypeTag from '@/components/DeliveryTypeTag';
+import { formatPrice } from '@/utils/format';
 import StatisticCard from '@/components/StatisticCard';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
-import { DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import { brand } from '@/theme';
-
-const { Text } = Typography;
 
 type RangeKey = '1' | '7' | '30';
 
@@ -73,26 +64,21 @@ function getStatusText(status: string): string {
 const DashboardPage: React.FC = () => {
   const [range, setRange] = useState<RangeKey>('7');
   const [stats, setStats] = useState<OrderStats | null>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
   const [chartLoading, setChartLoading] = useState(true);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [statusStats, setStatusStats] = useState<StatusStats[]>([]);
   const [rangeStats, setRangeStats] = useState({ orders: 0, revenue: 0 });
 
   const loadData = useCallback(async (days: number) => {
-    setLoading(true);
     setChartLoading(true);
     try {
-      const [statsResult, ordersResult, dailyResult, distResult] = await Promise.all([
+      const [statsResult, dailyResult, distResult] = await Promise.all([
         getOrderStats(DEFAULT_SHOP_ID),
-        getOrders({ shop_id: DEFAULT_SHOP_ID, page: 1, pageSize: 10 }),
         getDailyStats(DEFAULT_SHOP_ID, days),
         getStatusDistribution(DEFAULT_SHOP_ID),
       ]);
 
       setStats(statsResult);
-      setOrders(ordersResult?.items || []);
 
       const dailyData = (dailyResult || []).map((d: ApiDailyStatsItem) => {
         const parts = d.date.split('-');
@@ -115,9 +101,7 @@ const DashboardPage: React.FC = () => {
       setStatusStats(distData.length > 0 ? distData : [{ type: '暂无数据', value: 1 }]);
     } catch (error) {
       console.error('加载数据失败:', error);
-      message.error('加载看板数据失败');
     } finally {
-      setLoading(false);
       setChartLoading(false);
     }
   }, []);
@@ -129,46 +113,6 @@ const DashboardPage: React.FC = () => {
   const handleRangeChange = (value: string | number) => {
     setRange(String(value) as RangeKey);
   };
-
-  const columns = useMemo(
-    () => [
-      {
-        title: '订单号',
-        dataIndex: 'id',
-        key: 'id',
-        render: (id: string) => (
-          <Text strong style={{ fontFamily: 'monospace' }}>
-            {shortOrderId(id)}
-          </Text>
-        ),
-      },
-      {
-        title: '状态',
-        dataIndex: 'status',
-        key: 'status',
-        render: (status: string) => <OrderStatusTag status={status} />,
-      },
-      {
-        title: '配送方式',
-        dataIndex: 'deliveryType',
-        key: 'deliveryType',
-        render: (type: string) => <DeliveryTypeTag type={type} />,
-      },
-      {
-        title: '金额',
-        dataIndex: 'total',
-        key: 'total',
-        render: (total: number) => <PriceDisplay price={total} />,
-      },
-      {
-        title: '时间',
-        dataIndex: 'createdAt',
-        key: 'createdAt',
-        render: (time: string) => formatTime(time, 'MM-DD HH:mm'),
-      },
-    ],
-    [],
-  );
 
   // 今日：顶部卡用 today stats；7/30 天：用区间汇总 + 今日待处理/已完成仍参考 today stats
   const isToday = range === '1';
@@ -245,35 +189,19 @@ const DashboardPage: React.FC = () => {
   const rangeLabel = RANGE_OPTIONS.find((o) => o.value === range)?.label || '近7天';
 
   return (
-    <div>
+    <div className="tf-page">
       <PageHeaderActions
         icon={<RiseOutlined style={{ marginRight: 8 }} />}
         title="数据看板"
         onRefresh={() => loadData(Number(range))}
       />
 
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 16,
-          flexWrap: 'wrap',
-          gap: 12,
-        }}
-      >
+      <div style={{ marginBottom: 16 }}>
         <Segmented
           options={RANGE_OPTIONS}
           value={range}
           onChange={handleRangeChange}
         />
-        <Button
-          icon={<ReloadOutlined />}
-          loading={loading}
-          onClick={() => loadData(Number(range))}
-        >
-          刷新
-        </Button>
       </div>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -363,21 +291,6 @@ const DashboardPage: React.FC = () => {
         </Col>
       </Row>
 
-      <Card
-        title="最近订单"
-        bordered={false}
-        style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
-      >
-        <Table
-          columns={columns}
-          dataSource={orders}
-          rowKey="id"
-          loading={loading}
-          pagination={false}
-          size="middle"
-          locale={DEFAULT_TABLE_LOCALE}
-        />
-      </Card>
     </div>
   );
 };

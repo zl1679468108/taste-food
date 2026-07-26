@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import { View, Text } from '@tarojs/components';
 import { ORDER_STATUS_MAP } from '../../utils/constants';
+import { formatTime } from '../../utils/format';
 import './index.scss';
 
 interface StatusTimelineProps {
@@ -28,6 +29,12 @@ function resolveFlow(
     currentStatus === 'ready_for_pickup' ||
     history.some((h) => h.status === 'ready_for_pickup');
   return hasPickup ? PICKUP_FLOW : DELIVERY_FLOW;
+}
+
+function formatStepTime(time?: string) {
+  if (!time || time === '—' || time === '--:--') return '';
+  const formatted = formatTime(time, 'MM-DD HH:mm');
+  return formatted === 'Invalid Date' ? '' : formatted;
 }
 
 function StatusTimelineInner({
@@ -70,7 +77,7 @@ function StatusTimelineInner({
       result.push({
         status: s,
         label: ORDER_STATUS_MAP[s] || s,
-        time: historyMap[s] || (isCurrent ? '—' : '--:--'),
+        time: formatStepTime(historyMap[s]),
         done: isDone,
         current: isCurrent,
       });
@@ -101,17 +108,21 @@ function StatusTimelineInner({
               )}
             </View>
             <View className='status-timeline__content'>
-              <Text
-                className={`status-timeline__label status-timeline__label--${
-                  step.done ? 'done' : step.current ? 'current' : 'pending'
-                }`}
-              >
-                {step.label}
+              <View className='status-timeline__label-row'>
+                <Text
+                  className={`status-timeline__label status-timeline__label--${
+                    step.done ? 'done' : step.current ? 'current' : 'pending'
+                  }`}
+                >
+                  {step.label}
+                </Text>
                 {step.current && (
                   <Text className='status-timeline__badge'>当前</Text>
                 )}
+              </View>
+              <Text className='status-timeline__time'>
+                {step.time || (step.current ? '进行中' : '未开始')}
               </Text>
-              <Text className='status-timeline__time'>{step.time}</Text>
             </View>
           </View>
         );

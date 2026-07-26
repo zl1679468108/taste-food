@@ -132,6 +132,8 @@ export interface DeliveryTrackPoint {
 /** 订单 */
 export interface Order {
   id: string;
+  /** 业务订单号（新单必有；旧单可能由后端兼容生成展示值） */
+  orderNo?: string;
   shopId: string;
   userId: string;
   riderId?: string;

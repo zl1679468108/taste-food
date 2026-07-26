@@ -16,6 +16,45 @@ export default [
     access: 'canAdmin',
   },
   {
+    name: '订单管理',
+    path: '/order',
+    component: './Order',
+    icon: 'OrderedListOutlined',
+    access: 'canAdmin',
+  },
+  {
+    name: '菜品管理',
+    path: '/menu',
+    icon: 'CoffeeOutlined',
+    access: 'canAdmin',
+    routes: [
+      {
+        name: '菜品列表',
+        path: '/menu/item',
+        component: './Menu/Item',
+      },
+      {
+        name: '分类管理',
+        path: '/menu/category',
+        component: './Menu/Category',
+      },
+    ],
+  },
+  {
+    name: '促销管理',
+    path: '/promotion',
+    component: './Promotion',
+    icon: 'GiftOutlined',
+    access: 'canAdmin',
+  },
+  {
+    name: '用户管理',
+    path: '/user',
+    component: './User',
+    icon: 'TeamOutlined',
+    access: 'canAdmin',
+  },
+  {
     name: '店铺管理',
     path: '/shop',
     icon: 'ShopOutlined',
@@ -37,45 +76,6 @@ export default [
         component: './Shop/Tables',
       },
     ],
-  },
-  {
-    name: '菜品管理',
-    path: '/menu',
-    icon: 'CoffeeOutlined',
-    access: 'canAdmin',
-    routes: [
-      {
-        name: '分类管理',
-        path: '/menu/category',
-        component: './Menu/Category',
-      },
-      {
-        name: '菜品列表',
-        path: '/menu/item',
-        component: './Menu/Item',
-      },
-    ],
-  },
-  {
-    name: '订单管理',
-    path: '/order',
-    component: './Order',
-    icon: 'OrderedListOutlined',
-    access: 'canAdmin',
-  },
-  {
-    name: '用户管理',
-    path: '/user',
-    component: './User',
-    icon: 'TeamOutlined',
-    access: 'canAdmin',
-  },
-  {
-    name: '促销管理',
-    path: '/promotion',
-    component: './Promotion',
-    icon: 'GiftOutlined',
-    access: 'canAdmin',
   },
   {
     name: '操作审计',

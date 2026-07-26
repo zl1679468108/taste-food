@@ -47,7 +47,6 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('缺少认证令牌');
     }
 
-    // 容忍多空格的 Bearer 解析
     const match = /^Bearer\s+(.+)$/i.exec(authHeader);
     if (!match) {
       throw new UnauthorizedException('认证令牌格式错误');
@@ -59,17 +58,8 @@ export class AuthGuard implements CanActivate {
       request.user = payload;
       return true;
     } catch (e) {
-      // 仅对 JwtService 相关异常抛 401，其他异常向上抛由全局 filter 处理
       if (e instanceof UnauthorizedException) throw e;
-      const errName = (e as { name?: string })?.name;
-      const isJwtError =
-        errName === 'TokenExpiredError' ||
-        errName === 'JsonWebTokenError' ||
-        errName === 'NotBeforeError';
-      if (isJwtError) {
-        throw new UnauthorizedException('认证令牌无效或已过期');
-      }
-      throw e;
+      throw new UnauthorizedException('认证令牌无效或已过期');
     }
   }
 }

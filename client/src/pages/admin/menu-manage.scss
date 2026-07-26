@@ -1,8 +1,10 @@
+@use '../../styles/design-tokens' as *;
+
 /* ========== 菜品管理页样式 ========== */
 
 .menu-manage {
   min-height: 100vh;
-  background: #f5f5f5;
+  background: $bg-page;
   display: flex;
   flex-direction: column;
 }
@@ -12,24 +14,24 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #fff;
-  border-bottom: 1px solid #f0f0f0;
+  padding: $space-3 $space-4;
+  background: $bg-card;
+  border-bottom: 1px solid $border-color;
 }
 
 .category-header__title {
-  font-size: 15px;
-  font-weight: 600;
-  color: #333;
+  font-size: $font-md;
+  font-weight: $weight-semibold;
+  color: $text-primary;
 }
 
 .category-header__add-btn {
-  padding: 6px 16px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #FF6B35, #FF8F65);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
+  padding: 6px $space-4;
+  border-radius: $radius-xl;
+  background: $gradient-admin;
+  color: $text-inverse;
+  font-size: $font-sm;
+  font-weight: $weight-medium;
   border: none;
 
   &:active {
@@ -39,8 +41,8 @@
 
 /* 分类列表（横向滚动） */
 .category-scroll {
-  background: #fff;
-  padding: 0 12px;
+  background: $bg-card;
+  padding: 0 $space-3;
   white-space: nowrap;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -55,8 +57,8 @@
   align-items: center;
   padding: 10px 14px;
   margin-right: 6px;
-  font-size: 13px;
-  color: #666;
+  font-size: $font-sm;
+  color: $text-secondary;
   border-bottom: 2px solid transparent;
   vertical-align: top;
 
@@ -65,15 +67,15 @@
   }
 
   &--active {
-    color: #FF6B35;
-    font-weight: 500;
-    border-bottom-color: #FF6B35;
+    color: $primary;
+    font-weight: $weight-medium;
+    border-bottom-color: $primary;
   }
 
   &__edit {
-    margin-left: 4px;
-    font-size: 11px;
-    color: #ccc;
+    margin-left: $space-1;
+    font-size: $font-xs;
+    color: $text-hint;
     padding: 2px;
   }
 }
@@ -81,7 +83,7 @@
 /* 主内容区 */
 .menu-manage__body {
   flex: 1;
-  padding: 12px;
+  padding: $space-3;
   overflow-y: auto;
 }
 
@@ -89,17 +91,17 @@
 .empty-category {
   text-align: center;
   padding: 60px 0;
-  color: #ccc;
+  color: $text-hint;
 
   &__icon {
-    font-size: 48px;
+    font-size: $font-icon-md;
     display: block;
-    margin-bottom: 12px;
+    margin-bottom: $space-3;
   }
 
   &__text {
-    font-size: 14px;
-    color: #999;
+    font-size: $font-base;
+    color: $text-tertiary;
   }
 }
 
@@ -112,10 +114,10 @@
 
 /* 菜品卡片 */
 .menu-item-admin-card {
-  background: #fff;
-  border-radius: 12px;
+  background: $bg-card;
+  border-radius: $radius-lg;
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: $shadow-sm;
 
   &:active {
     opacity: 0.85;
@@ -126,7 +128,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 32px;
+    font-size: $font-icon-sm;
     position: relative;
   }
 
@@ -134,11 +136,11 @@
     position: absolute;
     top: 6px;
     right: 6px;
-    font-size: 10px;
+    font-size: $font-xs;
     padding: 2px 6px;
-    border-radius: 8px;
-    background: rgba(0, 0, 0, 0.5);
-    color: #fff;
+    border-radius: $radius-sm;
+    background: $bg-mask;
+    color: $text-inverse;
   }
 
   &__info {
@@ -146,18 +148,18 @@
   }
 
   &__name {
-    font-size: 14px;
-    font-weight: 500;
-    color: #333;
-    margin-bottom: 4px;
+    font-size: $font-base;
+    font-weight: $weight-medium;
+    color: $text-primary;
+    margin-bottom: $space-1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   &__desc {
-    font-size: 11px;
-    color: #999;
+    font-size: $font-xs;
+    color: $text-tertiary;
     margin-bottom: 6px;
     display: -webkit-box;
     -webkit-line-clamp: 1;
@@ -172,48 +174,48 @@
   }
 
   &__price {
-    font-size: 15px;
-    font-weight: 600;
-    color: #FF6B35;
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    color: $primary;
   }
 
   &__actions {
     display: flex;
-    gap: 4px;
+    gap: $space-1;
   }
 
   &__action-btn {
     width: 26px;
     height: 26px;
-    border-radius: 6px;
+    border-radius: $radius-sm;
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
+    font-size: $font-xs;
 
     &:active {
       opacity: 0.7;
     }
 
     &--toggle {
-      background: #f0fdf4;
-      color: #22c55e;
+      background: $bg-muted;
+      color: $success;
     }
 
     &--toggle-off {
-      background: #f5f5f5;
-      color: #999;
+      background: $bg-page;
+      color: $text-tertiary;
     }
 
     &--edit {
-      background: #eff6ff;
-      color: #3b82f6;
+      background: $bg-muted;
+      color: $info;
     }
 
     &--delete {
-      background: #fef2f2;
-      color: #ef4444;
+      background: $primary-light;
+      color: $danger;
     }
   }
 }
@@ -225,7 +227,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: $bg-mask;
   z-index: 200;
   display: flex;
   align-items: flex-end;
@@ -235,8 +237,8 @@
 .form-modal__content {
   width: 100%;
   max-height: 85vh;
-  background: #fff;
-  border-radius: 16px 16px 0 0;
+  background: $bg-card;
+  border-radius: $radius-xl $radius-xl 0 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -246,45 +248,46 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: $space-4;
+  border-bottom: 1px solid $border-color;
   flex-shrink: 0;
 }
 
 .form-modal__title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
+  font-size: $font-lg;
+  font-weight: $weight-semibold;
+  color: $text-primary;
 }
 
 .form-modal__close {
-  font-size: 20px;
-  color: #999;
-  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: $space-1 $space-2;
   border: none;
   background: none;
 }
 
 .form-modal__body {
-  padding: 16px;
+  padding: $space-4;
   overflow-y: auto;
   flex: 1;
 }
 
 .form-modal__footer {
   display: flex;
-  padding: 12px 16px;
+  padding: $space-3 $space-4;
   gap: 10px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid $border-color;
   flex-shrink: 0;
 }
 
 .form-modal__btn {
   flex: 1;
   height: 44px;
-  border-radius: 22px;
-  font-size: 15px;
-  font-weight: 500;
+  border-radius: $radius-pill;
+  font-size: $font-md;
+  font-weight: $weight-medium;
   border: none;
   display: flex;
   align-items: center;
@@ -295,25 +298,25 @@
   }
 
   &--cancel {
-    background: #f5f5f5;
-    color: #666;
+    background: $bg-page;
+    color: $text-secondary;
   }
 
   &--submit {
-    background: linear-gradient(135deg, #FF6B35, #FF8F65);
-    color: #fff;
+    background: $gradient-admin;
+    color: $text-inverse;
   }
 }
 
 /* 表单字段 */
 .form-field {
-  margin-bottom: 16px;
+  margin-bottom: $space-4;
 }
 
 .form-field__label {
-  font-size: 15px;
-  font-weight: 500;
-  color: #333;
+  font-size: $font-md;
+  font-weight: $weight-medium;
+  color: $text-primary;
   margin-bottom: 6px;
   display: block;
 }
@@ -321,12 +324,12 @@
 .form-field__input {
   width: 100%;
   height: 40px;
-  padding: 0 12px;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #333;
-  background: #fafafa;
+  padding: 0 $space-3;
+  border: 1px solid $border-strong;
+  border-radius: $radius-sm;
+  font-size: $font-base;
+  color: $text-primary;
+  background: $bg-muted;
   outline: none;
   box-sizing: border-box;
 }
@@ -334,12 +337,12 @@
 .form-field__textarea {
   width: 100%;
   min-height: 80px;
-  padding: 10px 12px;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #333;
-  background: #fafafa;
+  padding: 10px $space-3;
+  border: 1px solid $border-strong;
+  border-radius: $radius-sm;
+  font-size: $font-base;
+  color: $text-primary;
+  background: $bg-muted;
   outline: none;
   box-sizing: border-box;
 }
@@ -347,43 +350,14 @@
 .form-field__select {
   width: 100%;
   height: 40px;
-  padding: 0 12px;
-  border: 1px solid #e5e5e5;
-  border-radius: 8px;
-  font-size: 14px;
-  color: #333;
-  background: #fafafa;
+  padding: 0 $space-3;
+  border: 1px solid $border-strong;
+  border-radius: $radius-sm;
+  font-size: $font-base;
+  color: $text-primary;
+  background: $bg-muted;
   outline: none;
   box-sizing: border-box;
-}
-
-/* Emoji 选择器 */
-.emoji-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.emoji-option {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  border: 1.5px solid #eee;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  background: #fafafa;
-
-  &:active {
-    opacity: 0.7;
-  }
-
-  &--selected {
-    border-color: #FF6B35;
-    background: #fff5f5;
-  }
 }
 
 /* 分类编辑弹窗 */
@@ -393,7 +367,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: $bg-mask;
   z-index: 210;
   display: flex;
   align-items: center;
@@ -402,47 +376,47 @@
 
 .edit-category-modal__content {
   width: 300px;
-  background: #fff;
-  border-radius: 16px;
-  padding: 20px;
+  background: $bg-card;
+  border-radius: $radius-xl;
+  padding: $space-5;
 }
 
 .edit-category-modal__title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 16px;
+  font-size: $font-lg;
+  font-weight: $weight-semibold;
+  color: $text-primary;
+  margin-bottom: $space-4;
   text-align: center;
 }
 
 .edit-category-modal__actions {
   display: flex;
   gap: 10px;
-  margin-top: 16px;
+  margin-top: $space-4;
 }
 
 /* 加载状态 */
 .menu-loading {
   text-align: center;
-  padding: 40px 0;
-  color: #999;
-  font-size: 15px;
+  padding: $space-10 0;
+  color: $text-tertiary;
+  font-size: $font-md;
 }
 
 /* 图片上传区域 */
 .image-upload {
   width: 100%;
   height: 160px;
-  background: #f8fafc;
-  border: 2px dashed #e2e8f0;
-  border-radius: 12px;
+  background: $bg-muted;
+  border: 2px dashed $border-color;
+  border-radius: $radius-lg;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
 
   &:active {
-    background: #f1f5f9;
+    background: $bg-hover;
   }
 
   .image-preview {
@@ -456,15 +430,22 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    color: #94a3b8;
+    color: $text-tertiary;
 
     .icon {
-      font-size: 32px;
-      margin-bottom: 8px;
+      font-size: $font-icon-sm;
+      margin-bottom: $space-2;
     }
 
     .text {
-      font-size: 12px;
+      font-size: $font-xs;
     }
   }
+}
+
+
+.category-chip__label {
+  display: inline-flex;
+  align-items: center;
+  gap: $space-1;
 }

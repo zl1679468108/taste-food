@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useAuthStore } from '../../stores/authStore';
+import Icon from '../../components/Icon';
 import './login.scss';
 
 const LoginPage = () => {
@@ -20,7 +21,7 @@ const LoginPage = () => {
       await login('admin_code');
       Taro.showToast({ title: '管理员登录成功', icon: 'success' });
       setTimeout(() => {
-        Taro.switchTab({ url: '/pages/menu/index' });
+        Taro.reLaunch({ url: '/pages/admin/index' });
       }, 1000);
     } catch {
       // 错误已在 request 中处理
@@ -52,7 +53,7 @@ const LoginPage = () => {
       await login('rider_code');
       Taro.showToast({ title: '骑手登录成功', icon: 'success' });
       setTimeout(() => {
-        Taro.switchTab({ url: '/pages/menu/index' });
+        Taro.reLaunch({ url: '/pages/rider/index' });
       }, 1000);
     } catch {
       // 错误已在 request 中处理
@@ -64,7 +65,7 @@ const LoginPage = () => {
   return (
     <View className='login-page'>
       {/* Logo */}
-      <View className='login-page__logo'>🍖</View>
+      <View className='login-page__logo'><Icon name='food' size={40} color='#FFFFFF' /></View>
 
       {/* 标题 */}
       <Text className='login-page__title'>小买卖点餐</Text>
@@ -74,7 +75,7 @@ const LoginPage = () => {
 
       {/* 说明 */}
       <View className='login-page__desc'>
-        <Text className='login-page__desc-title'>💡 开发说明</Text>
+        <View className='login-page__desc-title'><Icon name='info' size={16} color='#FF6B35' /><Text>开发说明</Text></View>
         <Text className='login-page__desc-text'>
           当前为开发环境，微信登录功能不可用。请使用模拟登录按钮进行测试。
           {'\n'}
@@ -87,7 +88,7 @@ const LoginPage = () => {
         className={`login-page__btn ${loading ? 'login-page__btn--loading' : ''}`}
         onClick={() => !loading && !loadingCustomer && !loadingRider && mockAdminLogin()}
       >
-        <Text className='login-page__btn-icon'>👨‍🍳</Text>
+        <View className='login-page__btn-icon'><Icon name='shop' size={20} color='#FFFFFF' /></View>
         <Text>{loading ? '登录中...' : '管理员模拟登录'}</Text>
       </View>
 
@@ -97,7 +98,7 @@ const LoginPage = () => {
         style={{ marginTop: '12px', backgroundColor: '#4CAF50' }}
         onClick={() => !loading && !loadingCustomer && !loadingRider && mockRiderLogin()}
       >
-        <Text className='login-page__btn-icon'>🛵</Text>
+        <View className='login-page__btn-icon'><Icon name='order' size={20} color='#FFFFFF' /></View>
         <Text>{loadingRider ? '登录中...' : '骑手模拟登录'}</Text>
       </View>
 

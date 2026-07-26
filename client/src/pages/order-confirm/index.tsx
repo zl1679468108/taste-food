@@ -1,3 +1,5 @@
+import Icon, { type IconName } from '../../components/Icon';
+import FoodThumb from '../../components/FoodThumb';
 import { useState, useEffect, useCallback } from 'react';
 import { View, Text, Input, Switch } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
@@ -35,6 +37,8 @@ const OrderConfirmPage = () => {
   const [tableNo, setTableNo] = useState('');
   const { pending: submitting, run: runSubmit } = useAsyncAction();
   const [shopName, setShopName] = useState('');
+  const [shopAddress, setShopAddress] = useState('');
+  const [shopPhone, setShopPhone] = useState('');
   const [shopDeliveryFee, setShopDeliveryFee] = useState(0);
   const [shopOpen, setShopOpen] = useState(true);
   const [nextOpenHint, setNextOpenHint] = useState<string | null>(null);
@@ -62,6 +66,8 @@ const OrderConfirmPage = () => {
       const res = await get<any>(`/shops/${DEFAULT_SHOP_ID}`);
       const shop = res.data;
       setShopName(shop?.name || '');
+      setShopAddress(shop?.address || '');
+      setShopPhone(shop?.phone || '');
       setShopDeliveryFee(shop?.deliveryFee || 0);
       // 与菜单页一致：显式 isOpenNow 优先，否则回退 status
       const open =
@@ -296,13 +302,13 @@ const OrderConfirmPage = () => {
     <View className='order-confirm'>
       <View className='order-confirm__content'>
         {/* 配送方式 */}
-        <SectionCard className='delivery-section' icon='📦' title='配送方式'>
+        <SectionCard className='delivery-section' icon='order' title='配送方式'>
           <View className='delivery-type-list'>
-            {[
-              { type: DeliveryType.DELIVERY, icon: '🛵', label: '外卖配送' },
-              { type: DeliveryType.PICKUP, icon: '🏪', label: '到店自取' },
-              { type: DeliveryType.DINE_IN, icon: '🍽️', label: '堂食' },
-            ].map((item) => (
+            {([
+              { type: DeliveryType.DELIVERY, icon: 'cart' as IconName, label: '外卖配送' },
+              { type: DeliveryType.PICKUP, icon: 'shop' as IconName, label: '到店自取' },
+              { type: DeliveryType.DINE_IN, icon: 'food' as IconName, label: '堂食' },
+            ]).map((item) => (
               <View
                 key={item.type}
                 className={`delivery-type-card ${
@@ -310,7 +316,13 @@ const OrderConfirmPage = () => {
                 }`}
                 onClick={() => selectDeliveryType(item.type)}
               >
-                <Text className='delivery-type-card__icon'>{item.icon}</Text>
+                <View className='delivery-type-card__icon'>
+                  <Icon
+                    name={item.icon}
+                    size={22}
+                    color={deliveryType === item.type ? '#FF6B35' : '#666666'}
+                  />
+                </View>
                 <Text className='delivery-type-card__label'>{item.label}</Text>
               </View>
             ))}
@@ -319,55 +331,58 @@ const OrderConfirmPage = () => {
           {/* 配送/桌号信息 */}
           <View className='delivery-info-form'>
             {deliveryType === DeliveryType.DELIVERY ? (
-              <>
-                <View className='address-book-block'>
-                  {addressLoading ? (
-                    <Text className='address-book-block__hint'>地址加载中...</Text>
-                  ) : selectedAddress ? (
-                    <View className='address-book-card' onClick={openAddressBook}>
-                      <View className='address-book-card__row'>
-                        <Text className='address-book-card__name'>{selectedAddress.contactName}</Text>
-                        <Text className='address-book-card__phone'>{selectedAddress.contactPhone}</Text>
-                        {selectedAddress.isDefault ? (
-                          <Text className='address-book-card__badge'>默认</Text>
-                        ) : null}
-                      </View>
-                      <Text className='address-book-card__detail'>{selectedAddress.detail}</Text>
-                      <Text className='address-book-card__switch'>切换地址 ›</Text>
+              <View className='address-book-block'>
+                {addressLoading ? (
+                  <Text className='address-book-block__hint'>地址加载中...</Text>
+                ) : selectedAddress ? (
+                  <View className='address-book-card' onClick={openAddressBook}>
+                    <View className='address-book-card__row'>
+                      <Text className='address-book-card__name'>{selectedAddress.contactName}</Text>
+                      <Text className='address-book-card__phone'>{selectedAddress.contactPhone}</Text>
+                      {selectedAddress.tag ? (
+                        <Text className='address-book-card__badge soft'>{selectedAddress.tag}</Text>
+                      ) : null}
+                      {selectedAddress.isDefault ? (
+                        <Text className='address-book-card__badge'>默认</Text>
+                      ) : null}
                     </View>
-                  ) : (
+                    <Text className='address-book-card__detail'>{selectedAddress.detail}</Text>
+                    <Text className='address-book-card__switch'>切换地址 ›</Text>
+                  </View>
+                ) : (
+                  <>
                     <View className='address-book-empty'>
-                      <Text className='address-book-empty__text'>暂无收货地址</Text>
+                      <Text className='address-book-empty__text'>还没有收货地址，可新增或手动填写</Text>
                       <View className='address-book-empty__actions'>
                         <Text className='address-book-empty__btn' onClick={goAddAddress}>去新增</Text>
                         <Text className='address-book-empty__btn ghost' onClick={openAddressBook}>地址簿</Text>
                       </View>
                     </View>
-                  )}
-                </View>
-                <Input
-                  className='form-input'
-                  placeholder='请输入配送地址（可从地址簿带出后微调）'
-                  value={address}
-                  onInput={(e) => setAddress(e.detail.value)}
-                />
-                <View className='form-row'>
-                  <Input
-                    className='form-input form-input--flex-1'
-                    placeholder='姓名'
-                    value={contactName}
-                    onInput={(e) => setContactName(e.detail.value)}
-                    aria-label='联系人姓名'
-                  />
-                  <Input
-                    className='form-input form-input--flex-2'
-                    placeholder='电话'
-                    value={contactPhone}
-                    onInput={(e) => setContactPhone(e.detail.value)}
-                    aria-label='联系人电话'
-                  />
-                </View>
-              </>
+                    <Input
+                      className='form-input'
+                      placeholder='请输入配送地址'
+                      value={address}
+                      onInput={(e) => setAddress(e.detail.value)}
+                    />
+                    <View className='form-row'>
+                      <Input
+                        className='form-input form-input--flex-1'
+                        placeholder='姓名'
+                        value={contactName}
+                        onInput={(e) => setContactName(e.detail.value)}
+                        aria-label='联系人姓名'
+                      />
+                      <Input
+                        className='form-input form-input--flex-2'
+                        placeholder='电话'
+                        value={contactPhone}
+                        onInput={(e) => setContactPhone(e.detail.value)}
+                        aria-label='联系人电话'
+                      />
+                    </View>
+                  </>
+                )}
+              </View>
             ) : deliveryType === DeliveryType.DINE_IN ? (
               <Input
                 className='form-input'
@@ -376,14 +391,26 @@ const OrderConfirmPage = () => {
                 onInput={(e) => setTableNo(e.detail.value)}
               />
             ) : (
-              <View className='pickup-hint'>请前往：{shopName || '店铺'}自取</View>
+              <View className='address-book-card address-book-card--shop'>
+                <View className='address-book-card__row'>
+                  <Text className='address-book-card__name'>{shopName || '门店'}</Text>
+                  {shopPhone ? (
+                    <Text className='address-book-card__phone'>{shopPhone}</Text>
+                  ) : null}
+                  <Text className='address-book-card__badge soft'>自取</Text>
+                </View>
+                <Text className='address-book-card__detail'>
+                  {shopAddress || '门店地址暂未设置'}
+                </Text>
+                <Text className='address-book-card__switch'>请前往门店自取</Text>
+              </View>
             )}
           </View>
         </SectionCard>
 
         {/* 优惠信息 */}
         {promotions.length > 0 && (
-          <SectionCard className='promotion-section' icon='🏷️' title='优惠活动'>
+          <SectionCard className='promotion-section' icon='star' title='优惠活动'>
             {promotions.map((promo: Promotion) => {
               const rule = promo.rule || {};
               let desc = '';
@@ -398,7 +425,7 @@ const OrderConfirmPage = () => {
               }
               return (
                 <View key={promo.id} className='promotion-loading'>
-                  <Text>🎉 {promo.name}</Text>
+                  <Text>{promo.name}</Text>
                   <Text className='price-value--muted'>{desc}</Text>
                 </View>
               );
@@ -407,12 +434,12 @@ const OrderConfirmPage = () => {
         )}
 
         {/* 商品列表 */}
-        <SectionCard className='goods-section' icon='📋' title={`已选菜品 (${cartItems.length}件)`}>
+        <SectionCard className='goods-section' icon='list' title={`已选菜品 (${cartItems.length}件)`}>
           <View className='goods-list'>
             {cartItems.map((item) => (
               <View key={item.key} className='goods-item'>
                 <View className='goods-item__image'>
-                  <Text className='empty-cart-icon'>🍖</Text>
+                  <FoodThumb src={item.imageUrl} name={item.name} size='sm' round />
                 </View>
                 <View className='goods-item__info'>
                   <Text className='goods-item__name'>{item.name}</Text>
@@ -428,11 +455,11 @@ const OrderConfirmPage = () => {
         </SectionCard>
 
         {/* 备注 */}
-        <SectionCard className='remark-section' icon='💬' title='备注'>
+        <SectionCard className='remark-section' icon='chat' title='备注'>
           <View className='remark-input-wrap'>
             <Input
               className='remark-input'
-              placeholder='少放辣椒，谢谢'
+              placeholder=''
               value={cartRemarks}
               onInput={(e) => setRemarks(e.detail.value)}
             />
@@ -451,7 +478,7 @@ const OrderConfirmPage = () => {
         </SectionCard>
 
         {/* 发票信息 */}
-        <SectionCard className='invoice-section' icon='🧾' title='发票信息'>
+        <SectionCard className='invoice-section' icon='invoice' title='发票信息'>
           <View className='invoice-switch-row'>
             <Text className='invoice-switch-row__label'>需要发票</Text>
             <Switch

@@ -230,3 +230,40 @@ test('create order accepts payload without client-provided item name', async () 
   assert.equal(order.items[0].name, '服务端菜名');
   assert.equal(order.items[0].price, 1500);
 });
+
+
+test('create order allocates meaningful orderNo and export includes xlsx', async () => {
+  const shopId = '00000000-0000-0000-0000-0000000000ab';
+  const { service } = createOrderService({
+    shop: { id: shopId },
+    menuItems: {
+      'menu-no': {
+        id: 'menu-no',
+        name: '单号菜',
+        price: 1000,
+      },
+    },
+  });
+
+  const order = await service.create({
+    shopId,
+    userId: 'user-order-no',
+    deliveryType: DeliveryType.PICKUP,
+    items: [{
+      menuItemId: 'menu-no',
+      name: '单号菜',
+      quantity: 1,
+      price: 1,
+    }],
+  });
+
+  assert.ok(order.orderNo);
+  assert.match(order.orderNo!, /^TF\d{8}00AB\d{4}$/);
+
+  const exported = await service.exportOrdersCsv(shopId, { format: 'both', maxRows: 10 });
+  assert.ok(exported.count >= 1);
+  assert.ok(exported.csv.includes(order.orderNo!));
+  assert.ok(exported.xlsxBase64 && exported.xlsxBase64.length > 100);
+  assert.ok(exported.xlsxFilename?.endsWith('.xlsx'));
+  assert.ok(exported.filename.endsWith('.csv'));
+});

@@ -1,29 +1,17 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: v15.2 (与代码实现同步)
--- 更新日期: 2026-07-25
+-- 版本: 1.0.1 (与代码实现同步)
+-- 更新日期: 2026-07-26
+-- 版本策略: 语义化小版本迭代（MAJOR.MINOR.PATCH），避免虚高主版本号
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
--- v10.0 变更：
---   1. 补充高频查询字段索引（tf_order_items.order_id 等）
---   2. 为 text 枚举字段补充 CHECK 约束防止非法值
---   3. 外键补充 ON DELETE 行为（CASCADE/RESTRICT/SET NULL）
---   4. 补充缺失的 updated_at 时间戳
---   5. 多租户表补充 shop_id（tf_order_items/tf_delivery_info/tf_payments）
---   6. tf_users.userId 重命名为 user_id 符合 snake_case 规范
---   7. atomic_create_order p_user_id 类型从 uuid 改为 text 匹配 user_id 列
--- v11.0 变更：
---   1. tf_shops 增加 business_hours jsonb（营业时段）
--- v12.0 变更：
---   1. tf_addresses 顾客地址簿表
--- v13.0
---   1. tf_shop_tables 桌台扫码入座
--- v14.0
---   1. tf_audit_logs 操作审计日志
---   2. tf_orders 增加 invoice_needed / invoice_title / invoice_tax_no
---   3. atomic_create_order 同步发票字段
--- v15.0
---   1. tf_delivery_tracks 配送轨迹点表
+--
+-- 1.0.1
+--   1. tf_orders.order_no 业务单号 + 唯一索引 + atomic_create_order(p_order_no)
+--   2. tf_user_sessions 不透明双 Token 会话（Access 2h + Refresh 14d）
+--   3. 认证主路径改为 opaque dual token（tf_refresh_tokens 仅 legacy 兼容）
+-- 1.0.0
+--   1. 基线：店铺/菜单/订单/支付/用户/桌台/审计/配送轨迹等全量结构
 -- ============================================================
 
 -- 1. 店铺表
@@ -53,7 +41,7 @@ ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_range" integer DEFAULT
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_fee" integer DEFAULT 500;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "min_order_amount" integer DEFAULT 0;
 
--- v15.2 兼容旧线上库：补齐主路径缺失列
+-- 兼容旧线上库：补齐主路径缺失列
 ALTER TABLE "tf_menu_items" ADD COLUMN IF NOT EXISTS "monthly_sales" integer DEFAULT 0;
 ALTER TABLE "tf_menu_items" ADD COLUMN IF NOT EXISTS "spec_group_ids" uuid[] DEFAULT '{}';
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_fee" integer DEFAULT 0;
@@ -61,6 +49,7 @@ ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "rider_id" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_needed" boolean DEFAULT false;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_title" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_tax_no" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "order_no" text;
 ALTER TABLE "tf_order_items" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
 ALTER TABLE "tf_payments" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
 ALTER TABLE "tf_payments" ADD COLUMN IF NOT EXISTS "user_id" text;
@@ -130,6 +119,7 @@ ALTER TABLE "tf_spec_options" DISABLE ROW LEVEL SECURITY;
 -- shop_id 使用 ON DELETE RESTRICT 防止误删有订单的店铺（订单为财务记录）
 CREATE TABLE IF NOT EXISTS "tf_orders" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "order_no" text, -- 业务订单号：TF + YYYYMMDD + 店铺短码4位 + 当日序号4位
   "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "user_id" text NOT NULL, -- 存储微信 OpenID 或 Auth UID
   "rider_id" text, -- 骑手 ID（外送订单使用）
@@ -150,10 +140,12 @@ CREATE TABLE IF NOT EXISTS "tf_orders" (
 );
 ALTER TABLE "tf_orders" DISABLE ROW LEVEL SECURITY;
 
--- 兼容已有库：订单发票字段增量迁移（幂等）
+-- 兼容已有库：订单发票字段 / 业务单号增量迁移（幂等）
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_needed" boolean DEFAULT false;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_title" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_tax_no" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "order_no" text;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_no_unique ON tf_orders(order_no) WHERE order_no IS NOT NULL;
 
 -- 7. 订单明细表
 -- shop_id 多租户字段，便于按店铺维度统计订单明细
@@ -236,8 +228,8 @@ CREATE TABLE IF NOT EXISTS "tf_users" (
 );
 ALTER TABLE "tf_users" DISABLE ROW LEVEL SECURITY;
 
--- 10.1 Refresh Token 持久化表
--- 替代内存 Map，支持多实例部署与重启不失效
+-- 10.1 [Legacy] 旧 JWT refresh 持久化表（1.0.1 起主路径改用 tf_user_sessions）
+-- 保留以兼容历史库；新登录不再写入。确认无依赖后可手工 DROP。
 CREATE TABLE IF NOT EXISTS "tf_refresh_tokens" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "token_hash" text NOT NULL, -- refresh_token 的哈希值（不存明文）
@@ -251,6 +243,33 @@ ALTER TABLE "tf_refresh_tokens" DISABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON tf_refresh_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON tf_refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON tf_refresh_tokens(expires_at);
+
+
+-- 10.2 用户会话表（不透明双 Token，对齐 family-bookkeeping；1.0.1 已执行并回并）
+-- access: token_hash + expires_at
+-- refresh: refresh_token_hash + refresh_expires_at（决定会话是否仍有效）
+CREATE TABLE IF NOT EXISTS "tf_user_sessions" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "user_id" text NOT NULL, -- 对应 tf_users.id
+  "token_hash" text NOT NULL, -- access token SHA-256
+  "expires_at" timestamptz NOT NULL, -- access 过期
+  "refresh_token_hash" text, -- refresh token SHA-256
+  "refresh_expires_at" timestamptz, -- refresh 过期（会话真正有效期）
+  "created_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_user_sessions" DISABLE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_sessions_token_hash
+  ON tf_user_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_token_hash
+  ON tf_user_sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id
+  ON tf_user_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at
+  ON tf_user_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_user_sessions_refresh_expires_at
+  ON tf_user_sessions(refresh_expires_at);
+
 
 -- 11. 支付记录表
 CREATE TABLE IF NOT EXISTS "tf_payments" (
@@ -475,15 +494,16 @@ CREATE OR REPLACE FUNCTION atomic_create_order(
   p_order_date date,
   p_invoice_needed boolean DEFAULT false,
   p_invoice_title text DEFAULT NULL,
-  p_invoice_tax_no text DEFAULT NULL
+  p_invoice_tax_no text DEFAULT NULL,
+  p_order_no text DEFAULT NULL
 ) RETURNS jsonb AS $$
 DECLARE
   v_item jsonb;
   v_order_id uuid;
 BEGIN
-  -- Step 1: Insert order
-  INSERT INTO tf_orders (id, shop_id, user_id, status, total, delivery_fee, delivery_type, address, table_no, remark, contact_name, contact_phone, invoice_needed, invoice_title, invoice_tax_no, created_at, updated_at)
-  VALUES (p_order_id, p_shop_id, p_user_id, 'pending_payment', p_total, p_delivery_fee, p_delivery_type, p_address, p_table_no, p_remark, p_contact_name, p_contact_phone, COALESCE(p_invoice_needed, false), p_invoice_title, p_invoice_tax_no, now(), now())
+  -- Step 1: Insert order（order_no 可空，由服务层生成后传入）
+  INSERT INTO tf_orders (id, order_no, shop_id, user_id, status, total, delivery_fee, delivery_type, address, table_no, remark, contact_name, contact_phone, invoice_needed, invoice_title, invoice_tax_no, created_at, updated_at)
+  VALUES (p_order_id, p_order_no, p_shop_id, p_user_id, 'pending_payment', p_total, p_delivery_fee, p_delivery_type, p_address, p_table_no, p_remark, p_contact_name, p_contact_phone, COALESCE(p_invoice_needed, false), p_invoice_title, p_invoice_tax_no, now(), now())
   RETURNING id INTO v_order_id;
 
   -- Step 2: Insert order items and increment sales atomically

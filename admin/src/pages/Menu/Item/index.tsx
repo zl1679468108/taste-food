@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
-import { PageContainer } from '@ant-design/pro-components';
 import { EditOutlined, DeleteOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getCategories, MenuItem, Category } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
@@ -32,7 +31,8 @@ const MenuItemPage: React.FC = () => {
       setCategories(categoriesRes || []);
     } catch (error) {
       console.error('加载数据失败:', error);
-      message.error('加载菜品失败');
+      setItems([]);
+      setCategories([]);
     } finally {
       setLoading(false);
     }
@@ -66,7 +66,7 @@ const MenuItemPage: React.FC = () => {
       message.success('删除成功');
       loadData();
     } catch (error) {
-      message.error('删除失败');
+      console.error('删除菜品失败:', error);
     }
   };
 
@@ -92,7 +92,7 @@ const MenuItemPage: React.FC = () => {
       dataIndex: 'imageUrl',
       key: 'imageUrl',
       width: 80,
-      render: (url: string) => url ? <Image src={url} width={50} height={50} /> : '-',
+      render: (url: string) => (url ? <Image src={url} width={50} height={50} /> : '-'),
     },
     { title: '菜品名称', dataIndex: 'name', key: 'name', width: 160 },
     {
@@ -108,7 +108,7 @@ const MenuItemPage: React.FC = () => {
       key: 'categoryId',
       width: 120,
       ellipsis: true,
-      render: (categoryId: string) => categories.find(c => c.id === categoryId)?.name || '-',
+      render: (categoryId: string) => categories.find((c) => c.id === categoryId)?.name || '-',
     },
     {
       title: '状态',
@@ -126,6 +126,7 @@ const MenuItemPage: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 160,
+      fixed: 'right' as const,
       render: (_: MenuItem, record: MenuItem) => (
         <Space>
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
@@ -150,8 +151,7 @@ const MenuItemPage: React.FC = () => {
   }, [items, searchText, filterCategoryId]);
 
   return (
-    <PageContainer title="菜品列表" subTitle="菜品上下架与价格管理">
-    <div >
+    <div className="tf-page">
       <PageHeaderActions
         icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
         title="菜品管理"
@@ -160,21 +160,26 @@ const MenuItemPage: React.FC = () => {
         onRefresh={loadData}
       />
 
-            <SearchFilterBar
-        searchPlaceholder="搜索菜品名称"
-        onSearch={setSearchText}
-        onSearchClear={() => setSearchText('')}
-        filterPlaceholder="按分类筛选"
-        filterValue={filterCategoryId}
-        filterOptions={categories.map((c) => ({ label: c.name, value: c.id }))}
-        onFilterChange={setFilterCategoryId}
-      />
-      <TableCard>
-        <Table columns={columns} dataSource={filteredItems} rowKey="id" loading={loading}
-        pagination={DEFAULT_TABLE_PAGINATION}
-        locale={DEFAULT_TABLE_LOCALE}
-        scroll={{ x: 800 }}
-      />
+      <TableCard className="tf-table-card">
+        <SearchFilterBar
+          searchPlaceholder="搜索菜品名称"
+          onSearch={setSearchText}
+          onSearchClear={() => setSearchText('')}
+          filterPlaceholder="按分类筛选"
+          filterValue={filterCategoryId}
+          filterOptions={categories.map((c) => ({ label: c.name, value: c.id }))}
+          onFilterChange={setFilterCategoryId}
+        />
+        <Table
+          columns={columns}
+          dataSource={filteredItems}
+          rowKey="id"
+          loading={loading}
+          size="small"
+          pagination={DEFAULT_TABLE_PAGINATION}
+          locale={DEFAULT_TABLE_LOCALE}
+          scroll={{ x: 800 }}
+        />
       </TableCard>
 
       <Modal
@@ -187,17 +192,33 @@ const MenuItemPage: React.FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="菜品名称" rules={[{ required: true, message: '请输入菜品名称' }, { max: 30, message: '菜品名称不超过 30 字' }]}>
+          <Form.Item
+            name="name"
+            label="菜品名称"
+            rules={[
+              { required: true, message: '请输入菜品名称' },
+              { max: 30, message: '菜品名称不超过 30 字' },
+            ]}
+          >
             <Input />
           </Form.Item>
           <Form.Item name="categoryId" label="所属分类" rules={[{ required: true, message: '请选择所属分类' }]}>
             <Select>
-              {categories.map(cat => (
-                <Select.Option key={cat.id} value={cat.id}>{cat.name}</Select.Option>
+              {categories.map((cat) => (
+                <Select.Option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </Select.Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="price" label="价格（元）" rules={[{ required: true, message: '请输入价格' }, { type: 'number', min: 0, message: '价格必须为非负数' }]}>
+          <Form.Item
+            name="price"
+            label="价格（元）"
+            rules={[
+              { required: true, message: '请输入价格' },
+              { type: 'number', min: 0, message: '价格必须为非负数' },
+            ]}
+          >
             <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="例如 12.50" />
           </Form.Item>
           <Form.Item name="description" label="描述" rules={[{ max: 200, message: '描述不超过 200 字' }]}>
@@ -231,7 +252,6 @@ const MenuItemPage: React.FC = () => {
         </Form>
       </Modal>
     </div>
-    </PageContainer>
   );
 };
 

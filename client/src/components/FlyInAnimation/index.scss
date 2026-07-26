@@ -1,3 +1,5 @@
+@use '../../styles/design-tokens' as *;
+
 .fly-in-animation {
   position: fixed;
   z-index: 9999;
@@ -5,7 +7,7 @@
   animation: flyIn 0.6s ease-in-out forwards;
 
   &__icon {
-    font-size: 36px;
+    font-size: $font-7xl;
     display: block;
   }
 }

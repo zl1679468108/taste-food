@@ -1,40 +1,43 @@
+@use '../../styles/design-tokens' as *;
+
 .error-boundary {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: 40px 32px;
-  background: #fff;
+  padding: $space-10 $space-8;
+  background: $bg-card;
 
   &__icon {
-    font-size: 64px;
-    margin-bottom: 24px;
+    font-size: $font-icon-2xl;
+    margin-bottom: $space-6;
   }
 
   &__title {
-    font-size: 32px;
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 16px;
+    font-size: $font-icon-sm;
+    font-weight: $weight-semibold;
+    line-height: $leading-tight;
+    color: $text-primary;
+    margin-bottom: $space-4;
   }
 
   &__message {
-    font-size: 26px;
-    color: #999;
-    margin-bottom: 40px;
+    font-size: $font-6xl;
+    color: $text-tertiary;
+    margin-bottom: $space-10;
     text-align: center;
-    line-height: 1.5;
+    line-height: $leading-normal;
   }
 
   &__btn {
     width: 300px;
     height: 80px;
     line-height: 80px;
-    background: #FF6B35;
-    color: #fff;
+    background: $primary;
+    color: $text-inverse;
     border-radius: 40px;
-    font-size: 28px;
+    font-size: $font-6xl;
     text-align: center;
   }
 }

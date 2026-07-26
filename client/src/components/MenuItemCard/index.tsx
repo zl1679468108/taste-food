@@ -1,74 +1,89 @@
 import { memo, useCallback } from 'react';
-import { View, Text, Image } from '@tarojs/components';
+import { View, Text } from '@tarojs/components';
 import { MenuItem } from '../../types/menu';
 import { formatPriceWithSymbol } from '../../utils/format';
+import Icon from '../Icon';
+import FoodThumb from '../FoodThumb';
 import './index.scss';
 
 interface MenuItemCardProps {
   item: MenuItem;
-  categoryIndex: number;
+  categoryIndex?: number;
   onItemClick: (item: MenuItem) => void;
   onFavorite: (item: MenuItem) => void;
-  getItemBgColor: (index: number) => string;
-  getItemEmoji: (name: string) => string;
+  /** @deprecated 真实菜品图已替代色调占位 */
+  getItemBgColor?: (index: number) => string;
 }
 
 function MenuItemCardInner({
-  item, categoryIndex, onItemClick, onFavorite, getItemBgColor, getItemEmoji,
+  item,
+  onItemClick,
+  onFavorite,
 }: MenuItemCardProps) {
   const handleClick = useCallback(() => onItemClick(item), [onItemClick, item]);
   const handleFavClick = useCallback(
-    (e: any) => { e.stopPropagation(); onFavorite(item); },
+    (e: any) => {
+      e.stopPropagation();
+      onFavorite(item);
+    },
     [onFavorite, item],
   );
   const handleAddClick = useCallback(
-    (e: any) => { e.stopPropagation(); onItemClick(item); },
+    (e: any) => {
+      e.stopPropagation();
+      onItemClick(item);
+    },
     [onItemClick, item],
   );
 
+  const priceText = formatPriceWithSymbol(item.price).replace('¥', '');
+  const salesCount = typeof item.salesCount === 'number' ? item.salesCount : 0;
+
   return (
     <View className='menu-item-card' onClick={handleClick} aria-label={`菜品 ${item.name}`}>
-      <View className={`menu-item-card__image ${getItemBgColor(categoryIndex)}`}>
-        {item.imageUrl ? (
-          <Image
-            className='menu-item-card__img'
-            src={item.imageUrl}
-            mode='aspectFill'
-            lazyLoad
-            aria-label={item.name}
-          />
-        ) : (
-          <Text>{getItemEmoji(item.name)}</Text>
-        )}
-      </View>
+      <FoodThumb
+        src={item.imageUrl}
+        name={item.name}
+        size='md'
+        className='menu-item-card__thumb'
+      />
+
       <View className='menu-item-card__info'>
-        <View>
+        <View className='menu-item-card__top'>
           <Text className='menu-item-card__name'>{item.name}</Text>
-          {item.description && (
+          {!!item.description && (
             <Text className='menu-item-card__desc'>{item.description}</Text>
           )}
         </View>
+
         <View className='menu-item-card__bottom'>
-          <View>
-            <Text className='menu-item-card__price'>
+          <View className='menu-item-card__meta'>
+            <View className='menu-item-card__price-row'>
               <Text className='menu-item-card__price-unit'>¥</Text>
-              {formatPriceWithSymbol(item.price).replace('¥', '')}
-            </Text>
-            <Text className='menu-item-card__sales'>月售{item.salesCount}</Text>
+              <Text className='menu-item-card__price'>{priceText}</Text>
+            </View>
+            <Text className='menu-item-card__sales'>月售 {salesCount}</Text>
+          </View>
+
+          <View className='menu-item-card__actions'>
             <View
-              className='menu-item-card__favorite'
+              className={`menu-item-card__favorite${item.isFavorite ? ' is-active' : ''}`}
               onClick={handleFavClick}
               aria-label={item.isFavorite ? '取消收藏' : '收藏菜品'}
             >
-              {item.isFavorite ? '❤️' : '🤍'}
+              <Icon
+                name={item.isFavorite ? 'heart-filled' : 'heart'}
+                size={16}
+                color={item.isFavorite ? '#FF4D4F' : '#BDBDBD'}
+              />
             </View>
-          </View>
-          <View
-            className='menu-item-card__add-btn'
-            onClick={handleAddClick}
-            aria-label={`添加 ${item.name} 到购物车`}
-          >
-            +
+            <View
+              className='menu-item-card__add-btn'
+              onClick={handleAddClick}
+              aria-label={`添加 ${item.name} 到购物车`}
+            >
+              <Text className='menu-item-card__add-icon'>+</Text>
+            </View>
           </View>
         </View>
       </View>

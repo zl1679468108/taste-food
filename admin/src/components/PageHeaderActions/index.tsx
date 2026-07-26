@@ -13,6 +13,8 @@ interface PageHeaderActionsProps {
   onRefresh?: () => void;
   /** 额外操作按钮 */
   extra?: React.ReactNode;
+  /** 是否吸顶，默认开启 */
+  sticky?: boolean;
 }
 
 const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
@@ -22,8 +24,18 @@ const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
   onAdd,
   onRefresh,
   extra,
+  sticky = true,
 }) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, color: brand.textPrimary }}>
+  <div
+    className={sticky ? 'tf-page-header-sticky' : undefined}
+    style={{
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 16,
+      color: brand.textPrimary,
+    }}
+  >
     <Title level={4} style={{ margin: 0 }}>
       {icon}
       {title}

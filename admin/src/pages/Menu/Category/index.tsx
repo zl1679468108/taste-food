@@ -1,18 +1,20 @@
 import React, { useRef, useCallback } from 'react';
 import type { ActionType, ProColumns } from '@ant-design/pro-components';
-import { PageContainer, ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
+import { ProTable, ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import { Button, Popconfirm, Space, message } from 'antd';
-import { EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { getCategories, createCategory, updateCategory, deleteCategory, getMenuItems, Category } from '@/services/menu';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
-import { DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import { DEFAULT_PAGE_SIZE, DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import TableCard from '@/components/TableCard';
 
 const CATEGORY_ICON_OPTIONS = [
-  { value: 'star', label: '🌟 推荐' },
-  { value: 'meat', label: '🥩 荤菜' },
-  { value: 'vegetable', label: '🥬 素菜' },
-  { value: 'drink', label: '🍺 饮品' },
-  { value: 'rice', label: '🍚 主食' },
+  { value: 'star', label: '推荐' },
+  { value: 'meat', label: '荤菜' },
+  { value: 'vegetable', label: '素菜' },
+  { value: 'drink', label: '饮品' },
+  { value: 'rice', label: '主食' },
 ];
 
 const CategoryPage: React.FC = () => {
@@ -32,8 +34,8 @@ const CategoryPage: React.FC = () => {
       await deleteCategory(id);
       message.success('删除成功');
       reload();
-    } catch {
-      message.error('删除失败');
+    } catch (error) {
+      console.error('删除分类失败:', error);
     }
   };
 
@@ -58,13 +60,14 @@ const CategoryPage: React.FC = () => {
       search: false,
       render: (_, record) => {
         const opt = CATEGORY_ICON_OPTIONS.find((o) => o.value === record.iconKey);
-        return opt ? opt.label : record.iconKey || '-';
+        return opt ? `${opt.label} (${record.iconKey})` : record.iconKey || '-';
       },
     },
     {
       title: '操作',
       valueType: 'option',
       width: 180,
+      fixed: 'right',
       render: (_, record) => (
         <Space>
           <Button
@@ -95,46 +98,51 @@ const CategoryPage: React.FC = () => {
   ];
 
   return (
-    <PageContainer title="分类管理" subTitle="管理菜品分类与排序">
-      <ProTable<Category>
-        locale={DEFAULT_TABLE_LOCALE}
-        rowKey="id"
-        actionRef={actionRef}
-        columns={columns}
-        cardBordered
-        search={{ labelWidth: 'auto' }}
-        pagination={{
-          defaultPageSize: 10,
-          showSizeChanger: true,
-          showTotal: (total) => `共 ${total} 条`,
-        }}
-        toolBarRender={() => [
-          <Button
-            key="add"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setModalOpen(true);
-            }}
-          >
-            新增分类
-          </Button>,
-        ]}
-        request={async (params) => {
-          try {
-            const list = (await getCategories(DEFAULT_SHOP_ID)) || [];
-            const keyword = (params.name || '').trim();
-            const filtered = keyword
-              ? list.filter((c) => c.name?.includes(keyword))
-              : list;
-            return { data: filtered, success: true, total: filtered.length };
-          } catch {
-            message.error('加载分类失败');
-            return { data: [], success: false, total: 0 };
-          }
+    <div className="tf-page">
+      <PageHeaderActions
+        icon={<AppstoreOutlined style={{ marginRight: 8 }} />}
+        title="分类管理"
+        onRefresh={reload}
+        addText="新增分类"
+        onAdd={() => {
+          setEditing(null);
+          setModalOpen(true);
         }}
       />
+      <TableCard className="tf-table-card">
+        <ProTable<Category>
+          locale={DEFAULT_TABLE_LOCALE}
+          rowKey="id"
+          actionRef={actionRef}
+          columns={columns}
+          size="small"
+          sticky
+          cardBordered={false}
+          search={{ labelWidth: 'auto' }}
+          scroll={{ x: 700 }}
+          pagination={{
+            defaultPageSize: DEFAULT_PAGE_SIZE,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50'],
+            showTotal: (total) => `共 ${total} 条`,
+          }}
+          options={{ density: false, fullScreen: false, reload: false, setting: false }}
+          toolBarRender={false}
+          request={async (params) => {
+            try {
+              const list = (await getCategories(DEFAULT_SHOP_ID)) || [];
+              const keyword = (params.name || '').trim();
+              const filtered = keyword
+                ? list.filter((c) => c.name?.includes(keyword))
+                : list;
+              return { data: filtered, success: true, total: filtered.length };
+            } catch (error) {
+              console.error('加载分类失败:', error);
+              return { data: [], success: false, total: 0 };
+            }
+          }}
+        />
+      </TableCard>
 
       <ModalForm
         title={editing ? '编辑分类' : '新增分类'}
@@ -164,8 +172,8 @@ const CategoryPage: React.FC = () => {
             setModalOpen(false);
             reload();
             return true;
-          } catch {
-            message.error('保存失败');
+          } catch (error) {
+            console.error('保存分类失败:', error);
             return false;
           }
         }}
@@ -193,7 +201,7 @@ const CategoryPage: React.FC = () => {
           placeholder="请选择图标"
         />
       </ModalForm>
-    </PageContainer>
+    </div>
   );
 };
 

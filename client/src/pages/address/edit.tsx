@@ -6,6 +6,7 @@ import { isValidPhone, isNonEmpty } from '../../utils/validators';
 import { DEFAULT_SHOP_ID } from '../../env';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import type { AddressItem } from './index';
+import FooterBar from '../../components/FooterBar';
 import './edit.scss';
 
 const TAGS = ['家', '公司', '学校'];
@@ -144,14 +145,12 @@ const AddressEditPage = () => {
         </View>
       </View>
 
-      <View
-        className={`address-edit__save ${saving ? 'disabled' : ''}`}
-        onClick={() => {
-          if (!saving) handleSave();
-        }}
-      >
-        <Text>{saving ? '保存中...' : '保存地址'}</Text>
-      </View>
+      <FooterBar
+        actionOnly
+        actionText={saving ? '保存中...' : '保存地址'}
+        actionDisabled={saving}
+        onAction={handleSave}
+      />
     </View>
   );
 };

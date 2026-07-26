@@ -62,11 +62,22 @@ export function formatRelativeTime(time: string): string {
 
 /**
  * 简短显示订单号
- * @param orderId 完整订单 ID
+ * 优先展示业务单号 orderNo（如 TF20260726A0010007），否则回退 uuid 前 8 位。
+ * @param orderId 完整订单 ID 或业务单号
+ * @param orderNo 可选业务单号（优先）
  * @returns 简短订单号
  */
-export function shortOrderId(orderId: string): string {
-  return `#${orderId.substring(0, 8).toUpperCase()}`;
+export function shortOrderId(orderId: string, orderNo?: string): string {
+  const preferred = (orderNo || '').trim();
+  if (preferred) {
+    return preferred.startsWith('#') ? preferred : `#${preferred}`;
+  }
+  const raw = (orderId || '').trim();
+  if (!raw) return '#';
+  if (/^TF\d{8}/i.test(raw)) {
+    return raw.startsWith('#') ? raw : `#${raw}`;
+  }
+  return `#${raw.substring(0, 8).toUpperCase()}`;
 }
 
 /**

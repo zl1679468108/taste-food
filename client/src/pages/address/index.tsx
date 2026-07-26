@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import { DEFAULT_SHOP_ID } from '../../env';
+import FooterBar from '../../components/FooterBar';
 import './index.scss';
 
 export interface AddressItem {
@@ -117,7 +118,7 @@ const AddressListPage = () => {
   if (loading) {
     return (
       <View className='address-page'>
-        <SkeletonLoader mode='list' count={3} />
+        <SkeletonLoader mode='address' count={3} />
       </View>
     );
   }
@@ -126,9 +127,9 @@ const AddressListPage = () => {
     return (
       <View className='address-page'>
         <EmptyState
-          icon='🔒'
+          icon='lock'
           title='请先登录'
-          description='登录后可管理收货地址'
+          description='登录后就能管理收货地址'
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -140,10 +141,10 @@ const AddressListPage = () => {
     return (
       <View className='address-page'>
         <EmptyState
-          icon='⚠️'
+          icon='warning'
           title='加载失败'
-          description='地址列表暂时无法获取'
-          actionText='重新加载'
+          description='地址暂时加载不出来'
+          actionText='再试一次'
           onAction={loadList}
         />
       </View>
@@ -154,9 +155,9 @@ const AddressListPage = () => {
     <View className='address-page'>
       {list.length === 0 ? (
         <EmptyState
-          icon='📍'
+          icon='location'
           title='还没有地址'
-          description='添加地址后外卖下单更快捷'
+          description='添加后外卖下单会更快捷'
           actionText='新增地址'
           onAction={() => goEdit()}
         />
@@ -195,11 +196,7 @@ const AddressListPage = () => {
         </View>
       )}
 
-      <View className='address-page__footer'>
-        <View className='address-page__add-btn' onClick={() => goEdit()}>
-          <Text>新增地址</Text>
-        </View>
-      </View>
+      <FooterBar actionOnly actionText='新增地址' onAction={() => goEdit()} />
     </View>
   );
 };

@@ -1,10 +1,10 @@
 @use '../../styles/design-tokens' as *;
 
 .tf-order-card {
-  background: #fff;
-  margin: 10px 12px;
+  background: $bg-card;
+  margin: 10px $space-3;
   border-radius: $radius-lg;
-  padding: 16px;
+  padding: $card-padding;
   box-shadow: $shadow-sm;
 
   &:active {
@@ -19,16 +19,18 @@
   }
 
   &__shop {
-    font-size: 15px;
+    font-size: $font-md;
     font-weight: $weight-medium;
     color: $text-primary;
+    line-height: $leading-snug;
   }
 
   &__status {
-    font-size: 13px;
+    font-size: $font-sm;
+    line-height: $leading-normal;
     font-weight: $weight-medium;
     padding: 2px 10px;
-    border-radius: 10px;
+    border-radius: $radius-md;
   }
 
   &__goods {
@@ -36,13 +38,13 @@
   }
 
   &__goods-item {
-    font-size: 13px;
-    color: $gray-600;
-    line-height: 1.6;
+    font-size: $font-sm;
+    color: $text-secondary;
+    line-height: $leading-relaxed;
     display: block;
 
     &--more {
-      color: $gray-400;
+      color: $text-hint;
     }
   }
 
@@ -50,30 +52,33 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-top: 1px solid $gray-100;
+    border-top: 1px solid $divider;
     padding-top: 10px;
   }
 
   &__time {
-    font-size: 12px;
-    color: $gray-500;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-tertiary;
   }
 
   &__total {
-    font-size: 14px;
+    font-size: $font-base;
+    line-height: $leading-normal;
     color: $text-primary;
   }
 
   &__total-price {
-    color: $primary;
+    color: $text-price;
     font-weight: $weight-semibold;
-    font-size: 16px;
+    font-size: $font-lg;
+    line-height: $leading-tight;
   }
 
   &__actions {
-    margin-top: 12px;
+    margin-top: $space-3;
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: $space-2;
   }
 }
