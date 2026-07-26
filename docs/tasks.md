@@ -9,6 +9,16 @@
 
 ## 当前待办
 
+### P1 — 视觉验收与 quality 全绿（T197）— ✅ 2026-07-26
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T197.1 | 关键页文字层级视觉验收 | client | §3.12 | P1 | ✅ done 2026-07-26 | 弱文案升 secondary；非价格强调改 $primary |
+| T197.2 | 过期 client 单测对齐 | client | §3.7 | P1 | ✅ done 2026-07-26 | iconMap/authStore/request 全绿 |
+| T197.3 | admin 场景色 token 收口 | admin | §3.4 | P1 | ✅ done 2026-07-26 | successSoft/warningSoft/chartAxis |
+| T197.4 | quality:check 9/9 全量通过 | root | §3.7 / §6 | P1 | ✅ done 2026-07-26 | 含 weapp+admin build，51.1s |
+
+
 ### P1 — 门店图库批量维护与小程序缓存（T196）— ✅ 2026-07-26
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
