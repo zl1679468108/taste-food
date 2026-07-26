@@ -61,3 +61,6 @@ client/test-output.txt
 
 ## Accidental CLI arg files
 client/--*
+
+# Supabase CLI local temp
+supabase/.temp/
