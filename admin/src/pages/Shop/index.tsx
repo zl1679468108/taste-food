@@ -39,7 +39,7 @@ import {
   BusinessHours,
   Shop,
 } from '@/services/shop';
-import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { useShopContext } from '@/hooks/useShopContext';
 import { formatPrice } from '@/utils/format';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -132,6 +132,7 @@ const draftToHours = (draft: Record<BusinessDayKey, DayDraft>): BusinessHours =>
 };
 
 const ShopPage: React.FC = () => {
+  const { shopId, ready, loadShops: reloadShopContext } = useShopContext();
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -143,14 +144,15 @@ const ShopPage: React.FC = () => {
   const [form] = Form.useForm();
 
   useEffect(() => {
+    if (!ready || !shopId) return;
     loadShop();
-  }, []);
+  }, [ready, shopId]);
 
   const loadShop = async () => {
     setLoading(true);
     setLoadError(false);
     try {
-      const res = await getShop(DEFAULT_SHOP_ID);
+      const res = await getShop(shopId);
       setShop(res);
       setHoursDraft(hoursToDraft(res.businessHours));
     } catch (error) {
@@ -166,9 +168,10 @@ const ShopPage: React.FC = () => {
     if (!shop) return;
     setSaving(true);
     try {
-      await updateShopStatus(shop.id || DEFAULT_SHOP_ID, checked ? 'open' : 'closed');
+      await updateShopStatus(shop.id || shopId, checked ? 'open' : 'closed');
       message.success('状态更新成功');
       loadShop();
+      void reloadShopContext();
     } catch (error) {
       console.error('状态更新失败:', error);
     } finally {
@@ -194,7 +197,7 @@ const ShopPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       setEditSaving(true);
-      await updateShop(shop?.id || DEFAULT_SHOP_ID, {
+      await updateShop(shop?.id || shopId, {
         name: values.name,
         description: values.description,
         address: values.address,
@@ -207,6 +210,7 @@ const ShopPage: React.FC = () => {
       message.success('保存成功');
       setEditModalVisible(false);
       loadShop();
+      void reloadShopContext();
     } catch (error) {
       if ((error as { errorFields?: unknown })?.errorFields) return;
       console.error('保存失败:', error);
@@ -230,7 +234,7 @@ const ShopPage: React.FC = () => {
     try {
       const businessHours = draftToHours(hoursDraft);
       setHoursSaving(true);
-      await updateBusinessHours(shop.id || DEFAULT_SHOP_ID, businessHours);
+      await updateBusinessHours(shop.id || shopId, businessHours);
       message.success('营业时段已保存');
       loadShop();
     } catch (error) {
@@ -333,7 +337,7 @@ const ShopPage: React.FC = () => {
                   基本信息
                 </Title>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  当前店铺 ID：{shop?.id || DEFAULT_SHOP_ID}
+                  当前店铺 ID：{shop?.id || shopId}
                 </Text>
               </div>
               <Space wrap>

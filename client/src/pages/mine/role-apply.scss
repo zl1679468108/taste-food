@@ -1,0 +1,184 @@
+@use '../../styles/design-tokens' as *;
+
+.role-apply-page {
+  min-height: 100vh;
+  background: $bg-page;
+  padding: $space-4 $page-padding-x $space-10;
+  box-sizing: border-box;
+}
+
+.role-apply-page__tabs {
+  display: flex;
+  gap: $space-2;
+  margin-bottom: $space-4;
+}
+
+.role-apply-page__tab {
+  flex: 1;
+  text-align: center;
+  padding: $space-3 0;
+  border-radius: $radius-md;
+  background: $bg-card;
+  color: $text-secondary;
+  font-size: $font-base;
+  border: 1.5px solid $border-color;
+
+  &.is-active {
+    color: $text-price;
+    border-color: $primary;
+    background: $primary-light;
+    font-weight: $weight-medium;
+  }
+}
+
+.role-apply-page__status {
+  border-radius: $radius-md;
+  padding: $space-3 $space-4;
+  margin-bottom: $space-4;
+  background: $bg-tip;
+  border: 1px solid $border-tip;
+
+  &--pending {
+    background: $bg-tip;
+  }
+
+  &--approved {
+    background: mix($success, $bg-card, 12%);
+    border-color: mix($success, $border-color, 30%);
+  }
+
+  &--rejected {
+    background: mix($danger, $bg-card, 10%);
+    border-color: mix($danger, $border-color, 30%);
+  }
+}
+
+.role-apply-page__status-title {
+  display: block;
+  font-size: $font-base;
+  font-weight: $weight-medium;
+  color: $text-primary;
+  margin-bottom: $space-1;
+}
+
+.role-apply-page__status-reason {
+  display: block;
+  font-size: $font-sm;
+  color: $text-secondary;
+  line-height: $leading-normal;
+}
+
+.role-apply-page__form {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  padding: $space-4;
+  margin-bottom: $space-4;
+  box-shadow: $shadow-card;
+}
+
+.role-apply-page__field {
+  margin-bottom: $space-3;
+}
+
+.role-apply-page__label {
+  display: block;
+  font-size: $font-xs;
+  color: $text-tertiary;
+  margin-bottom: $space-1;
+}
+
+.role-apply-page__input {
+  width: 100%;
+  background: $bg-muted;
+  border-radius: $radius-sm;
+  padding: $space-2 $space-3;
+  font-size: $font-base;
+  color: $text-primary;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.role-apply-page__btn {
+  margin-top: $space-2;
+  height: 44px;
+  border-radius: $radius-3xl;
+  background: $gradient-brand;
+  color: $text-inverse;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-base;
+  font-weight: $weight-medium;
+
+  &.is-disabled {
+    opacity: 0.55;
+  }
+}
+
+.role-apply-page__history-title {
+  display: block;
+  font-size: $font-base;
+  font-weight: $weight-medium;
+  color: $text-primary;
+  margin-bottom: $space-3;
+}
+
+.role-apply-page__empty {
+  display: block;
+  font-size: $font-sm;
+  color: $text-hint;
+  text-align: center;
+  padding: $space-4 0;
+}
+
+.role-apply-page__item {
+  background: $bg-card;
+  border-radius: $radius-md;
+  padding: $space-3 $space-4;
+  margin-bottom: $space-2;
+  box-shadow: $shadow-sm;
+}
+
+.role-apply-page__item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $space-1;
+}
+
+.role-apply-page__item-role {
+  font-size: $font-base;
+  font-weight: $weight-medium;
+  color: $text-primary;
+}
+
+.role-apply-page__badge {
+  font-size: $font-xs;
+  padding: 2px 8px;
+  border-radius: $radius-full;
+  background: $bg-muted;
+  color: $text-secondary;
+
+  &--pending {
+    background: $bg-tip;
+    color: $text-tip-title;
+  }
+
+  &--approved {
+    background: mix($success, $bg-card, 15%);
+    color: $success;
+  }
+
+  &--rejected {
+    background: mix($danger, $bg-card, 12%);
+    color: $danger;
+  }
+}
+
+.role-apply-page__item-meta {
+  display: block;
+  font-size: $font-xs;
+  color: $text-tertiary;
+  line-height: $leading-normal;
+  margin-top: 2px;
+}

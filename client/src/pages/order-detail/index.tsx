@@ -5,14 +5,14 @@ import { get, post, isRetryableError } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
-import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP } from '../../utils/constants';
+import { DELIVERY_TYPE_MAP, getOrderStatusLabel, getCustomerOrderStatusHint } from '../../utils/constants';
 import { DeliveryTrackPoint, Order, OrderStatus, DeliveryType } from '../../types/order';
 import { onDeliveryTrackUpdated, onOrderUpdated, removePageListeners } from '../../services/socket';
 import StatusTimeline from '../../components/StatusTimeline';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import Icon from '../../components/Icon';
-import { getOrderStatusIcon } from '../../utils/iconMap';
 import EmptyState from '../../components/EmptyState';
+import BottomSheet from '../../components/BottomSheet';
 import orderActiveIcon from '../../assets/icons/order-active.png';
 import './index.scss';
 
@@ -53,6 +53,8 @@ const OrderDetailPage = () => {
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewContent, setReviewContent] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [goodsExpanded, setGoodsExpanded] = useState(false);
+  const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
 
   // orderId 跨渲染持久化（不触发重渲染）
   const orderIdRef = useRef<string>('');
@@ -145,6 +147,7 @@ const OrderDetailPage = () => {
       });
       setReview(res.data);
       setReviewContent('');
+      setReviewSheetVisible(false);
       Taro.showToast({ title: '评价成功', icon: 'success' });
     } catch (error) {
       console.error('提交评价失败:', error);
@@ -344,8 +347,8 @@ const OrderDetailPage = () => {
     );
   }
 
-  const statusText = ORDER_STATUS_MAP[order.status] || order.status;
-  const statusColor = ORDER_STATUS_COLOR_MAP[order.status] || '#999';
+  const statusText = getOrderStatusLabel(order.status, order.deliveryType);
+  const statusHint = getCustomerOrderStatusHint(order.status, order.deliveryType);
   const deliveryTypeText = DELIVERY_TYPE_MAP[order.deliveryType] || order.deliveryType;
   const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const total = order.total;
@@ -358,24 +361,50 @@ const OrderDetailPage = () => {
           longitude: point.longitude,
         })), DEFAULT_CUSTOMER_COORD]
       : [DEFAULT_SHOP_COORD, DEFAULT_CUSTOMER_COORD];
-  const deliveryMarkers = [
+  const deliveryMarkers: any[] = [
     {
       id: 1,
       latitude: DEFAULT_SHOP_COORD.latitude,
       longitude: DEFAULT_SHOP_COORD.longitude,
       iconPath: orderActiveIcon,
-      title: '商家',
       width: 28,
       height: 28,
+      callout: {
+        content: '商家',
+        color: '#FFFFFF',
+        fontSize: 11,
+        borderRadius: 10,
+        borderWidth: 0,
+        borderColor: '#FF6B35',
+        bgColor: '#FF6B35',
+        padding: 4,
+        display: 'ALWAYS' as const,
+        textAlign: 'center',
+        anchorX: 0,
+        anchorY: 0,
+      },
     },
     {
       id: 2,
       latitude: DEFAULT_CUSTOMER_COORD.latitude,
       longitude: DEFAULT_CUSTOMER_COORD.longitude,
       iconPath: orderActiveIcon,
-      title: '收货点',
       width: 28,
       height: 28,
+      callout: {
+        content: '送达',
+        color: '#FFFFFF',
+        fontSize: 11,
+        borderRadius: 10,
+        borderWidth: 0,
+        borderColor: '#00C853',
+        bgColor: '#00C853',
+        padding: 4,
+        display: 'ALWAYS' as const,
+        textAlign: 'center',
+        anchorX: 0,
+        anchorY: 0,
+      },
     },
     ...(lastTrackPoint
       ? [{
@@ -383,36 +412,32 @@ const OrderDetailPage = () => {
           latitude: lastTrackPoint.latitude,
           longitude: lastTrackPoint.longitude,
           iconPath: orderActiveIcon,
-          title: '骑手',
           width: 34,
           height: 34,
+          callout: {
+            content: '骑手',
+            color: '#FFFFFF',
+            fontSize: 11,
+            borderRadius: 10,
+            borderWidth: 0,
+            borderColor: '#2196F3',
+            bgColor: '#2196F3',
+            padding: 4,
+            display: 'ALWAYS' as const,
+            textAlign: 'center',
+            anchorX: 0,
+            anchorY: 0,
+          },
         }]
       : []),
   ];
 
   return (
     <View className='order-detail'>
-      {/* 状态卡片 */}
-      <View className={`status-card status-card--${order.status}`}>
-        <View className='status-card__icon-wrap'>
-          <Icon name={getOrderStatusIcon(order.status)} size={40} color='#FFFFFF' />
-        </View>
-        <Text className='status-card__status'>{statusText}</Text>
-        <Text className='status-card__time'>
-          下单时间: {formatTime(order.createdAt)}
-        </Text>
-        {order.estimatedCompletion && (
-          <Text className='status-card__estimated'>
-            预计完成: {formatTime(order.estimatedCompletion)}
-          </Text>
-        )}
-      </View>
-
-
-      
       <StatusTimeline
         currentStatus={order.status}
         deliveryType={order.deliveryType}
+        subtitle={`当前${statusText} · 下单 ${formatTime(order.createdAt, 'MM-DD HH:mm')}`}
         statusHistory={[
           { status: 'pending_payment', time: order.createdAt },
           ...(order.status !== 'pending_payment'
@@ -453,13 +478,22 @@ const OrderDetailPage = () => {
             }}
           />
           <View className='delivery-map__meta'>
-            <Text className='delivery-map__meta-item'>商家出发</Text>
-            <Text className='delivery-map__meta-dot' />
-            <Text className='delivery-map__meta-item'>
-              {lastTrackPoint ? '骑手正在配送' : '路线预估'}
-            </Text>
-            <Text className='delivery-map__meta-dot' />
-            <Text className='delivery-map__meta-item'>送达地址</Text>
+            <View className='delivery-map__meta-item'>
+              <View className='delivery-map__legend-dot delivery-map__legend-dot--shop' />
+              <Text className='delivery-map__meta-text'>商家</Text>
+            </View>
+            <View className='delivery-map__meta-line' />
+            <View className='delivery-map__meta-item'>
+              <View className='delivery-map__legend-dot delivery-map__legend-dot--route' />
+              <Text className='delivery-map__meta-text'>
+                {lastTrackPoint ? '配送中' : '预估路线'}
+              </Text>
+            </View>
+            <View className='delivery-map__meta-line' />
+            <View className='delivery-map__meta-item'>
+              <View className='delivery-map__legend-dot delivery-map__legend-dot--dest' />
+              <Text className='delivery-map__meta-text'>送达</Text>
+            </View>
           </View>
         </View>
       )}
@@ -512,47 +546,160 @@ const OrderDetailPage = () => {
         )}
       </View>
 
-      {/* 商品列表 */}
+      {/* 商品明细 + 金额（合并卡片） */}
       <View className='order-goods'>
         <Text className='order-goods__title'>商品明细</Text>
-        {order.items.map((item) => (
-          <View key={item.id} className='order-goods__item'>
-            <Text className='order-goods__item-name'>{item.name}</Text>
-            <Text className='order-goods__item-price'>
-              {formatPriceWithSymbol(item.price)}
+        <View className={`order-goods__list ${!goodsExpanded && order.items.length > 3 ? 'order-goods__list--collapsed' : ''}`}>
+          {(goodsExpanded || order.items.length <= 3 ? order.items : order.items.slice(0, 3)).map((item) => (
+            <View key={item.id} className='order-goods__item'>
+              <View className='order-goods__item-main'>
+                <Text className='order-goods__item-name'>{item.name}</Text>
+                <Text className='order-goods__item-spec'>{item.specDesc || '标准份'}</Text>
+              </View>
+              <Text className='order-goods__item-qty'>x{item.quantity}</Text>
+              <Text className='order-goods__item-price'>
+                {formatPriceWithSymbol(item.price)}
+              </Text>
+            </View>
+          ))}
+        </View>
+        {order.items.length > 3 && (
+          <View
+            className='order-goods__toggle'
+            onClick={() => setGoodsExpanded((v) => !v)}
+          >
+            <Text className='order-goods__toggle-text'>
+              {goodsExpanded ? '收起明细' : `展开全部 ${order.items.length} 件`}
             </Text>
-            <Text className='order-goods__item-qty'>x{item.quantity}</Text>
           </View>
-        ))}
+        )}
+
+        <View className='order-goods__summary'>
+          <View className='price-detail__row'>
+            <Text>商品小计</Text>
+            <Text className='price-detail__row-value'>
+              {formatPriceWithSymbol(subtotal)}
+            </Text>
+          </View>
+          <View className='price-detail__row'>
+            <Text>配送费</Text>
+            <Text className='price-detail__row-value'>
+              {order.deliveryFee > 0
+                ? formatPriceWithSymbol(order.deliveryFee)
+                : '免费'}
+            </Text>
+          </View>
+          <View className='price-detail__row price-detail__row--total'>
+            <Text>实付金额</Text>
+            <Text className='price-detail__row-value--bold'>
+              {formatPriceWithSymbol(total)}
+            </Text>
+          </View>
+        </View>
+      </View>
+      {/* 订单信息 */}
+      <View className='order-meta'>
+        <Text className='order-meta__item'>
+          订单号: {shortOrderId(order.id)}
+        </Text>
+        <Text className='order-meta__item'>
+          下单时间: {formatTime(order.createdAt, 'YYYY-MM-DD HH:mm:ss')}
+        </Text>
       </View>
 
-      {/* 价格明细 */}
-      <View className='price-detail'>
-        <View className='price-detail__row'>
-          <Text>商品小计</Text>
-          <Text className='price-detail__row-value'>
-            {formatPriceWithSymbol(subtotal)}
-          </Text>
-        </View>
-        <View className='price-detail__row'>
-          <Text>配送费</Text>
-          <Text className='price-detail__row-value'>
-            {order.deliveryFee > 0
-              ? formatPriceWithSymbol(order.deliveryFee)
-              : '免费'}
-          </Text>
-        </View>
-        <View className='price-detail__row price-detail__row--total'>
-          <Text>实付金额</Text>
-          <Text className='price-detail__row-value--bold'>
-            {formatPriceWithSymbol(total)}
-          </Text>
-        </View>
+      {/* 底部操作栏 */}
+      <View className='order-actions'>
+        {/* 取消按钮：待支付/已支付均可取消（已支付触发退款） */}
+        {[OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status) && (
+          <View
+            className='order-actions__btn order-actions__btn--danger'
+            onClick={() => cancelOrder()}
+          >
+            取消订单
+          </View>
+        )}
+        {/* 支付按钮：仅待支付状态显示，避免已支付订单重复支付 */}
+        {order.status === OrderStatus.PENDING_PAYMENT && (
+          <View
+            className={`order-actions__btn order-actions__btn--primary ${paying ? 'order-actions__btn--loading' : ''}`}
+            onClick={() => !paying && payOrder()}
+          >
+            {paying ? '支付中...' : `立即支付 ${formatPriceWithSymbol(total)}`}
+          </View>
+        )}
+        {[
+          OrderStatus.PAID,
+          OrderStatus.ACCEPTED,
+          OrderStatus.PREPARING,
+          OrderStatus.READY_FOR_PICKUP,
+          OrderStatus.DELIVERING,
+        ].includes(order.status) && (
+          <View className='order-actions__tip'>
+            <Text>{statusHint || '商家正在处理您的订单，请耐心等待'}</Text>
+          </View>
+        )}
+        {order.status === OrderStatus.COMPLETED && (
+          <>
+            <View
+              className='order-actions__btn order-actions__btn--secondary'
+              onClick={() => reorder()}
+            >
+              再来一单
+            </View>
+            {canSubmitReview ? (
+              <View
+                className='order-actions__btn order-actions__btn--primary'
+                onClick={() => setReviewSheetVisible(true)}
+              >
+                去评价
+              </View>
+            ) : review ? (
+              <View
+                className='order-actions__btn order-actions__btn--primary'
+                onClick={() => setReviewSheetVisible(true)}
+              >
+                查看评价
+              </View>
+            ) : (
+              <View
+                className='order-actions__btn order-actions__btn--primary'
+                onClick={() => {
+                  Taro.switchTab({ url: '/pages/menu/index' });
+                }}
+              >
+                继续点餐
+              </View>
+            )}
+          </>
+        )}
+        {(order.status === OrderStatus.CANCELLED || order.status === OrderStatus.REJECTED) && (
+          <>
+            <View
+              className='order-actions__btn order-actions__btn--secondary'
+              onClick={() => reorder()}
+            >
+              再来一单
+            </View>
+            <View
+              className='order-actions__btn order-actions__btn--primary'
+              onClick={() => {
+                Taro.switchTab({ url: '/pages/menu/index' });
+              }}
+            >
+              去点餐
+            </View>
+          </>
+        )}
       </View>
-      {/* 订单评价：仅 completed 展示；本人可评，已评只读，商家/他人只读 */}
-      {order.status === OrderStatus.COMPLETED && (
-        <View className='order-review'>
-          <Text className='order-review__title'>订单评价</Text>
+
+      {/* 评价弹层 */}
+      <BottomSheet
+        visible={reviewSheetVisible}
+        onClose={() => setReviewSheetVisible(false)}
+        title={review ? '订单评价' : '写评价'}
+        showClose
+      >
+        <View className='order-review-sheet'>
           {reviewLoading ? (
             <Text className='order-review__hint'>评价加载中...</Text>
           ) : review ? (
@@ -621,81 +768,7 @@ const OrderDetailPage = () => {
             <Text className='order-review__hint'>暂无评价</Text>
           )}
         </View>
-      )}
-
-      {/* 订单信息 */}
-      <View className='order-meta'>
-        <Text className='order-meta__item'>
-          订单号: {shortOrderId(order.id)}
-        </Text>
-        <Text className='order-meta__item'>
-          下单时间: {formatTime(order.createdAt, 'YYYY-MM-DD HH:mm:ss')}
-        </Text>
-      </View>
-
-      {/* 底部操作栏 */}
-      <View className='order-actions'>
-        {/* 取消按钮：待支付/已支付均可取消（已支付触发退款） */}
-        {[OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status) && (
-          <View
-            className='order-actions__btn order-actions__btn--danger'
-            onClick={() => cancelOrder()}
-          >
-            取消订单
-          </View>
-        )}
-        {/* 支付按钮：仅待支付状态显示，避免已支付订单重复支付 */}
-        {order.status === OrderStatus.PENDING_PAYMENT && (
-          <View
-            className={`order-actions__btn order-actions__btn--primary ${paying ? 'order-actions__btn--loading' : ''}`}
-            onClick={() => !paying && payOrder()}
-          >
-            {paying ? '支付中...' : `立即支付 ${formatPriceWithSymbol(total)}`}
-          </View>
-        )}
-        {(order.status === OrderStatus.PAID || order.status === OrderStatus.ACCEPTED || order.status === OrderStatus.PREPARING || order.status === OrderStatus.DELIVERING) && (
-          <View className='order-actions__tip'>
-            <Text>商家正在处理您的订单，请耐心等待</Text>
-          </View>
-        )}
-        {order.status === OrderStatus.COMPLETED && (
-          <>
-            <View
-              className='order-actions__btn order-actions__btn--secondary'
-              onClick={() => reorder()}
-            >
-              再来一单
-            </View>
-            <View
-              className='order-actions__btn order-actions__btn--primary'
-              onClick={() => {
-                // menu 是 tabbar 页面，必须用 switchTab 跳转
-                Taro.switchTab({ url: '/pages/menu/index' });
-              }}
-            >
-              继续点餐
-            </View>
-          </>
-        )}
-        {order.status === OrderStatus.CANCELLED && (
-          <>
-            <View
-              className='order-actions__btn order-actions__btn--secondary'
-              onClick={() => reorder()}
-            >
-              再来一单
-            </View>
-            <View
-              className='order-actions__btn order-actions__btn--primary'
-              onClick={() => {
-                Taro.switchTab({ url: '/pages/menu/index' });
-              }}
-            >
-              去点餐
-            </View>
-          </>
-        )}
-      </View>
+      </BottomSheet>
     </View>
   );
 };

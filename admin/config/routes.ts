@@ -5,6 +5,11 @@ export default [
     layout: false,
   },
   {
+    path: '/register',
+    component: './Register',
+    layout: false,
+  },
+  {
     path: '/',
     redirect: '/dashboard',
   },
@@ -55,33 +60,56 @@ export default [
     access: 'canAdmin',
   },
   {
+    // 一级菜单：多店铺管理（原「多店铺管理」提升；店铺信息/桌台整合进编辑）
     name: '店铺管理',
     path: '/shop',
+    component: './ShopManage',
     icon: 'ShopOutlined',
     access: 'canAdmin',
-    routes: [
-      {
-        name: '店铺信息',
-        path: '/shop/info',
-        component: './Shop',
-      },
-      {
-        name: '多店铺管理',
-        path: '/shop/manage',
-        component: './ShopManage',
-      },
-      {
-        name: '桌台与扫码',
-        path: '/shop/tables',
-        component: './Shop/Tables',
-      },
-    ],
+  },
+  // 旧路径兼容跳转
+  {
+    path: '/shop/info',
+    redirect: '/shop',
+  },
+  {
+    path: '/shop/manage',
+    redirect: '/shop',
+  },
+  {
+    path: '/shop/tables',
+    redirect: '/shop',
+  },
+  {
+    name: '审批中心',
+    path: '/approvals',
+    component: './Approvals',
+    icon: 'SafetyCertificateOutlined',
+    access: 'canPlatformAdmin',
   },
   {
     name: '操作审计',
     path: '/audit',
     component: './Audit',
     icon: 'AuditOutlined',
-    access: 'canAdmin',
+    access: 'canPlatformAdmin',
   },
-];
+  {
+    name: '消息中心',
+    path: '/messages',
+    component: './Messages',
+    icon: 'BellOutlined',
+  },
+  {
+    name: '我的申请',
+    path: '/applications',
+    component: './Applications',
+    icon: 'FormOutlined',
+  },
+  {
+    name: '我的中心',
+    path: '/account',
+    component: './Account',
+    icon: 'UserOutlined',
+  },
+]

@@ -247,3 +247,46 @@ test('replyToReview rejects empty, missing, and cross-shop replies', async () =>
       error.message === '无权回复其他店铺评价',
   );
 });
+
+test('listByUser returns only current user reviews and paginates', async () => {
+  const { service: orderService } = createOrderService();
+  const reviewService = new ReviewService(orderService);
+  const userId = 'user-review-mine';
+  const order1 = await createCompletedOrder(orderService, {
+    shopId: 'shop-review-mine',
+    userId,
+  });
+  const order2 = await createCompletedOrder(orderService, {
+    shopId: 'shop-review-mine',
+    userId,
+  });
+  const orderOther = await createCompletedOrder(orderService, {
+    shopId: 'shop-review-mine',
+    userId: 'user-review-other-mine',
+  });
+
+  await reviewService.createForOrder(order1.id, userId, {
+    rating: 5,
+    content: '我的评价 1',
+  });
+  await reviewService.createForOrder(order2.id, userId, {
+    rating: 4,
+    content: '我的评价 2',
+  });
+  await reviewService.createForOrder(orderOther.id, orderOther.userId, {
+    rating: 3,
+    content: '别人的评价',
+  });
+
+  const page1 = await reviewService.listByUser(userId, 1, 1);
+  const page2 = await reviewService.listByUser(userId, 2, 1);
+  const all = await reviewService.listByUser(userId, 1, 20);
+
+  assert.equal(page1.total, 2);
+  assert.equal(page1.items.length, 1);
+  assert.equal(page2.items.length, 1);
+  assert.equal(all.items.length, 2);
+  assert.ok(all.items.every((review) => review.userId === userId));
+  assert.ok(all.items.every((review) => review.content.startsWith('我的评价')));
+});
+

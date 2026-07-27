@@ -2,122 +2,168 @@
 
 .status-timeline {
   background: $bg-card;
-  margin: 0 $space-3 10px;
+  margin: 0 $page-padding-x $section-gap;
   border-radius: $radius-lg;
-  padding: $card-padding;
+  padding: $space-3 $space-3 $space-4;
   box-shadow: $shadow-sm;
+
+  &__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: $space-2;
+    margin-bottom: $space-3;
+  }
+
+  &__heading {
+    min-width: 0;
+    flex: 1;
+  }
 
   &__title {
     display: block;
-    font-size: $font-md;
+    font-size: $font-title;
     font-weight: $weight-semibold;
     color: $text-primary;
-    margin-bottom: $space-4;
     line-height: $leading-snug;
   }
 
-  &__item {
-    display: flex;
-    min-height: 44px;
-    padding-bottom: 14px;
-    position: relative;
-
-    &:last-child {
-      padding-bottom: 0;
-      min-height: auto;
-    }
+  &__subtitle {
+    display: block;
+    margin-top: 2px;
+    font-size: $font-xs;
+    color: $text-tertiary;
+    line-height: $leading-normal;
   }
 
-  &__dot-col {
-    width: 20px;
-    display: flex;
+  &__hint {
+    flex-shrink: 0;
+    font-size: $font-xs;
+    color: $text-hint;
+    line-height: $leading-normal;
+    padding-top: 2px;
+  }
+
+  &__scroll {
+    width: 100%;
+    height: 76px;
+    white-space: nowrap;
+  }
+
+  &__track {
+    display: inline-flex;
+    align-items: flex-start;
+    min-width: 100%;
+    padding: $space-1 0;
+  }
+
+  &__step {
+    display: inline-flex;
     flex-direction: column;
     align-items: center;
+    width: 76px;
     flex-shrink: 0;
   }
 
-  &__dot {
-    width: 10px;
-    height: 10px;
-    border-radius: $radius-full;
-    flex-shrink: 0;
-    z-index: 1;
-    margin-top: $space-1;
-
-    &--done {
-      background: $success;
-    }
-
-    &--current {
-      background: $info;
-      box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.18);
-    }
-
-    &--pending {
-      background: $gray-300;
-    }
+  &__rail {
+    width: 100%;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    margin-bottom: $space-2;
   }
 
   &__line {
-    width: 2px;
     flex: 1;
-    min-height: $space-6;
-    margin-top: $space-1;
+    height: 3px;
+    min-width: 10px;
 
-    &--done {
-      background: $success;
+    &--hidden {
+      background: transparent;
+    }
+
+    /* 纯色衔接，避免渐变在节点处断色 */
+    &--active {
+      background: $primary;
     }
 
     &--pending {
-      background: $gray-300;
+      background: $gray-200;
     }
   }
 
-  &__content {
-    flex: 1;
-    min-width: 0;
-    padding-left: 10px;
+  &__dot {
+    width: 12px;
+    height: 12px;
+    border-radius: $radius-full;
+    flex-shrink: 0;
+    z-index: 1;
+    box-sizing: border-box;
+    margin: 0 -1px; /* 与连线轻微重叠，视觉不断开 */
+
+    &--done {
+      background: $primary;
+      box-shadow: 0 0 0 3px $primary-soft;
+    }
+
+    &--current {
+      width: 16px;
+      height: 16px;
+      background: $primary;
+      border: 2px solid $bg-card;
+      box-shadow: 0 0 0 3px $primary-soft;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    &--pending {
+      background: $bg-card;
+      border: 2px solid $gray-300;
+    }
   }
 
-  &__label-row {
-    display: flex;
-    align-items: center;
-    gap: $space-2;
-    min-width: 0;
+  &__dot-core {
+    width: 6px;
+    height: 6px;
+    border-radius: $radius-full;
+    background: $text-inverse;
   }
 
   &__label {
     display: block;
-    font-size: $font-base;
+    width: 100%;
+    text-align: center;
+    font-size: $font-sm;
     font-weight: $weight-medium;
     color: $text-hint;
     line-height: $leading-snug;
+    white-space: nowrap;
 
-    &--done {
-      color: $success;
+    &--done,
+    &--current {
+      color: $primary;
     }
 
     &--current {
-      color: $info;
       font-weight: $weight-semibold;
+      font-size: $font-base;
+    }
+
+    &--pending {
+      color: $text-tertiary;
     }
   }
 
   &__time {
     display: block;
-    font-size: $font-xs;
+    width: 100%;
+    text-align: center;
+    margin-top: 2px;
+    font-size: $font-2xs;
     color: $text-tertiary;
-    margin-top: $space-1;
     line-height: $leading-snug;
-  }
-
-  &__badge {
-    flex-shrink: 0;
-    font-size: $font-xs;
-    line-height: $leading-none;
-    padding: 3px 6px;
-    border-radius: $radius-sm;
-    background: rgba(33, 150, 243, 0.1);
-    color: $info;
+    white-space: nowrap;
+    min-height: 14px;
   }
 }

@@ -14,15 +14,21 @@ export interface Promotion {
   updatedAt: string;
 }
 
-/** 管理端读取本店全部活动，店铺归属由服务端 JWT 决定。 */
-export const getPromotions = (_shopId?: string) =>
-  request.get('/api/promotions/manage') as Promise<Promotion[]>;
+/** 管理端读取指定店铺全部活动（传 shop_id 支持多店切换）。 */
+export const getPromotions = (shopId?: string) =>
+  request.get('/api/promotions/manage', {
+    params: shopId ? { shop_id: shopId } : undefined,
+  }) as Promise<Promotion[]>;
 
 export const createPromotion = (data: Partial<Promotion>) =>
   request.post('/api/promotions', data) as Promise<Promotion>;
 
-export const updatePromotion = (id: string, data: Partial<Promotion>) =>
-  request.patch(`/api/promotions/${id}`, data);
+export const updatePromotion = (id: string, data: Partial<Promotion>, shopId?: string) =>
+  request.patch(`/api/promotions/${id}`, data, {
+    params: shopId ? { shop_id: shopId } : undefined,
+  });
 
-export const deletePromotion = (id: string) =>
-  request.delete(`/api/promotions/${id}`);
+export const deletePromotion = (id: string, shopId?: string) =>
+  request.delete(`/api/promotions/${id}`, {
+    params: shopId ? { shop_id: shopId } : undefined,
+  });

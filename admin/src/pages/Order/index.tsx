@@ -14,7 +14,7 @@ import DeliveryTypeTag from '@/components/DeliveryTypeTag';
 import OrderStatusTag from '@/components/OrderStatusTag';
 import PriceDisplay from '@/components/PriceDisplay';
 import { formatPrice, formatTime, shortOrderId } from '@/utils/format';
-import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { useShopContext } from '@/hooks/useShopContext';
 import { DEFAULT_PAGE_SIZE, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -189,6 +189,7 @@ function buildExportBlob(data: OrderExportResult): { blob: Blob; filename: strin
 }
 
 const OrderPage: React.FC = () => {
+  const { shopId, ready, currentShop } = useShopContext();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('');
@@ -202,13 +203,15 @@ const OrderPage: React.FC = () => {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
+    if (!ready || !shopId) return;
     loadOrders();
-  }, [activeTab, page, pageSize]);
+  }, [activeTab, page, pageSize, shopId, ready]);
 
   const handleExport = async () => {
     setExporting(true);
     try {
       const data = await exportOrders({
+        shop_id: shopId,
         status: activeTab || undefined,
         maxRows: 1000,
       });
@@ -223,10 +226,11 @@ const OrderPage: React.FC = () => {
   };
 
   const loadOrders = async () => {
+    if (!shopId) return;
     setLoading(true);
     try {
       const params: { shop_id: string; status?: string; page: number; pageSize: number } = {
-        shop_id: DEFAULT_SHOP_ID,
+        shop_id: shopId,
         page,
         pageSize,
       };
@@ -314,7 +318,11 @@ const OrderPage: React.FC = () => {
         if (order.deliveryType === 'delivery') {
           actions.push({ label: '开始配送（商家）', status: 'delivering', type: 'primary' });
         } else {
-          actions.push({ label: '待取餐（制作完成）', status: 'ready_for_pickup', type: 'primary' });
+          actions.push({
+            label: order.deliveryType === 'dine_in' ? '待取餐（制作完成）' : '待自取（制作完成）',
+            status: 'ready_for_pickup',
+            type: 'primary',
+          });
         }
         break;
       case 'ready_for_pickup':
@@ -367,7 +375,9 @@ const OrderPage: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 110,
-      render: (status: string) => <OrderStatusTag status={status} />,
+      render: (status: string, record: Order) => (
+        <OrderStatusTag status={status} deliveryType={record.deliveryType} />
+      ),
     },
     {
       title: '配送方式',
@@ -441,7 +451,7 @@ const OrderPage: React.FC = () => {
     { key: 'paid', label: '已支付' },
     { key: 'accepted', label: '已接单' },
     { key: 'preparing', label: '制作中' },
-    { key: 'ready_for_pickup', label: '待自取' },
+    { key: 'ready_for_pickup', label: '待取餐' },
     { key: 'delivering', label: '配送中' },
     { key: 'completed', label: '已完成' },
     { key: 'cancelled', label: '已取消' },
@@ -452,7 +462,7 @@ const OrderPage: React.FC = () => {
     <div className="tf-page">
       <PageHeaderActions
         icon={<ShoppingOutlined style={{ marginRight: 8 }} />}
-        title="订单管理"
+        title={currentShop?.name ? `订单管理 · ${currentShop.name}` : '订单管理'}
         onRefresh={loadOrders}
         extra={
           <Button icon={<DownloadOutlined />} loading={exporting} onClick={handleExport}>
@@ -548,7 +558,7 @@ const OrderPage: React.FC = () => {
                 </Text>
               </Descriptions.Item>
               <Descriptions.Item label="状态">
-                <OrderStatusTag status={selectedOrder.status} />
+                <OrderStatusTag status={selectedOrder.status} deliveryType={selectedOrder.deliveryType} />
               </Descriptions.Item>
               <Descriptions.Item label="配送方式">
                 <DeliveryTypeTag type={selectedOrder.deliveryType} />

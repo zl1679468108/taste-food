@@ -62,7 +62,7 @@ export class ShopController {
 
   /** 管理：全部桌台 */
   @Get(':id/tables/manage')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async listManageTables(
     @Param('id') id: string,
     @CurrentUser('shopId') userShopId?: string,
@@ -75,7 +75,7 @@ export class ShopController {
   }
 
   @Post(':id/tables/seed')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @HttpCode(HttpStatus.CREATED)
   async seedTables(
     @Param('id') id: string,
@@ -89,7 +89,7 @@ export class ShopController {
   }
 
   @Post(':id/tables')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @HttpCode(HttpStatus.CREATED)
   async createTable(
     @Param('id') id: string,
@@ -104,7 +104,7 @@ export class ShopController {
   }
 
   @Patch(':id/tables/:tableId')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateTable(
     @Param('id') id: string,
     @Param('tableId') tableId: string,
@@ -119,7 +119,7 @@ export class ShopController {
   }
 
   @Delete(':id/tables/:tableId')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async deleteTable(
     @Param('id') id: string,
     @Param('tableId') tableId: string,
@@ -144,13 +144,20 @@ export class ShopController {
   @Post()
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.CREATED)
-  async createShop(@Body() dto: CreateShopDto): Promise<ApiResponse<ShopResponseDto>> {
+  async createShop(
+    @Body() dto: CreateShopDto,
+    @CurrentUser('shopId') userShopId?: string,
+  ): Promise<ApiResponse<ShopResponseDto>> {
+    // 仅平台管理员（未绑定单一店铺）可创建店铺
+    if (userShopId) {
+      throw new ForbiddenException('仅平台管理员可创建店铺');
+    }
     const shop = await this.shopService.create(dto);
     return success(shop, '店铺创建成功');
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateShop(
     @Param('id') id: string,
     @Body() dto: UpdateShopDto,
@@ -166,7 +173,7 @@ export class ShopController {
 
   /** 仅更新营业时段（Admin） */
   @Patch(':id/business-hours')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateBusinessHours(
     @Param('id') id: string,
     @Body() dto: UpdateBusinessHoursDto,
@@ -182,7 +189,7 @@ export class ShopController {
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async toggleShopStatus(
     @Param('id') id: string,
     @CurrentUser('shopId') userShopId?: string,
@@ -200,8 +207,9 @@ export class ShopController {
     @Param('id') id: string,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<null>> {
-    if (userShopId && id !== userShopId) {
-      throw new ForbiddenException('无权删除其他店铺');
+    // 仅平台管理员可删除店铺；商家不可删店
+    if (userShopId) {
+      throw new ForbiddenException('仅平台管理员可删除店铺');
     }
     await this.shopService.delete(id);
     return success(null, '店铺删除成功');

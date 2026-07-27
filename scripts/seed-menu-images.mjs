@@ -163,10 +163,10 @@ async function uploadBatch(files, token) {
   const form = new FormData();
   for (const file of files) {
     const blob = new Blob([file.buffer], { type: file.mime });
-    // 兼容常见字段名
+    // 后端 FilesInterceptor('images', 30)，不要附带未知字段（multer 会 400 Unexpected field）
     form.append('images', blob, file.name);
-    form.append('files', blob, file.name);
   }
+  form.append('shop_id', SHOP_ID);
   form.append('shopId', SHOP_ID);
 
   const data = await api('/storage/images/menu/batch', {

@@ -24,7 +24,9 @@ describe('Promotion API 服务', () => {
 
       await getPromotions('shop001');
 
-      expect(request.get).toHaveBeenCalledWith('/api/promotions/manage');
+      expect(request.get).toHaveBeenCalledWith('/api/promotions/manage', {
+        params: { shop_id: 'shop001' },
+      });
     });
   });
 
@@ -50,7 +52,9 @@ describe('Promotion API 服务', () => {
       const data = { name: '更新促销' };
       await updatePromotion('promo123', data);
 
-      expect(request.patch).toHaveBeenCalledWith('/api/promotions/promo123', data);
+      expect(request.patch).toHaveBeenCalledWith('/api/promotions/promo123', data, {
+        params: undefined,
+      });
     });
   });
 
@@ -62,7 +66,9 @@ describe('Promotion API 服务', () => {
 
       await deletePromotion('promo123');
 
-      expect(request.delete).toHaveBeenCalledWith('/api/promotions/promo123');
+      expect(request.delete).toHaveBeenCalledWith('/api/promotions/promo123', {
+        params: undefined,
+      });
     });
   });
 });

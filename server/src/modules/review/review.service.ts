@@ -208,6 +208,59 @@ export class ReviewService {
       pageSize: safeSize,
     };
   }
+
+  async listByUser(
+    userId: string,
+    page = 1,
+    pageSize = 20,
+  ): Promise<PaginatedData<ReviewRecord>> {
+    const safePage = Math.max(page, 1);
+    const safeSize = Math.min(Math.max(pageSize, 1), 50);
+    const uid = String(userId || '').trim();
+    if (!uid) {
+      return { items: [], total: 0, page: safePage, pageSize: safeSize };
+    }
+
+    if (hasSupabase() && supabase) {
+      try {
+        const from = (safePage - 1) * safeSize;
+        const to = from + safeSize - 1;
+        const { data, error, count } = await supabase
+          .from('tf_reviews')
+          .select('*', { count: 'exact' })
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (error) {
+          this.logger.warn(`[Review] 用户评价列表查询失败，回退内存: ${error.message}`);
+        } else {
+          return {
+            items: (data || []).map((row) => this.toRecord(row as ReviewRow)),
+            total: count || 0,
+            page: safePage,
+            pageSize: safeSize,
+          };
+        }
+      } catch (e) {
+        this.logger.warn('[Review] 用户评价列表查询异常，回退内存:', e);
+      }
+    }
+
+    assertMemoryFallbackAllowed('ReviewService');
+    const all = Array.from(memoryReviews.values())
+      .filter((r) => r.userId === uid)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const total = all.length;
+    const start = (safePage - 1) * safeSize;
+    return {
+      items: all.slice(start, start + safeSize),
+      total,
+      page: safePage,
+      pageSize: safeSize,
+    };
+  }
+
   async replyToReview(
     reviewId: string,
     shopId: string,

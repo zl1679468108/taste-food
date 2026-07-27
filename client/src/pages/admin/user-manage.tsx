@@ -7,6 +7,7 @@ import { PaginatedData } from '../../types/api';
 import { DEFAULT_PAGE_SIZE } from '../../env';
 import './user-manage.scss';
 import Icon from '../../components/Icon';
+import ListEndTip from '../../components/ListEndTip';
 
 interface UserSummary {
   id: string;
@@ -124,6 +125,11 @@ const UserManagePage = () => {
             );
           })
         )}
+        <ListEndTip
+          loading={loadingMore}
+          hasMore={hasMore}
+          show={users.length > 0 && !loading}
+        />
       </ScrollView>
     </View>
   );

@@ -6,29 +6,68 @@ import {
 } from '@nestjs/common';
 import { Observable, tap } from 'rxjs';
 import { AuditService } from './audit.service';
+import { buildAuditAction, buildAuditSummary } from './audit-labels';
 import { UserRole } from '../../common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-function summarize(method: string, path: string, body: unknown): string {
-  const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-  const status = b.status != null ? ` status=${b.status}` : '';
-  const tableNo = b.tableNo != null ? ` tableNo=${b.tableNo}` : '';
-  const name = b.name != null ? ` name=${b.name}` : '';
-  const reply = b.reply != null ? ' reply' : '';
-  return `${method} ${path}${status}${tableNo}${name}${reply}`.slice(0, 500);
-}
+const NON_ID_SEGMENTS = new Set([
+  'stats',
+  'export',
+  'seed',
+  'manage',
+  'images',
+  'popular',
+  'business-hours',
+  'tables',
+  'status',
+  'cancel',
+  'reorder',
+  'grab',
+  'deliver',
+  'pay',
+  'payment',
+  'reviews',
+  'reply',
+  'delivery-track',
+  'default',
+  'set-default',
+  'toggle',
+  'check',
+]);
 
 function parseResource(path: string): { resource?: string; resourceId?: string } {
   // /api/orders/xxx/status -> resource=orders, id=xxx
   const clean = path.split('?')[0].replace(/^\/api\/?/, '/');
   const parts = clean.split('/').filter(Boolean);
   if (parts.length === 0) return {};
+
+  // shops/:shopId/tables/:tableId → resource=tables
+  const tablesIdx = parts.indexOf('tables');
+  if (parts[0] === 'shops' && tablesIdx >= 0) {
+    const maybeTableId = parts[tablesIdx + 1];
+    return {
+      resource: 'tables',
+      resourceId:
+        maybeTableId && !NON_ID_SEGMENTS.has(maybeTableId)
+          ? maybeTableId
+          : undefined,
+    };
+  }
+
+  // orders/:orderId/reviews → resource=reviews
+  if (parts[0] === 'orders' && parts.includes('reviews')) {
+    return {
+      resource: 'reviews',
+      resourceId:
+        parts[1] && !NON_ID_SEGMENTS.has(parts[1]) ? parts[1] : undefined,
+    };
+  }
+
   const resource = parts[0];
   let resourceId: string | undefined;
-  if (parts[1] && !['stats', 'export', 'seed', 'manage'].includes(parts[1])) {
-    // uuid-ish or id segment
+  if (parts[1] && !NON_ID_SEGMENTS.has(parts[1])) {
     resourceId = parts[1];
   }
   return { resource, resourceId };
@@ -52,8 +91,9 @@ export class AuditInterceptor implements NestInterceptor {
     if (!user?.userId) {
       return next.handle();
     }
-    // 仅记录商家/管理员写操作
-    if (String(user.role || '').toLowerCase() !== UserRole.ADMIN) {
+    // 记录平台管理员与商家写操作
+    const role = String(user.role || '').toLowerCase();
+    if (role !== UserRole.ADMIN && role !== UserRole.MERCHANT) {
       return next.handle();
     }
 
@@ -80,10 +120,10 @@ export class AuditInterceptor implements NestInterceptor {
             role: String(user.role || 'admin'),
             method,
             path: startedPath,
-            action: `${method} ${resource || 'unknown'}`,
+            action: buildAuditAction(method, startedPath, resource),
             resource,
             resourceId,
-            summary: summarize(method, startedPath, body),
+            summary: buildAuditSummary(method, startedPath, body, resource),
             statusCode: 200,
             ip: String(ip || ''),
           });

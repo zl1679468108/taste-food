@@ -22,6 +22,9 @@
 
   &__item {
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    padding: 0 $page-padding-x $section-gap;
   }
 
   &__footer {

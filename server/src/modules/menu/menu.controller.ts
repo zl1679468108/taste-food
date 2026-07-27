@@ -15,6 +15,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
+import { resolveAdminTargetShopId } from '../../common/utils/admin-shop-scope';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { MenuService } from './menu.service';
 import { CreateCategoryDto, CategoryResponseDto } from './dto/category.dto';
@@ -22,11 +23,14 @@ import { CreateMenuItemDto, MenuItemResponseDto } from './dto/menu-item.dto';
 import { SpecGroupResponseDto } from './dto/spec.dto';
 
 /**
- * 校验 admin 必须绑定店铺，返回其 shopId（多租户隔离）。
- * 单店铺场景下若未绑定则兜底为 DEFAULT_SHOP_ID。
+ * 解析写操作目标店铺：
+ * - 商家（JWT 有 shopId）：强制本店
+ * - 平台管理员（JWT 无 shopId）：使用请求中的 shopId，缺省 DEFAULT_SHOP_ID
  */
-function resolveAdminShopId(shopId: string | undefined): string {
-  return shopId || DEFAULT_SHOP_ID;
+function resolveAdminShopId(userShopId?: string, requestedShopId?: string): string {
+  return resolveAdminTargetShopId(userShopId, requestedShopId, {
+    lockToBoundShop: !!userShopId,
+  });
 }
 
 /**
@@ -92,20 +96,20 @@ export class MenuController {
   // ===== 受保护接口（Admin 角色）=====
 
   @Post('categories')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @HttpCode(HttpStatus.CREATED)
   async createCategory(
     @Body() dto: CreateCategoryDto,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<CategoryResponseDto>> {
-    // 多租户隔离：admin 只能为自己绑定的店铺创建资源，不信任客户端传入的 shopId
-    dto.shopId = resolveAdminShopId(userShopId);
+    // 商家强制本店；平台管理员可用 body.shopId 指定目标店
+    dto.shopId = resolveAdminShopId(userShopId, dto.shopId);
     const category = await this.menuService.createCategory(dto);
     return success(category, '分类创建成功');
   }
 
   @Patch('categories/:id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateCategory(
     @Param('id') id: string,
     @Body() dto: Partial<CreateCategoryDto>,
@@ -115,26 +119,26 @@ export class MenuController {
   }
 
   @Delete('categories/:id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async deleteCategory(@Param('id') id: string): Promise<ApiResponse<null>> {
     await this.menuService.deleteCategory(id);
     return success(null, '分类删除成功');
   }
 
   @Post('menu-items')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @HttpCode(HttpStatus.CREATED)
   async createMenuItem(
     @Body() dto: CreateMenuItemDto,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<MenuItemResponseDto>> {
-    dto.shopId = resolveAdminShopId(userShopId);
+    dto.shopId = resolveAdminShopId(userShopId, dto.shopId);
     const item = await this.menuService.createMenuItem(dto);
     return success(item, '菜品创建成功');
   }
 
   @Patch('menu-items/:id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateMenuItem(
     @Param('id') id: string,
     @Body() dto: Partial<CreateMenuItemDto>,
@@ -144,7 +148,7 @@ export class MenuController {
   }
 
   @Delete('menu-items/:id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async deleteMenuItem(@Param('id') id: string): Promise<ApiResponse<null>> {
     await this.menuService.deleteMenuItem(id);
     return success(null, '菜品删除成功');

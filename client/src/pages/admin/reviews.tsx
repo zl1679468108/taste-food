@@ -8,6 +8,7 @@ import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import './reviews.scss';
 import Icon from '../../components/Icon';
+import ListEndTip from '../../components/ListEndTip';
 
 interface ReviewItem {
   id: string;
@@ -185,13 +186,15 @@ export default function AdminReviewsPage() {
         </View>
       ))}
 
-      {hasMore && (
+      {hasMore ? (
         <View
           className='admin-reviews-page__more'
           onClick={() => !loadingMore && loadReviews(page + 1)}
         >
           <Text>{loadingMore ? '加载中...' : '加载更多'}</Text>
         </View>
+      ) : (
+        <ListEndTip show={reviews.length > 0} hasMore={false} />
       )}
     </View>
   );

@@ -3,6 +3,12 @@ import { Table, Tag, Typography } from 'antd';
 import { AuditOutlined } from '@ant-design/icons';
 import { AuditLog, getAuditLogs } from '@/services/audit';
 import { formatTime, shortOrderId } from '@/utils/format';
+import {
+  getAuditActionLabel,
+  getAuditResourceLabel,
+  getAuditRoleLabel,
+  getAuditSummaryLabel,
+} from '@/utils/auditLabels';
 import { DEFAULT_PAGE_SIZE, DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -19,9 +25,16 @@ const methodColor: Record<string, string> = {
 };
 
 function renderSummary(row: AuditLog): string {
-  if (row.summary) return row.summary;
-  const parts = [row.method, row.path || row.action].filter(Boolean);
-  return parts.join(' ') || '-';
+  return getAuditSummaryLabel(row.summary, {
+    action: row.action,
+    method: row.method,
+    resource: row.resource,
+    path: row.path,
+  });
+}
+
+function renderAction(row: AuditLog): string {
+  return getAuditActionLabel(row.action, row.method, row.resource, row.path);
 }
 
 export default function AuditPage() {
@@ -57,6 +70,10 @@ export default function AuditPage() {
     const keyword = searchText.trim().toLowerCase();
     if (!keyword) return logs;
     return logs.filter((row) => {
+      const actionLabel = renderAction(row);
+      const summaryLabel = renderSummary(row);
+      const resourceLabel = getAuditResourceLabel(row.resource);
+      const roleLabel = getAuditRoleLabel(row.role);
       const haystack = [
         row.summary,
         row.action,
@@ -64,6 +81,10 @@ export default function AuditPage() {
         row.resource,
         row.userId,
         row.ip,
+        actionLabel,
+        summaryLabel,
+        resourceLabel,
+        roleLabel,
       ]
         .filter(Boolean)
         .join(' ')
@@ -76,8 +97,8 @@ export default function AuditPage() {
     {
       title: '时间',
       dataIndex: 'createdAt',
-      width: 160,
-      render: (v: string) => formatTime(v, 'MM-DD HH:mm:ss'),
+      width: 180,
+      render: (v: string) => formatTime(v, 'YYYY-MM-DD HH:mm:ss'),
     },
     {
       title: '方法',
@@ -90,7 +111,7 @@ export default function AuditPage() {
       dataIndex: 'action',
       width: 150,
       ellipsis: true,
-      render: (v: string) => v || '-',
+      render: (_: string, row: AuditLog) => renderAction(row),
     },
     {
       title: '摘要',
@@ -108,9 +129,9 @@ export default function AuditPage() {
       width: 140,
       render: (v: string, row: AuditLog) =>
         v ? (
-          <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>
-            {v}
-            {row.resourceId ? `/${shortOrderId(String(row.resourceId))}` : ''}
+          <Text style={{ fontSize: 12 }}>
+            {getAuditResourceLabel(v)}
+            {row.resourceId ? ` / ${shortOrderId(String(row.resourceId))}` : ''}
           </Text>
         ) : (
           '-'
@@ -125,7 +146,7 @@ export default function AuditPage() {
           <div style={{ fontFamily: 'monospace', fontSize: 12 }}>{v ? shortOrderId(v) : '-'}</div>
           {row.role ? (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              {row.role}
+              {getAuditRoleLabel(row.role)}
             </Text>
           ) : null}
         </div>

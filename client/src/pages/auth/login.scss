@@ -145,3 +145,70 @@
   color: $text-hint;
   text-align: center;
 }
+
+.login-page__form {
+  width: 100%;
+  max-width: 320px;
+}
+
+.login-page__field {
+  background: $bg-muted;
+  border-radius: $radius-md;
+  padding: $space-3 $space-4;
+  margin-bottom: $space-3;
+}
+
+.login-page__label {
+  display: block;
+  font-size: $font-xs;
+  color: $text-tertiary;
+  margin-bottom: $space-1;
+}
+
+.login-page__input {
+  width: 100%;
+  font-size: $font-base;
+  color: $text-primary;
+  min-height: 28px;
+}
+
+.login-page__form-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: $space-4;
+}
+
+.login-page__link {
+  font-size: $font-sm;
+  color: $text-secondary;
+  margin-top: $space-4;
+  text-align: center;
+
+  &--primary {
+    color: $text-price;
+    font-weight: $weight-medium;
+  }
+}
+
+.login-page__hint {
+  margin-top: $space-4;
+  text-align: center;
+}
+
+.login-page__hint-text {
+  font-size: $font-xs;
+  color: $text-hint;
+}
+
+.login-page__register {
+  margin-top: $space-5;
+  display: flex;
+  gap: 4px;
+  font-size: $font-sm;
+  color: $text-secondary;
+}
+
+.login-page__register-link {
+  color: $text-price;
+  font-weight: $weight-medium;
+}

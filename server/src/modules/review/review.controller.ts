@@ -69,15 +69,31 @@ export class OrderReviewController {
 }
 
 /**
- * 商家评价列表
- * GET /api/reviews?shopId=&page=
+ * 评价列表
+ * GET /api/reviews/mine?page=  — 顾客本人评价
+ * GET /api/reviews?shopId=&page= — 商家店铺评价
  */
 @Controller('reviews')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}
 
+  /**
+   * 顾客「我的评价」
+   * GET /api/reviews/mine?page=&pageSize=
+   */
+  @Get('mine')
+  async listMyReviews(
+    @Query() query: ReviewQueryDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<PaginatedData<ReviewRecord>>> {
+    const page = parseInt(query.page || '1', 10) || 1;
+    const pageSize = parseInt(query.pageSize || '20', 10) || 20;
+    const result = await this.reviewService.listByUser(user.userId, page, pageSize);
+    return success(result);
+  }
+
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async listReviews(
     @Query() query: ReviewQueryDto,
     @CurrentUser() user: CurrentUserPayload,
@@ -90,7 +106,7 @@ export class ReviewController {
     return success(result);
   }
   @Patch(':id/reply')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async replyReview(
     @Param('id') id: string,
     @Body() dto: ReplyReviewDto,

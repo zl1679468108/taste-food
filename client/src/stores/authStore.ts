@@ -6,40 +6,73 @@ import { disconnectSocket } from '../services/socket';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
+/** 可切换业务角色（小程序禁止 admin） */
+export type SwitchableRole = 'customer' | 'merchant' | 'rider';
+
+/** 用户多角色项 */
+export interface UserRoleItem {
+  role: string;
+  shopId?: string | null;
+  status: string;
+}
+
 /** 登录响应 */
-interface LoginResponse {
+export interface LoginResponse {
   token: string;
   refreshToken: string;
   userId: string;
   openid: string;
   role: string;
+  shopId?: string;
+  nickName?: string;
+  username?: string;
+  phone?: string;
+  roles?: UserRoleItem[];
 }
 
 /** 用户信息 */
-interface User {
+export interface User {
   userId: string;
   openid: string;
   role: string;
   nickName?: string;
+  username?: string;
+  phone?: string;
+  shopId?: string;
+  avatarUrl?: string;
+  roles?: UserRoleItem[];
+}
+
+export interface RegisterPayload {
+  username: string;
+  password: string;
+  nickName?: string;
+  phone?: string;
+  intentRole?: 'customer' | 'merchant' | 'rider';
+}
+
+export interface WechatProfile {
+  nickName?: string;
+  avatarUrl?: string;
 }
 
 /** Auth Store 状态 */
 interface AuthState {
-  /** Access Token（opaque，短时效） */
   token: string | null;
-  /** Refresh Token（opaque，长时效） */
   refreshToken: string | null;
-  /** 用户信息 */
   user: User | null;
-  /** 是否已登录 */
   isLoggedIn: boolean;
-  /** 是否正在登录 */
   isLoading: boolean;
-  /** token 刷新定时器 */
   refreshTimer: NodeJS.Timeout | null;
 
-  /** 登录 */
-  login: (code: string) => Promise<void>;
+  /** 微信登录 */
+  login: (code: string, profile?: WechatProfile) => Promise<User>;
+  /** 账号密码登录 */
+  passwordLogin: (username: string, password: string) => Promise<User>;
+  /** 账号密码注册 */
+  register: (payload: RegisterPayload) => Promise<User>;
+  /** 拉取最新资料与角色 */
+  fetchMe: () => Promise<User | null>;
   /** 登出 */
   logout: () => void;
   /** 设置 token */
@@ -52,10 +85,15 @@ interface AuthState {
   startAutoRefresh: () => void;
   /** 停止 token 自动刷新 */
   stopAutoRefresh: () => void;
-  /** 切换角色（用对应 code 重新登录，保持同一用户体系） */
-  switchRole: (targetRole: 'customer' | 'admin' | 'rider') => Promise<void>;
+  /**
+   * 切换角色（POST /auth/switch-role）
+   * 小程序禁止切到 admin
+   */
+  switchRole: (targetRole: SwitchableRole, shopId?: string) => Promise<void>;
   /** 获取当前角色显示名称 */
   getRoleLabel: (role: string) => string;
+  /** 可切换角色（过滤 admin） */
+  getSwitchableRoles: () => UserRoleItem[];
 }
 
 // Access Token 有效期：2 小时（与服务端 ACCESS_TOKEN_TTL_MS 默认对齐）
@@ -64,225 +102,307 @@ const ACCESS_TOKEN_EXPIRES_MS = 2 * 60 * 60 * 1000;
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const isTestEnv = process.env.NODE_ENV === 'test';
 
-export const useAuthStore = create<AuthState>((set, get) => ({
-  token: null,
-  refreshToken: null,
-  user: null,
-  isLoggedIn: false,
-  isLoading: false,
-  refreshTimer: null,
+function toUser(data: LoginResponse | (Partial<User> & { userId: string; openid: string; role: string })): User {
+  return {
+    userId: data.userId,
+    openid: data.openid || '',
+    role: data.role,
+    nickName: data.nickName,
+    username: 'username' in data ? data.username : undefined,
+    phone: 'phone' in data ? data.phone : undefined,
+    shopId: data.shopId,
+    avatarUrl: 'avatarUrl' in data ? data.avatarUrl : undefined,
+    roles: data.roles || [],
+  };
+}
 
-  login: async (code: string) => {
-    set({ isLoading: true });
-    try {
-      const response: ApiResponse<LoginResponse> = await post(
-        '/auth/wechat-login',
-        { code },
-        { showError: true },
-      );
+function persistSession(token: string, refreshToken: string, user: User) {
+  Taro.setStorageSync('token', token);
+  Taro.setStorageSync('refreshToken', refreshToken);
+  Taro.setStorageSync('user', JSON.stringify(user));
+}
 
-      const { token, refreshToken, userId, openid, role } = response.data;
-      const user: User = { userId, openid, role };
+/** 按角色跳转首页（无 admin 入口） */
+export function navigateByRole(role?: string) {
+  if (role === 'merchant') {
+    Taro.reLaunch({ url: '/pages/admin/index' });
+    return;
+  }
+  if (role === 'rider') {
+    Taro.reLaunch({ url: '/pages/rider/index' });
+    return;
+  }
+  if (role === 'admin') {
+    Taro.showToast({ title: '请使用 PC 管理后台', icon: 'none' });
+    Taro.switchTab({ url: '/pages/menu/index' });
+    return;
+  }
+  Taro.switchTab({ url: '/pages/menu/index' });
+}
 
-      // 保存到 storage
-      Taro.setStorageSync('token', token);
-      Taro.setStorageSync('refreshToken', refreshToken);
-      Taro.setStorageSync('user', JSON.stringify(user));
-
-      set({
-        token,
-        refreshToken,
-        user,
-        isLoggedIn: true,
-        isLoading: false,
-      });
-
-      // 启动自动刷新
-      get().startAutoRefresh();
-    } catch (error: any) {
-      set({ isLoading: false });
-      throw error;
-    }
-  },
-
-  logout: () => {
-    // 停止自动刷新
-    get().stopAutoRefresh();
-    // 断开 WebSocket，避免用旧 token 继续接收订单推送
-    try {
-      disconnectSocket();
-    } catch (e) {
-      console.warn('[Auth] 断开 socket 失败:', e);
-    }
-
-    Taro.removeStorageSync('token');
-    Taro.removeStorageSync('refreshToken');
-    Taro.removeStorageSync('user');
-
+export const useAuthStore = create<AuthState>((set, get) => {
+  const applyLogin = (data: LoginResponse): User => {
+    const user = toUser(data);
+    persistSession(data.token, data.refreshToken, user);
     set({
-      token: null,
-      refreshToken: null,
-      user: null,
-      isLoggedIn: false,
+      token: data.token,
+      refreshToken: data.refreshToken,
+      user,
+      isLoggedIn: true,
+      isLoading: false,
     });
+    get().stopAutoRefresh();
+    get().startAutoRefresh();
+    return user;
+  };
 
-    Taro.reLaunch({ url: '/pages/auth/login' });
-  },
+  return {
+    token: null,
+    refreshToken: null,
+    user: null,
+    isLoggedIn: false,
+    isLoading: false,
+    refreshTimer: null,
 
-  setToken: (token: string, refreshToken: string, user: User) => {
-    Taro.setStorageSync('token', token);
-    Taro.setStorageSync('refreshToken', refreshToken);
-    Taro.setStorageSync('user', JSON.stringify(user));
-    set({ token, refreshToken, user, isLoggedIn: true });
-  },
-
-  restoreToken: (): boolean => {
-    try {
-      const token = Taro.getStorageSync('token');
-      const refreshToken = Taro.getStorageSync('refreshToken');
-      const userStr = Taro.getStorageSync('user');
-
-      if (token && refreshToken && userStr) {
-        const user = JSON.parse(userStr) as User;
-        set({ token, refreshToken, user, isLoggedIn: true });
-        
-        // 启动自动刷新
-        setTimeout(() => get().startAutoRefresh(), 1000);
-        return true;
+    login: async (code: string, profile?: WechatProfile) => {
+      set({ isLoading: true });
+      try {
+        const response: ApiResponse<LoginResponse> = await post(
+          '/auth/wechat-login',
+          {
+            code,
+            nickName: profile?.nickName,
+            avatarUrl: profile?.avatarUrl,
+          },
+          { showError: true },
+        );
+        return applyLogin(response.data);
+      } catch (error) {
+        set({ isLoading: false });
+        throw error;
       }
-    } catch {
-      // 忽略解析错误
-    }
-    return false;
-  },
+    },
 
-  refreshSession: async () => {
-    const { refreshToken, isLoggedIn } = get();
-    if (!isLoggedIn || !refreshToken) return;
-
-    try {
-      const res: ApiResponse<{ token: string; refreshToken: string }> = await post(
-        '/auth/refresh',
-        { refreshToken },
-        { showError: false },
-      );
-      
-      if (res.code === 0 && res.data.token) {
-        const { token: newToken, refreshToken: newRefreshToken } = res.data;
-        Taro.setStorageSync('token', newToken);
-        Taro.setStorageSync('refreshToken', newRefreshToken);
-        set({ token: newToken, refreshToken: newRefreshToken });
-        
-        if (!isTestEnv) {
-          console.log('[Auth] Token 刷新成功');
-        }
+    passwordLogin: async (username: string, password: string) => {
+      set({ isLoading: true });
+      try {
+        const response: ApiResponse<LoginResponse> = await post(
+          '/auth/login',
+          { username, password },
+          { showError: true },
+        );
+        return applyLogin(response.data);
+      } catch (error) {
+        set({ isLoading: false });
+        throw error;
       }
-    } catch (e) {
-      console.warn('[Auth] Token 刷新失败:', e instanceof Error ? e.message : e);
-      // 区分网络错误与 refreshToken 过期
-      const err = e as { code?: number };
-      if (err.code === -1) {
-        // 网络错误（请求未到达服务器），保留登录状态，下次定时器会重试
-        console.warn('[Auth] 网络错误，保留登录状态等待重试');
-      } else {
-        // refreshToken 过期或无效，需要重新登录
-        get().logout();
+    },
+
+    register: async (payload: RegisterPayload) => {
+      set({ isLoading: true });
+      try {
+        const response: ApiResponse<LoginResponse> = await post(
+          '/auth/register',
+          payload as unknown as Record<string, unknown>,
+          { showError: true },
+        );
+        return applyLogin(response.data);
+      } catch (error) {
+        set({ isLoading: false });
+        throw error;
       }
-    }
-  },
+    },
 
-  startAutoRefresh: () => {
-    const { refreshTimer } = get();
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-    }
+    fetchMe: async () => {
+      const { isLoggedIn } = get();
+      if (!isLoggedIn) return null;
+      try {
+        const res: ApiResponse<{
+          userId: string;
+          openid: string;
+          role: string;
+          shopId?: string;
+          nickName?: string;
+          username?: string;
+          phone?: string;
+          avatarUrl?: string;
+          roles?: UserRoleItem[];
+        }> = await getRequest('/auth/me', undefined, { showError: false });
+        if (res.code !== 0 || !res.data) return get().user;
 
-    // 定时刷新 Access（默认 2h 有效，提前 5 分钟刷新；也可依赖 401 拦截器）
-    const timer = setInterval(() => {
-      const { isLoggedIn, refreshToken } = get();
-      if (isLoggedIn && refreshToken) {
-        if (!isTestEnv) {
-          console.log('[Auth] 自动刷新 Token...');
-        }
-        get().refreshSession();
+        const prev = get().user;
+        const user: User = {
+          userId: res.data.userId,
+          openid: res.data.openid || prev?.openid || '',
+          role: res.data.role,
+          shopId: res.data.shopId,
+          nickName: res.data.nickName,
+          username: res.data.username,
+          phone: res.data.phone,
+          avatarUrl: res.data.avatarUrl,
+          roles: res.data.roles || [],
+        };
+        Taro.setStorageSync('user', JSON.stringify(user));
+        set({ user });
+        return user;
+      } catch {
+        return get().user;
       }
-    }, ACCESS_TOKEN_EXPIRES_MS - REFRESH_BUFFER_MS);
+    },
 
-    set({ refreshTimer: timer });
-  },
+    logout: () => {
+      get().stopAutoRefresh();
+      try {
+        disconnectSocket();
+      } catch (e) {
+        console.warn('[Auth] 断开 socket 失败:', e);
+      }
 
-  stopAutoRefresh: () => {
-    const { refreshTimer } = get();
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-      set({ refreshTimer: null });
-    }
-  },
-
-  switchRole: async (targetRole: 'customer' | 'admin' | 'rider') => {
-    const codeMap = {
-      admin: 'admin_code',
-      customer: 'customer_code',
-      rider: 'rider_code',
-    };
-    const code = codeMap[targetRole];
-    set({ isLoading: true });
-    try {
-      const response: ApiResponse<LoginResponse> = await post(
-        '/auth/wechat-login',
-        { code },
-        { showError: true },
-      );
-
-      const { token, refreshToken, userId, openid, role } = response.data;
-      const user: User = { userId, openid, role };
-
-      Taro.setStorageSync('token', token);
-      Taro.setStorageSync('refreshToken', refreshToken);
-      Taro.setStorageSync('user', JSON.stringify(user));
+      Taro.removeStorageSync('token');
+      Taro.removeStorageSync('refreshToken');
+      Taro.removeStorageSync('user');
 
       set({
-        token,
-        refreshToken,
-        user,
-        isLoggedIn: true,
-        isLoading: false,
+        token: null,
+        refreshToken: null,
+        user: null,
+        isLoggedIn: false,
       });
 
-      // 重启自动刷新
-      get().stopAutoRefresh();
-      get().startAutoRefresh();
+      Taro.reLaunch({ url: '/pages/auth/login' });
+    },
 
-      const labelMap = { admin: '商家', customer: '顾客', rider: '骑手' };
-      Taro.showToast({ title: `已切换为${labelMap[targetRole]}视角`, icon: 'success' });
-      
-      // 切换后跳转到对应页面
-      setTimeout(() => {
-        if (targetRole === 'admin') {
-          Taro.reLaunch({ url: '/pages/admin/index' });
-        } else if (targetRole === 'rider') {
-          Taro.reLaunch({ url: '/pages/rider/index' });
-        } else {
-          Taro.switchTab({ url: '/pages/menu/index' });
+    setToken: (token: string, refreshToken: string, user: User) => {
+      persistSession(token, refreshToken, user);
+      set({ token, refreshToken, user, isLoggedIn: true });
+    },
+
+    restoreToken: (): boolean => {
+      try {
+        const token = Taro.getStorageSync('token');
+        const refreshToken = Taro.getStorageSync('refreshToken');
+        const userStr = Taro.getStorageSync('user');
+
+        if (token && refreshToken && userStr) {
+          const user = JSON.parse(userStr) as User;
+          set({ token, refreshToken, user, isLoggedIn: true });
+          setTimeout(() => get().startAutoRefresh(), 1000);
+          return true;
         }
-      }, 800);
-    } catch (error: any) {
-      set({ isLoading: false });
-      throw error;
-    }
-  },
+      } catch {
+        // 忽略解析错误
+      }
+      return false;
+    },
 
-  getRoleLabel: (role: string): string => {
-    switch (role) {
-      case 'admin':
-        return '商家'
-      case 'customer':
-      case 'guest':
-        return '顾客'
-      case 'rider':
-        return '骑手'
-      default:
-        return role;
-    }
-  },
-}));
+    refreshSession: async () => {
+      const { refreshToken, isLoggedIn } = get();
+      if (!isLoggedIn || !refreshToken) return;
+
+      try {
+        const res: ApiResponse<{ token: string; refreshToken: string }> = await post(
+          '/auth/refresh',
+          { refreshToken },
+          { showError: false },
+        );
+
+        if (res.code === 0 && res.data.token) {
+          const { token: newToken, refreshToken: newRefreshToken } = res.data;
+          Taro.setStorageSync('token', newToken);
+          Taro.setStorageSync('refreshToken', newRefreshToken);
+          set({ token: newToken, refreshToken: newRefreshToken });
+
+          if (!isTestEnv) {
+            console.log('[Auth] Token 刷新成功');
+          }
+        }
+      } catch (e) {
+        console.warn('[Auth] Token 刷新失败:', e instanceof Error ? e.message : e);
+        const err = e as { code?: number };
+        if (err.code === -1) {
+          console.warn('[Auth] 网络错误，保留登录状态等待重试');
+        } else {
+          get().logout();
+        }
+      }
+    },
+
+    startAutoRefresh: () => {
+      const { refreshTimer } = get();
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+      }
+
+      const timer = setInterval(() => {
+        const { isLoggedIn, refreshToken } = get();
+        if (isLoggedIn && refreshToken) {
+          if (!isTestEnv) {
+            console.log('[Auth] 自动刷新 Token...');
+          }
+          get().refreshSession();
+        }
+      }, ACCESS_TOKEN_EXPIRES_MS - REFRESH_BUFFER_MS);
+
+      set({ refreshTimer: timer });
+    },
+
+    stopAutoRefresh: () => {
+      const { refreshTimer } = get();
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        set({ refreshTimer: null });
+      }
+    },
+
+    switchRole: async (targetRole: SwitchableRole, shopId?: string) => {
+      if (targetRole === ('admin' as SwitchableRole)) {
+        Taro.showToast({ title: '小程序不支持管理员角色', icon: 'none' });
+        return;
+      }
+
+      set({ isLoading: true });
+      try {
+        const body: Record<string, unknown> = { role: targetRole };
+        if (shopId) body.shopId = shopId;
+
+        const response: ApiResponse<LoginResponse> = await post(
+          '/auth/switch-role',
+          body,
+          { showError: true },
+        );
+        applyLogin(response.data);
+
+        const label = get().getRoleLabel(targetRole);
+        Taro.showToast({ title: `已切换为${label}`, icon: 'success' });
+
+        setTimeout(() => {
+          navigateByRole(targetRole);
+        }, 800);
+      } catch (error) {
+        set({ isLoading: false });
+        throw error;
+      }
+    },
+
+    getRoleLabel: (role: string): string => {
+      switch (role) {
+        case 'merchant':
+          return '商家';
+        case 'admin':
+          return '管理员';
+        case 'customer':
+        case 'guest':
+          return '顾客';
+        case 'rider':
+          return '骑手';
+        default:
+          return role;
+      }
+    },
+
+    getSwitchableRoles: () => {
+      const roles = get().user?.roles || [];
+      return roles.filter((r) => r.status === 'active' && r.role !== 'admin');
+    },
+  };
+});

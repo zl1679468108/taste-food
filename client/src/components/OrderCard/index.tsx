@@ -1,7 +1,7 @@
 import { memo, type ReactNode } from 'react';
 import { View, Text } from '@tarojs/components';
 import { formatPriceWithSymbol, formatRelativeTime } from '../../utils/format';
-import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP } from '../../utils/constants';
+import { ORDER_STATUS_COLOR_MAP, getOrderStatusLabel } from '../../utils/constants';
 import type { Order } from '../../types/order';
 import './index.scss';
 
@@ -22,7 +22,7 @@ function OrderCardInner({
   className = '',
 }: OrderCardProps) {
   const statusColor = ORDER_STATUS_COLOR_MAP[order.status] || '#999';
-  const statusText = ORDER_STATUS_MAP[order.status] || order.status;
+  const statusText = getOrderStatusLabel(order.status, order.deliveryType);
   const items = order.items || [];
 
   return (

@@ -166,13 +166,13 @@ test('promotion controller falls back to DEFAULT_SHOP_ID when admin shop is unbo
   } as any, undefined);
   assert.equal(createdResp.data.shopId, DEFAULT_SHOP_ID);
 
-  const managed = await controller.findAllForManagement(undefined);
+  const managed = await controller.findAllForManagement(undefined, undefined, undefined);
   assert.ok(managed.data.some((p) => p.id === createdResp.data.id));
 
-  await controller.update(createdResp.data.id, { name: '已更新默认店铺活动' }, undefined);
+  await controller.update(createdResp.data.id, { name: '已更新默认店铺活动' }, undefined, undefined);
   const updated = await service.findOne(createdResp.data.id);
   assert.equal(updated.name, '已更新默认店铺活动');
-  await controller.remove(createdResp.data.id, undefined);
+  await controller.remove(createdResp.data.id, undefined, undefined);
 });
 
 test('order creation applies the largest active full-discount promotion only', async () => {

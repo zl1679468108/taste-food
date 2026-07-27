@@ -2,10 +2,22 @@
 
 .tf-order-card {
   background: $bg-card;
-  margin: 10px $space-3;
+  margin: 0 $page-padding-x $section-gap;
   border-radius: $radius-lg;
   padding: $card-padding;
   box-shadow: $shadow-sm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  /* VirtualList 固定行高时撑满槽位，避免短卡片底部空洞造成间距不均 */
+  .tf-virtual-list__item > & {
+    margin: 0;
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+  }
 
   &:active {
     opacity: 0.85;
@@ -15,12 +27,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: $space-2;
+    flex-shrink: 0;
   }
 
   &__shop {
-    font-size: $font-md;
-    font-weight: $weight-medium;
+    font-size: $font-title;
+    font-weight: $weight-semibold;
     color: $text-primary;
     line-height: $leading-snug;
   }
@@ -34,7 +47,9 @@
   }
 
   &__goods {
-    margin-bottom: 10px;
+    flex: 1;
+    min-height: 0;
+    margin-bottom: $space-2;
   }
 
   &__goods-item {
@@ -53,7 +68,8 @@
     align-items: center;
     justify-content: space-between;
     border-top: 1px solid $divider;
-    padding-top: 10px;
+    padding-top: $space-2;
+    flex-shrink: 0;
   }
 
   &__time {

@@ -1,0 +1,83 @@
+@use '../../styles/design-tokens' as *;
+
+.my-reviews-page {
+  min-height: 100vh;
+  background: $bg-page;
+  padding: $space-3 $space-3 calc(#{$space-8} + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+
+  > .empty-state {
+    min-height: 60vh;
+  }
+}
+
+.my-review-card {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  padding: 14px $space-4;
+  margin-bottom: $space-3;
+  box-shadow: $shadow-sm;
+
+  &:active {
+    opacity: 0.96;
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $space-2;
+  }
+
+  &__stars {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  &__score {
+    margin-left: 6px;
+    font-size: $font-sm;
+    color: $primary;
+    font-weight: $weight-semibold;
+  }
+
+  &__time {
+    font-size: $font-xs;
+    color: $text-tertiary;
+  }
+
+  &__content {
+    display: block;
+    font-size: $font-base;
+    color: $text-primary;
+    line-height: $leading-normal;
+    margin-bottom: $space-2;
+  }
+
+  &__order {
+    display: block;
+    font-size: $font-xs;
+    color: $text-tertiary;
+  }
+
+  &__reply {
+    margin-top: 10px;
+    padding: $space-2 10px;
+    background: $bg-muted;
+    border-radius: $radius-sm;
+  }
+
+  &__reply-label {
+    display: block;
+    font-size: $font-xs;
+    color: $text-secondary;
+    margin-bottom: $space-1;
+  }
+
+  &__reply-text {
+    font-size: $font-sm;
+    color: $text-primary;
+    line-height: $leading-normal;
+  }
+}

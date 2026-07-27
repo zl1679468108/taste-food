@@ -30,6 +30,17 @@ export enum UserRole {
   CUSTOMER = 'customer',
   ADMIN = 'admin',
   RIDER = 'rider',
+  MERCHANT = 'merchant',
+}
+
+/** 店铺运营角色（单店写权限） */
+export function isShopOperator(role?: string): boolean {
+  return role === UserRole.MERCHANT || role === UserRole.ADMIN;
+}
+
+/** 平台管理员 */
+export function isPlatformAdmin(role?: string, shopId?: string | null): boolean {
+  return role === UserRole.ADMIN && !shopId;
 }
 
 export enum PromotionType {

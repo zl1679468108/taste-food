@@ -1,0 +1,82 @@
+@use '../../styles/design-tokens' as *;
+
+.notif-page {
+  min-height: 100vh;
+  background: $bg-page;
+  padding: $space-4 $page-padding-x $space-10;
+  box-sizing: border-box;
+}
+
+.notif-page__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $space-3;
+}
+
+.notif-page__count {
+  font-size: $font-sm;
+  color: $text-secondary;
+}
+
+.notif-page__action {
+  font-size: $font-sm;
+  color: $text-price;
+  font-weight: $weight-medium;
+}
+
+.notif-page__list {
+  display: flex;
+  flex-direction: column;
+  gap: $space-2;
+}
+
+.notif-page__item {
+  background: $bg-card;
+  border-radius: $radius-md;
+  padding: $space-3 $space-4;
+  box-shadow: $shadow-sm;
+  border: 1px solid transparent;
+
+  &.is-unread {
+    border-color: $border-tip;
+    background: mix($primary, $bg-card, 4%);
+  }
+}
+
+.notif-page__item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $space-1;
+}
+
+.notif-page__title {
+  font-size: $font-base;
+  font-weight: $weight-medium;
+  color: $text-primary;
+  flex: 1;
+}
+
+.notif-page__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: $radius-full;
+  background: $primary;
+  margin-left: $space-2;
+  flex-shrink: 0;
+}
+
+.notif-page__content {
+  display: block;
+  font-size: $font-sm;
+  color: $text-secondary;
+  line-height: $leading-normal;
+  margin-bottom: $space-1;
+}
+
+.notif-page__time {
+  display: block;
+  font-size: $font-2xs;
+  color: $text-hint;
+}

@@ -61,17 +61,26 @@ export const getOrders = (params: { shop_id: string; status?: string; page: numb
 export const getOrder = (id: string) =>
   request.get(`/api/orders/${id}`) as Promise<Order>;
 
-/** 今日统计（shopId 由后端 JWT 决定） */
-export const getOrderStats = (_shopId?: string) =>
-  request.get('/api/orders/stats/today') as Promise<OrderStats>;
+/** 今日统计（优先使用当前店铺上下文 shop_id） */
+export const getOrderStats = (shopId?: string) =>
+  request.get('/api/orders/stats/today', {
+    params: shopId ? { shop_id: shopId } : undefined,
+  }) as Promise<OrderStats>;
 
 /** 近 N 天日趋势 */
-export const getDailyStats = (_shopId: string | undefined, days = 7) =>
-  request.get('/api/orders/stats/daily', { params: { days } }) as Promise<DailyStatsItem[]>;
+export const getDailyStats = (shopId: string | undefined, days = 7) =>
+  request.get('/api/orders/stats/daily', {
+    params: { days, ...(shopId ? { shop_id: shopId } : {}) },
+  }) as Promise<DailyStatsItem[]>;
 
-/** 状态分布 */
-export const getStatusDistribution = (_shopId?: string) =>
-  request.get('/api/orders/stats/status-distribution') as Promise<StatusDistributionItem[]>;
+/** 状态分布（可按近 N 天过滤，与看板时间范围对齐） */
+export const getStatusDistribution = (shopId?: string, days?: number) =>
+  request.get('/api/orders/stats/status-distribution', {
+    params: {
+      ...(shopId ? { shop_id: shopId } : {}),
+      ...(days ? { days } : {}),
+    },
+  }) as Promise<StatusDistributionItem[]>;
 
 export const updateOrderStatus = (id: string, status: string) =>
   request.post(`/api/orders/${id}/status`, { status });
@@ -98,5 +107,10 @@ export interface OrderExportResult {
   contentType?: string;
 }
 
-export const exportOrders = (params?: { status?: string; maxRows?: number; format?: 'csv' | 'xlsx' | 'both' }) =>
+export const exportOrders = (params?: {
+  shop_id?: string;
+  status?: string;
+  maxRows?: number;
+  format?: 'csv' | 'xlsx' | 'both';
+}) =>
   request.get('/api/orders/export', { params: { format: 'xlsx', ...params } }) as Promise<OrderExportResult>;

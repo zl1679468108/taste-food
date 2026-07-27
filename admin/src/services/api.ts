@@ -1,4 +1,10 @@
 declare namespace API {
+  interface UserRoleItem {
+    role: string;
+    shopId?: string | null;
+    status: string;
+  }
+
   interface CurrentUser {
     id?: string;
     name?: string;
@@ -6,5 +12,10 @@ declare namespace API {
     userid?: string;
     email?: string;
     role?: string;
+    shopId?: string;
+    username?: string;
+    nickName?: string;
+    phone?: string;
+    roles?: UserRoleItem[];
   }
 }

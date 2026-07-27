@@ -8,6 +8,7 @@ import SkeletonLoader from '../../components/SkeletonLoader';
 import { DEFAULT_SHOP_ID } from '../../env';
 import FooterBar from '../../components/FooterBar';
 import './index.scss';
+import ListEndTip from '../../components/ListEndTip';
 
 export interface AddressItem {
   id: string;
@@ -193,6 +194,7 @@ const AddressListPage = () => {
               </View>
             </View>
           ))}
+          <ListEndTip show={list.length > 0} hasMore={false} variant='footer' />
         </View>
       )}
 

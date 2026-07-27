@@ -1,0 +1,21 @@
+@use '../../styles/design-tokens' as *;
+
+.tf-list-end-tip {
+  width: 100%;
+  text-align: center;
+  padding: $space-4 $space-3 $space-8;
+  color: $text-tertiary;
+  font-size: $font-xs;
+  line-height: $leading-normal;
+  box-sizing: border-box;
+
+  /* 订单等 tabBar 页：额外抬高，避免被底栏挡住 */
+  &--tab {
+    padding-bottom: $space-12;
+  }
+
+  /* 有固定底部操作栏的页面 */
+  &--footer {
+    padding-bottom: $space-6;
+  }
+}

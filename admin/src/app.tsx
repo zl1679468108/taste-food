@@ -4,6 +4,7 @@ import { message, Dropdown, Space } from 'antd';
 import { LogoutOutlined, CoffeeOutlined } from '@ant-design/icons';
 import { getCurrentUser } from './services/auth';
 import { brand } from './theme';
+import ShopSelector from './components/ShopSelector';
 
 const loginPath = '/login';
 
@@ -15,7 +16,13 @@ function clearBrokenAuth() {
 
 export async function getInitialState(): Promise<{
   currentUser?: API.CurrentUser;
-  admin?: { canAdmin: boolean };
+  admin?: {
+    canAdmin: boolean;
+    canPlatformAdmin?: boolean;
+    canOps?: boolean;
+    canPlatform?: boolean;
+    canMerchant?: boolean;
+  };
 }> {
   const token = localStorage.getItem('token');
   const userStr = localStorage.getItem('user');
@@ -25,9 +32,9 @@ export async function getInitialState(): Promise<{
   if (!token) {
     if (pathname !== '/login') {
       window.location.href = loginPath;
-      return { currentUser: undefined, admin: { canAdmin: false } };
+      return { currentUser: undefined, admin: { canAdmin: false, canPlatformAdmin: false, canOps: false, canPlatform: false, canMerchant: false } };
     }
-    return { currentUser: undefined, admin: { canAdmin: false } };
+    return { currentUser: undefined, admin: { canAdmin: false, canPlatformAdmin: false, canOps: false, canPlatform: false, canMerchant: false } };
   }
 
   // token 存在但 user 数据损坏：清掉无效登录态
@@ -39,9 +46,9 @@ export async function getInitialState(): Promise<{
       clearBrokenAuth();
       if (pathname !== '/login') {
         window.location.href = loginPath;
-        return { currentUser: undefined, admin: { canAdmin: false } };
+        return { currentUser: undefined, admin: { canAdmin: false, canPlatformAdmin: false, canOps: false, canPlatform: false, canMerchant: false } };
       }
-      return { currentUser: undefined, admin: { canAdmin: false } };
+      return { currentUser: undefined, admin: { canAdmin: false, canPlatformAdmin: false, canOps: false, canPlatform: false, canMerchant: false } };
     }
   }
 
@@ -52,9 +59,29 @@ export async function getInitialState(): Promise<{
 
   // 优先用 localStorage 缓存的用户信息恢复 UI（避免 token 失效时空白）
   // token 真正有效性由 request 拦截器在 401 时清除登录态
-  const currentUser = parsedUser || await getCurrentUser();
-  const canAdmin = !!currentUser && currentUser.role === 'admin';
-  return { currentUser: currentUser || undefined, admin: { canAdmin } };
+  const raw = parsedUser || await getCurrentUser();
+  const currentUser = raw
+    ? ({
+        id: (raw as any).id || (raw as any).userId,
+        name: (raw as any).name || (raw as any).nickName || '管理员',
+        role: (raw as any).role,
+        shopId: (raw as any).shopId || undefined,
+      } as API.CurrentUser)
+    : undefined;
+  const role = currentUser?.role;
+  const canOps = role === 'admin' || role === 'merchant';
+  const canPlatformAdmin = role === 'admin' && !currentUser?.shopId;
+  const canMerchant = role === 'merchant' || (role === 'admin' && !!currentUser?.shopId);
+  return {
+    currentUser,
+    admin: {
+      canAdmin: canOps,
+      canOps,
+      canPlatformAdmin,
+      canPlatform: canPlatformAdmin,
+      canMerchant,
+    },
+  };
 }
 
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
@@ -97,7 +124,8 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
                     localStorage.removeItem('token');
                     localStorage.removeItem('refreshToken');
                     localStorage.removeItem('user');
-                    setInitialState({ currentUser: null, admin: { canAdmin: false } });
+                    // 保留 tf_admin_shop_id：下次登录可恢复上次选择的店
+                    setInitialState({ currentUser: null, admin: { canAdmin: false, canPlatformAdmin: false, canOps: false, canPlatform: false, canMerchant: false } });
                     message.success('已退出登录');
                     history.push(loginPath);
                   },
@@ -112,6 +140,11 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
           </Dropdown>
         );
       },
+    },
+    // 顶栏右侧：店铺选择器（业务页按当前店过滤）
+    actionsRender: () => {
+      if (!initialState?.currentUser) return [];
+      return [<ShopSelector key="shop-selector" />];
     },
     onPageNotFound: () => { history.push('/'); },
     footerRender: () => (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View, Text } from '@tarojs/components';
+import { View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
@@ -12,9 +12,10 @@ import OrderCard from '../../components/OrderCard';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import VirtualList from '../../components/VirtualList';
+import ListEndTip from '../../components/ListEndTip';
 import './index.scss';
 
-const ORDER_CARD_HEIGHT = 148;
+const ORDER_CARD_HEIGHT = 156;
 
 const FILTER_TABS = [
   { key: '', label: '全部' },
@@ -22,9 +23,11 @@ const FILTER_TABS = [
   { key: OrderStatus.PAID, label: '已支付' },
   { key: OrderStatus.ACCEPTED, label: '已接单' },
   { key: OrderStatus.PREPARING, label: '制作中' },
+  { key: OrderStatus.READY_FOR_PICKUP, label: '待取餐' },
   { key: OrderStatus.DELIVERING, label: '配送中' },
   { key: OrderStatus.COMPLETED, label: '已完成' },
   { key: OrderStatus.CANCELLED, label: '已取消' },
+  { key: OrderStatus.REJECTED, label: '已拒单' },
 ];
 
 const OrderListPage = () => {
@@ -233,7 +236,7 @@ const OrderListPage = () => {
             key={`orders-${activeFilter || 'all'}`}
             data={orders}
             itemHeight={ORDER_CARD_HEIGHT}
-            height='calc(100vh - 48px)'
+            height='100%'
             keyExtractor={(order) => order.id}
             onScrollToLower={() => loadMore()}
             renderItem={(order) => (
@@ -244,18 +247,12 @@ const OrderListPage = () => {
               />
             )}
             footer={
-              <>
-                {loadingMore && (
-                  <View className='load-more'>
-                    <Text>加载中...</Text>
-                  </View>
-                )}
-                {!hasMore && orders.length > 0 && !loadingMore && (
-                  <View className='load-more'>
-                    <Text>—— 没有更多了 ——</Text>
-                  </View>
-                )}
-              </>
+              <ListEndTip
+                loading={loadingMore}
+                hasMore={hasMore}
+                show={orders.length > 0}
+                variant='tab'
+              />
             }
           />
         </View>

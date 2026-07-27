@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { getCategoryIcon } from '../../utils/iconMap';
 import Icon from '../../components/Icon';
+import ListEndTip from '../../components/ListEndTip';
 import { Category } from '../../types/menu';
 import { MenuItem } from '../../types/menu';
 import { DEFAULT_SHOP_ID, API_BASE_URL } from '../../env';
@@ -411,6 +412,7 @@ const MenuManagePage = () => {
                 <Text className='empty-category__text'>该分类下暂无菜品</Text>
               </View>
             ) : (
+              <>
               <View className='menu-grid'>
                 {filteredItems.map((item) => (
                   <View key={item.id} className='menu-item-admin-card'>
@@ -461,6 +463,8 @@ const MenuManagePage = () => {
                   </View>
                 ))}
               </View>
+              <ListEndTip show={filteredItems.length > 0} hasMore={false} />
+              </>
             )}
           </>
         )}

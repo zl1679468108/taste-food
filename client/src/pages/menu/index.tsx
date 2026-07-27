@@ -17,6 +17,7 @@ import {
   type DineContext,
 } from '../../utils/dine-context';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import ListEndTip from '../../components/ListEndTip';
 import Icon from '../../components/Icon';
 import BottomSheet from '../../components/BottomSheet';
 import EmptyState from '../../components/EmptyState';
@@ -73,6 +74,15 @@ export default function MenuPage() {
   const categoryOffsetsRef = useRef<number[]>([]);
   const scrollLockRef = useRef(false); // 点击分类滚动时锁定 scroll-spy，避免抖动
   const [sidebarScrollIntoView, setSidebarScrollIntoView] = useState('');
+  const [listBottomSpacer, setListBottomSpacer] = useState(0);
+  const [shopList, setShopList] = useState<Shop[]>([]);
+  const [currentShopId, setCurrentShopId] = useState<string>(
+    () => cartStore.shopId || DEFAULT_SHOP_ID,
+  );
+  const [shopPickerVisible, setShopPickerVisible] = useState(false);
+  const menuViewHeightRef = useRef(0);
+  const menuContentHeightRef = useRef(0);
+  const measureCategoryOffsetsRef = useRef<() => void>(() => {});
 
   // Refs to avoid stale closures in callbacks
   const categoriesRef = useRef(categories);
@@ -124,6 +134,8 @@ export default function MenuPage() {
 
     if (shopData) setShop(shopData);
     setCategories(categoryItems);
+    setListBottomSpacer(0);
+    categoryOffsetsRef.current = [];
   }, []);
 
   /** 仅有缓存 items 时的临时展示（冷启动先出图，网络回来后整表替换） */
@@ -153,9 +165,9 @@ export default function MenuPage() {
     ]);
   }, []);
 
-  const loadData = useCallback(async (options?: { forceNetwork?: boolean }) => {
+  const loadData = useCallback(async (options?: { forceNetwork?: boolean; shopId?: string }) => {
     const forceNetwork = options?.forceNetwork === true;
-    const shopId = DEFAULT_SHOP_ID;
+    const shopId = options?.shopId || currentShopId || DEFAULT_SHOP_ID;
     setLoadError(false);
     setCanRetry(false);
 
@@ -175,20 +187,25 @@ export default function MenuPage() {
     }
 
     try {
-      const [shopRes, categoriesRes, menuItemsRes, popularRes] = await Promise.all([
+      const [shopRes, categoriesRes, menuItemsRes, popularRes, shopsRes] = await Promise.all([
         get<Shop>(`/shops/${shopId}`),
         get<Category[]>('/categories', { shop_id: shopId }),
         get<MenuItem[]>('/menu-items', { shop_id: shopId }),
         get<MenuItem[]>('/menu-items/popular', { shop_id: shopId }),
+        get<Shop[]>('/shops'),
       ]);
 
       const shopData = shopRes.data;
       const categoriesData = categoriesRes.data || [];
       const menuItemsData = menuItemsRes.data || [];
       const popularItems = popularRes.data || [];
+      const shopsData = shopsRes.data || [];
 
+      setShopList(shopsData);
       applyMenuPayload(shopData, categoriesData, menuItemsData, popularItems);
       saveMenuCache(shopId, menuItemsData);
+      // 同步购物车店铺上下文
+      useCartStore.getState().setShopId(shopId);
       setLoadError(false);
       setCanRetry(false);
       setLoading(false);
@@ -207,11 +224,26 @@ export default function MenuPage() {
       console.error('加载菜单失败:', error);
       Taro.showToast({ title: '加载菜单失败', icon: 'none' });
     }
-  }, [applyCachedItems, applyMenuPayload]);
+  }, [applyCachedItems, applyMenuPayload, currentShopId]);
+
+  const handleSwitchShop = useCallback((shopId: string) => {
+    if (!shopId || shopId === currentShopId) {
+      setShopPickerVisible(false);
+      return;
+    }
+    setCurrentShopId(shopId);
+    setShopPickerVisible(false);
+    setSearchKeyword('');
+    setShowSearch(false);
+    setActiveCategoryIndex(0);
+    void loadData({ forceNetwork: true, shopId });
+  }, [currentShopId, loadData]);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    void loadData({ shopId: currentShopId });
+    // 仅首次 / shop 变化由 handleSwitchShop 触发 force 刷新
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 下拉刷新：强制走网络
   usePullRefresh(() => loadData({ forceNetwork: true }));
@@ -228,54 +260,68 @@ export default function MenuPage() {
       setScrollIntoView(`cat-${catId}`);
       setTimeout(() => {
         scrollLockRef.current = false;
-      }, 360);
+        // 点击跳转后重测，避免图片加载导致 offset 漂移
+        measureCategoryOffsetsRef.current();
+      }, 420);
     }, 16);
   }
 
-  /** 测量各分类区块相对菜单列表顶部的偏移，用于右侧滚动 → 左侧高亮 */
+  /** 测量各分类区块在内容坐标系中的 offsetTop，用于右侧滚动 → 左侧高亮 */
   const measureCategoryOffsets = useCallback(() => {
     const cats = categoriesRef.current;
     if (!cats.length) return;
     const query = createSelectorQuery();
     query.select('.menu-items').boundingClientRect();
+    query.select('.menu-items').scrollOffset();
     cats.forEach((cat) => {
       query.select(`#cat-${cat.id}`).boundingClientRect();
     });
     query.exec((res) => {
       if (!res || !res[0]) return;
-      const listTop = res[0].top || 0;
+      const listRect = res[0] || {};
+      const scrollInfo = res[1] || {};
+      const listTop = listRect.top || 0;
+      const listHeight = listRect.height || 0;
+      const scrollTop = scrollInfo.scrollTop || 0;
+      const scrollHeight = scrollInfo.scrollHeight || 0;
+      menuViewHeightRef.current = listHeight;
+      menuContentHeightRef.current = scrollHeight;
+
       const offsets: number[] = [];
-      for (let i = 1; i < res.length; i += 1) {
+      for (let i = 2; i < res.length; i += 1) {
         const rect = res[i];
         if (!rect) {
-          offsets.push(offsets[offsets.length - 1] || 0);
+          offsets.push(offsets.length ? offsets[offsets.length - 1] : 0);
           continue;
         }
-        offsets.push((rect.top || 0) - listTop);
+        // 换算为内容顶部坐标系，即使测量时不在顶部也正确
+        offsets.push((rect.top || 0) - listTop + scrollTop);
       }
       categoryOffsetsRef.current = offsets;
+
+      // 末项分类内容不足一屏时补 spacer，保证最后一个主菜单能与子菜单标题对齐
+      const lastRect = res[res.length - 1];
+      if (lastRect && listHeight > 0) {
+        const lastHeight = lastRect.height || 0;
+        const needed = Math.max(0, Math.ceil(listHeight - lastHeight - 8));
+        setListBottomSpacer((prev) => (prev === needed ? prev : needed));
+      }
     });
   }, []);
+
+  measureCategoryOffsetsRef.current = measureCategoryOffsets;
 
   useEffect(() => {
     if (loading || categories.length === 0) return;
     const timer = setTimeout(() => measureCategoryOffsets(), 80);
-    return () => clearTimeout(timer);
-  }, [loading, categories, measureCategoryOffsets]);
+    const timer2 = setTimeout(() => measureCategoryOffsets(), 360);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(timer2);
+    };
+  }, [loading, categories, listBottomSpacer, measureCategoryOffsets]);
 
-  const handleMenuScroll = useCallback((e: any) => {
-    if (scrollLockRef.current) return;
-    const scrollTop = e?.detail?.scrollTop || 0;
-    const offsets = categoryOffsetsRef.current;
-    if (!offsets.length) return;
-
-    // 找到最后一个 offset <= scrollTop + 缓冲 的分类
-    let nextIndex = 0;
-    const threshold = scrollTop + 24;
-    for (let i = 0; i < offsets.length; i += 1) {
-      if (offsets[i] <= threshold) nextIndex = i;
-      else break;
-    }
+  const syncActiveCategory = useCallback((nextIndex: number) => {
     setActiveCategoryIndex((prev) => {
       if (prev === nextIndex) return prev;
       const catId = categoriesRef.current[nextIndex]?.id;
@@ -286,6 +332,35 @@ export default function MenuPage() {
       return nextIndex;
     });
   }, []);
+
+  const handleMenuScroll = useCallback((e: any) => {
+    if (scrollLockRef.current) return;
+    const detail = e?.detail || {};
+    const scrollTop = detail.scrollTop || 0;
+    const scrollHeight = detail.scrollHeight || menuContentHeightRef.current || 0;
+    const viewHeight = menuViewHeightRef.current || 0;
+    const offsets = categoryOffsetsRef.current;
+    if (!offsets.length) {
+      measureCategoryOffsets();
+      return;
+    }
+
+    const lastIndex = offsets.length - 1;
+    // 滚到底部时强制高亮最后一个主菜单（内容不足一屏也能对应）
+    if (viewHeight > 0 && scrollHeight > 0 && scrollTop + viewHeight >= scrollHeight - 48) {
+      syncActiveCategory(lastIndex);
+      return;
+    }
+
+    // 找到最后一个标题已进入视口顶部缓冲区的分类
+    let nextIndex = 0;
+    const threshold = scrollTop + 48;
+    for (let i = 0; i < offsets.length; i += 1) {
+      if (offsets[i] <= threshold) nextIndex = i;
+      else break;
+    }
+    syncActiveCategory(nextIndex);
+  }, [measureCategoryOffsets, syncActiveCategory]);
 
   async function handleItemClick(item: MenuItem) {
     // 重置规格加价，避免新商品残留上一商品的加价
@@ -484,7 +559,7 @@ export default function MenuPage() {
     // 递增请求序号，仅处理最新请求的结果，避免慢响应覆盖新结果
     const requestId = ++searchRequestRef.current;
     try {
-      const res = await get<MenuItem[]>('/menu-items', { shop_id: DEFAULT_SHOP_ID, search: keyword });
+      const res = await get<MenuItem[]>('/menu-items', { shop_id: currentShopId || DEFAULT_SHOP_ID, search: keyword });
       if (requestId !== searchRequestRef.current) return; // 已有更新的请求，丢弃旧结果
       const menuItemsData = res.data;
       const cats = categoriesRef.current;
@@ -510,7 +585,7 @@ export default function MenuPage() {
     try {
       const res = await post<{ isFavorite: boolean }>('/favorites/toggle', {
         menuItemId: item.id,
-        shopId: DEFAULT_SHOP_ID,
+        shopId: currentShopId || DEFAULT_SHOP_ID,
       });
       const nextFavorite = res.data?.isFavorite ?? !item.isFavorite;
       Taro.showToast({ title: nextFavorite ? '已收藏' : '已取消收藏', icon: 'success' });
@@ -571,8 +646,14 @@ export default function MenuPage() {
         <View className='menu-header__avatar'><Icon name='shop' size={28} color='#FFFFFF' /></View>
         <View className='menu-header__info'>
           <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <View className='menu-header__title-row'>
+            <View
+              className='menu-header__title-row'
+              onClick={() => shopList.length > 1 && setShopPickerVisible(true)}
+            >
               <Text className='menu-header__name'>{shop?.name || '小买卖烧烤'}</Text>
+              {shopList.length > 1 ? (
+                <Text className='menu-header__switch'>切换</Text>
+              ) : null}
               <View
                 className={`menu-header__open-badge${shopOpen ? '' : ' menu-header__open-badge--closed'}`}
               >
@@ -580,6 +661,15 @@ export default function MenuPage() {
               </View>
             </View>
             <View className='menu-header__actions'>
+              {shopList.length > 1 ? (
+                <View
+                  className='menu-header__action-btn'
+                  onClick={() => setShopPickerVisible(true)}
+                  aria-label='切换门店'
+                >
+                  <Icon name='shop' size={18} color='#FFFFFF' />
+                </View>
+              ) : null}
               <View
                 className={`menu-header__action-btn${showSearch ? ' menu-header__action-btn--active' : ''}`}
                 onClick={() => setShowSearch(!showSearch)}
@@ -610,6 +700,33 @@ export default function MenuPage() {
           />
         </View>
       )}
+
+      <BottomSheet
+        visible={shopPickerVisible}
+        onClose={() => setShopPickerVisible(false)}
+        title='选择门店'
+      >
+        <View className='shop-picker'>
+          {shopList.map((s) => {
+            const active = s.id === currentShopId;
+            return (
+              <View
+                key={s.id}
+                className={`shop-picker__item${active ? ' shop-picker__item--active' : ''}`}
+                onClick={() => handleSwitchShop(s.id)}
+              >
+                <View className='shop-picker__main'>
+                  <Text className='shop-picker__name'>{s.name}</Text>
+                  <Text className='shop-picker__addr'>{s.address || s.description || '门店'}</Text>
+                </View>
+                <Text className='shop-picker__status'>
+                  {(typeof s.isOpenNow === 'boolean' ? s.isOpenNow : s.status === 'open') ? '营业中' : '休息中'}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </BottomSheet>
 
       {loading ? (
         <SkeletonLoader mode='list' count={5} />
@@ -701,7 +818,11 @@ export default function MenuPage() {
           >
             <View className='menu-items__content'>
               {categories.map((cat, index) => (
-                <View key={cat.id} id={`cat-${cat.id}`}>
+                <View
+                  key={cat.id}
+                  id={`cat-${cat.id}`}
+                  className={`menu-category-section${index === categories.length - 1 ? ' menu-category-section--last' : ''}`}
+                >
                   <Text className='category-title'>{cat.name}</Text>
                   {cat.items.length === 0 ? (
                     <View className='menu-page__empty-item' aria-label='该分类暂无菜品'>
@@ -721,6 +842,15 @@ export default function MenuPage() {
                   )}
                 </View>
               ))}
+              <ListEndTip
+                show={categories.some((cat) => cat.items.length > 0)}
+                hasMore={false}
+                variant='footer'
+                className='menu-items__end-tip'
+              />
+              {listBottomSpacer > 0 ? (
+                <View className='menu-items__bottom-spacer' style={{ height: `${listBottomSpacer}px` }} />
+              ) : null}
             </View>
           </ScrollView>
         </View>

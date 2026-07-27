@@ -23,7 +23,7 @@ import {
 import { formatPrice } from '@/utils/format';
 import StatisticCard from '@/components/StatisticCard';
 import PageHeaderActions from '@/components/PageHeaderActions';
-import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { useShopContext } from '@/hooks/useShopContext';
 import { brand } from '@/theme';
 
 type RangeKey = '1' | '7' | '30';
@@ -54,7 +54,7 @@ const STATUS_TEXT: Record<string, string> = {
   pending_payment: '待支付',
   cancelled: '已取消',
   rejected: '已拒绝',
-  ready_for_pickup: '待自取',
+  ready_for_pickup: '待取餐',
 };
 
 function getStatusText(status: string): string {
@@ -62,20 +62,23 @@ function getStatusText(status: string): string {
 }
 
 const DashboardPage: React.FC = () => {
+  const { shopId, ready, currentShop } = useShopContext();
   const [range, setRange] = useState<RangeKey>('7');
   const [stats, setStats] = useState<OrderStats | null>(null);
   const [chartLoading, setChartLoading] = useState(true);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [statusStats, setStatusStats] = useState<StatusStats[]>([]);
-  const [rangeStats, setRangeStats] = useState({ orders: 0, revenue: 0 });
+  const [rangeStats, setRangeStats] = useState({ orders: 0, revenue: 0, completed: 0 });
 
   const loadData = useCallback(async (days: number) => {
+    if (!shopId) return;
     setChartLoading(true);
     try {
       const [statsResult, dailyResult, distResult] = await Promise.all([
-        getOrderStats(DEFAULT_SHOP_ID),
-        getDailyStats(DEFAULT_SHOP_ID, days),
-        getStatusDistribution(DEFAULT_SHOP_ID),
+        getOrderStats(shopId),
+        getDailyStats(shopId, days),
+        // 状态分布与顶部时间范围对齐，避免「近7天订单12 / 已完成0 / 饼图全量」口径打架
+        getStatusDistribution(shopId, days),
       ]);
 
       setStats(statsResult);
@@ -92,7 +95,10 @@ const DashboardPage: React.FC = () => {
 
       const rangeOrders = dailyData.reduce((s, d) => s + d.orders, 0);
       const rangeRevenue = dailyData.reduce((s, d) => s + d.revenue, 0);
-      setRangeStats({ orders: rangeOrders, revenue: rangeRevenue });
+      const rangeCompleted = (distResult || [])
+        .filter((item) => item.status === 'completed')
+        .reduce((s, item) => s + (item.count || 0), 0);
+      setRangeStats({ orders: rangeOrders, revenue: rangeRevenue, completed: rangeCompleted });
 
       const distData = (distResult || []).map((item: StatusDistributionItem) => ({
         type: getStatusText(item.status),
@@ -104,24 +110,27 @@ const DashboardPage: React.FC = () => {
     } finally {
       setChartLoading(false);
     }
-  }, []);
+  }, [shopId]);
 
   useEffect(() => {
+    if (!ready || !shopId) return;
     void loadData(Number(range));
-  }, [range, loadData]);
+  }, [range, loadData, ready, shopId]);
 
   const handleRangeChange = (value: string | number) => {
     setRange(String(value) as RangeKey);
   };
 
-  // 今日：顶部卡用 today stats；7/30 天：用区间汇总 + 今日待处理/已完成仍参考 today stats
+  // 今日：顶部卡用 today stats；7/30 天：订单/营收/已完成用区间口径；待处理始终为「当前」实时值
   const isToday = range === '1';
   const displayOrders = isToday ? (stats?.totalOrders || 0) : rangeStats.orders;
   const displayRevenue = isToday
     ? (stats?.totalRevenue ? formatPrice(stats.totalRevenue).replace('¥', '') : '0.00')
     : rangeStats.revenue.toFixed(2);
+  const displayCompleted = isToday ? (stats?.completedCount || 0) : rangeStats.completed;
   const ordersTitle = isToday ? '今日订单' : `近${range}天订单`;
   const revenueTitle = isToday ? '今日营收' : `近${range}天营收`;
+  const completedTitle = isToday ? '今日已完成' : `近${range}天已完成`;
 
   const statCards = [
     {
@@ -140,15 +149,15 @@ const DashboardPage: React.FC = () => {
       bgColor: brand.successSoft,
     },
     {
-      title: '待处理',
+      title: '当前待处理',
       value: stats?.pendingCount || 0,
       icon: <ClockCircleOutlined />,
       color: brand.warning,
       bgColor: brand.warningSoft,
     },
     {
-      title: '已完成',
-      value: stats?.completedCount || 0,
+      title: completedTitle,
+      value: displayCompleted,
       icon: <CheckCircleOutlined />,
       color: brand.success,
       bgColor: brand.successSoft,
@@ -192,7 +201,7 @@ const DashboardPage: React.FC = () => {
     <div className="tf-page">
       <PageHeaderActions
         icon={<RiseOutlined style={{ marginRight: 8 }} />}
-        title="数据看板"
+        title={currentShop?.name ? `数据看板 · ${currentShop.name}` : '数据看板'}
         onRefresh={() => loadData(Number(range))}
       />
 
@@ -247,7 +256,7 @@ const DashboardPage: React.FC = () => {
             title={
               <Space>
                 <PieChartOutlined />
-                <span>订单状态分布</span>
+                <span>{isToday ? '今日' : `近${range}天`}订单状态分布</span>
               </Space>
             }
             bordered={false}

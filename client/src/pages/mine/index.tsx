@@ -7,7 +7,7 @@ import Icon from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
 import './index.scss';
 
-type AppRole = 'customer' | 'admin' | 'rider';
+type AppRole = 'customer' | 'admin' | 'merchant' | 'rider';
 
 interface MenuItem {
   key: string;
@@ -18,7 +18,7 @@ interface MenuItem {
 }
 
 function normalizeRole(role?: string): AppRole {
-  if (role === 'admin' || role === 'rider') return role;
+  if (role === 'admin' || role === 'merchant' || role === 'rider') return role;
   return 'customer';
 }
 
@@ -27,16 +27,22 @@ export default function MinePage() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const getRoleLabel = useAuthStore((s) => s.getRoleLabel);
+  const switchRole = useAuthStore((s) => s.switchRole);
+  const switchableRoles = useAuthStore((s) => s.getSwitchableRoles());
 
   const role = normalizeRole(user?.role);
   const roleLabel = getRoleLabel(role);
   // 无昵称时不重复展示角色名，统一用「微信用户」
   const displayName = user?.nickName?.trim() || '微信用户';
   const heroHint =
-    role === 'admin' ? '管理店铺订单与菜品' : role === 'rider' ? '接单配送，准时送达' : '点好味道，吃得开心';
+    role === 'admin' || role === 'merchant'
+      ? '管理店铺订单与菜品'
+      : role === 'rider'
+        ? '接单配送，准时送达'
+        : '点好味道，吃得开心';
 
   const serviceMenus = useMemo<MenuItem[]>(() => {
-    if (role === 'admin') {
+    if (role === 'admin' || role === 'merchant') {
       return [
         {
           key: 'admin-home',
@@ -89,6 +95,12 @@ export default function MinePage() {
         onClick: () => Taro.navigateTo({ url: '/pages/favorites/index' }),
       },
       {
+        key: 'my-reviews',
+        label: '我的评价',
+        icon: 'star',
+        onClick: () => Taro.navigateTo({ url: '/pages/reviews/index' }),
+      },
+      {
         key: 'address',
         label: '收货地址',
         icon: 'location',
@@ -135,7 +147,7 @@ export default function MinePage() {
         <View className='mine-hero__card'>
           <View className='mine-hero__avatar'>
             <Icon
-              name={role === 'admin' ? 'shop' : role === 'rider' ? 'order' : 'food'}
+              name={role === 'admin' || role === 'merchant' ? 'shop' : role === 'rider' ? 'order' : 'food'}
               size={32}
               color='#FF6B35'
             />
@@ -188,6 +200,52 @@ export default function MinePage() {
             </View>
           )}
         </View>
+
+        <View className='mine-panel mine-account-panel'>
+          <View className='mine-panel__head'>
+            <Text className='mine-panel__title'>账号服务</Text>
+          </View>
+          <View className='mine-list'>
+            <View className='mine-list__item' onClick={() => Taro.navigateTo({ url: '/pages/mine/role-apply' })}>
+              <View className='mine-list__icon'><Icon name='shop' size={20} color='#FF6B35' /></View>
+              <View className='mine-list__body'>
+                <Text className='mine-list__label'>身份申请</Text>
+                <Text className='mine-list__desc'>申请成为商家 / 骑手</Text>
+              </View>
+              <Icon name='arrow-right' size={16} color='#C2C2C2' />
+            </View>
+            <View className='mine-list__item mine-list__item--last' onClick={() => Taro.navigateTo({ url: '/pages/mine/notifications' })}>
+              <View className='mine-list__icon'><Icon name='list' size={20} color='#FF6B35' /></View>
+              <View className='mine-list__body'>
+                <Text className='mine-list__label'>消息中心</Text>
+                <Text className='mine-list__desc'>审批结果与系统通知</Text>
+              </View>
+              <Icon name='arrow-right' size={16} color='#C2C2C2' />
+            </View>
+          </View>
+        </View>
+
+        {switchableRoles.length > 1 && (
+          <View className='mine-panel mine-account-panel'>
+            <View className='mine-panel__head'>
+              <Text className='mine-panel__title'>切换身份</Text>
+            </View>
+            <View className='mine-role-switch'>
+              {switchableRoles.map((r) => (
+                <View
+                  key={`${r.role}-${r.shopId || ''}`}
+                  className={`mine-role-switch__item${r.role === role ? ' is-active' : ''}`}
+                  onClick={() => {
+                    if (r.role === role) return;
+                    switchRole(r.role as any, r.shopId || undefined);
+                  }}
+                >
+                  <Text>{getRoleLabel(r.role)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         <View className='mine-logout' onClick={handleLogout}>
           <Text className='mine-logout__text'>退出登录</Text>

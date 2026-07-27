@@ -17,12 +17,14 @@ import { AddressModule } from './modules/address/address.module';
 import { HealthModule } from './modules/health/health.module';
 import { ReviewModule } from './modules/review/review.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { RoleApplicationModule } from './modules/role-application/role-application.module';
+import { InboxModule } from './modules/inbox/inbox.module';
 
 @Module({
   imports: [
     AuthModule, ShopModule, MenuModule, OrderModule,
     PaymentModule, NotificationModule, StorageModule, UserModule,
-    FavoritesModule, AddressModule, HealthModule, ReviewModule, AuditModule,
+    FavoritesModule, AddressModule, HealthModule, ReviewModule, AuditModule, RoleApplicationModule, InboxModule,
   ],
   controllers: [],
   providers: [

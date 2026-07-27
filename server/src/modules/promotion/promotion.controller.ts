@@ -17,16 +17,21 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
-import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
+import { resolveAdminTargetShopId } from '../../common/utils/admin-shop-scope';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 
 @Controller('promotions')
 export class PromotionController {
   constructor(private readonly promotionService: PromotionService) {}
 
-  /** 单店铺场景：admin 未绑定 shopId 时兜底 DEFAULT_SHOP_ID */
-  private resolveAdminShopId(shopId?: string): string {
-    return shopId || DEFAULT_SHOP_ID;
+  /**
+   * 商家（有绑定 shopId）强制本店；
+   * 平台管理员（无绑定）可用 requestedShopId 指定目标店。
+   */
+  private resolveAdminShopId(userShopId?: string, requestedShopId?: string): string {
+    return resolveAdminTargetShopId(userShopId, requestedShopId, {
+      lockToBoundShop: !!userShopId,
+    });
   }
 
   /**
@@ -34,12 +39,14 @@ export class PromotionController {
    * 管理端查询本店全部活动，包含未生效、已过期和已停用记录。
    */
   @Get('manage')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async findAllForManagement(
+    @Query('shopId') queryShopId: string | undefined,
+    @Query('shop_id') queryShopIdSnake: string | undefined,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<PromotionResponseDto[]>> {
     const promotions = await this.promotionService.findAllForManagement(
-      this.resolveAdminShopId(userShopId),
+      this.resolveAdminShopId(userShopId, queryShopId || queryShopIdSnake),
     );
     return success(promotions);
   }
@@ -63,14 +70,14 @@ export class PromotionController {
    * 创建促销活动（需 Admin 认证）
    */
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() dto: CreatePromotionDto,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<PromotionResponseDto>> {
-    // 多租户隔离：admin 只能为自己绑定的店铺创建促销，不信任客户端传入的 shopId
-    dto.shopId = userShopId || DEFAULT_SHOP_ID;
+    // 商家强制本店；平台管理员可用 body.shopId
+    dto.shopId = this.resolveAdminShopId(userShopId, dto.shopId);
     const promotion = await this.promotionService.create(dto);
     return success(promotion, '促销创建成功');
   }
@@ -80,16 +87,17 @@ export class PromotionController {
    * 更新促销活动（需 Admin 认证）
    */
   @Patch(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async update(
     @Param('id') id: string,
     @Body() dto: UpdatePromotionDto,
+    @Query('shop_id') queryShopId?: string,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<PromotionResponseDto>> {
     const promotion = await this.promotionService.update(
       id,
       dto,
-      this.resolveAdminShopId(userShopId),
+      this.resolveAdminShopId(userShopId, queryShopId),
     );
     return success(promotion, '促销更新成功');
   }
@@ -99,12 +107,13 @@ export class PromotionController {
    * 删除促销活动（需 Admin 认证）
    */
   @Delete(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async remove(
     @Param('id') id: string,
+    @Query('shop_id') queryShopId?: string,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<null>> {
-    await this.promotionService.remove(id, this.resolveAdminShopId(userShopId));
+    await this.promotionService.remove(id, this.resolveAdminShopId(userShopId, queryShopId));
     return success(null, '促销删除成功');
   }
 }

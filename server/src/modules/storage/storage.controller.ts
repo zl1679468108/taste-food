@@ -34,7 +34,7 @@ export class StorageController {
    * 单张上传（保留兼容）：form-data image + shop_id + originalName?
    */
   @Post('images/menu')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @UseInterceptors(FileInterceptor('image'))
   async uploadMenuImage(
     @UploadedFile() file: any,
@@ -63,7 +63,7 @@ export class StorageController {
    * 批量上传：form-data images[] + shop_id，上限 30
    */
   @Post('images/menu/batch')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @UseInterceptors(FilesInterceptor('images', 30))
   async uploadMenuImagesBatch(
     @UploadedFiles() files: any[] | undefined,
@@ -93,7 +93,7 @@ export class StorageController {
    * 门店图库列表（含菜品占用 usedBy）
    */
   @Get('images/menu')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async listMenuImages(
     @Query('shop_id') shopIdQuery: string | undefined,
     @Query('shopId') shopIdCamel: string | undefined,
@@ -108,7 +108,7 @@ export class StorageController {
    * 按素材 id 删除（仍被引用则 400）
    */
   @Delete('images/menu/:id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async deleteMenuMedia(
     @Param('id') id: string,
   ): Promise<ApiResponse<null>> {
@@ -120,7 +120,7 @@ export class StorageController {
    * 兼容旧接口：按 storage path 删除
    */
   @Delete('images/*path')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async deleteImage(@Param('path') path: string): Promise<ApiResponse<null>> {
     await this.storageService.deleteImage(decodeURIComponent(path));
     return success(null, '图片删除成功');

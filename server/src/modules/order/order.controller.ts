@@ -14,6 +14,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole, OrderStatus } from '../../common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
+import { resolveAdminTargetShopId } from '../../common/utils/admin-shop-scope';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
 import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem, DeliveryTrackPointRecord } from './order.service';
@@ -27,8 +28,12 @@ export class OrderController {
 
   private assertCanAccessOrder(order: OrderRecord, user: CurrentUserPayload): void {
     // admin 只能访问自己绑定店铺的订单（多租户隔离）
-    if (user.role === UserRole.ADMIN) {
-      if (user.shopId && order.shopId !== user.shopId) {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) {
+      // 商家必须本店；平台管理员可跨店
+      if (user.role === UserRole.MERCHANT && user.shopId && order.shopId !== user.shopId) {
+        throw new ForbiddenException('无权访问其他店铺的订单');
+      }
+      if (user.role === UserRole.ADMIN && user.shopId && order.shopId !== user.shopId) {
         throw new ForbiddenException('无权访问其他店铺的订单');
       }
       return;
@@ -66,24 +71,24 @@ export class OrderController {
   ): Promise<ApiResponse<PaginatedData<OrderRecord>>> {
     const page = parseInt(query.page || '1', 10) || 1;
     const pageSize = parseInt(query.pageSize || '20', 10) || 20;
-    // 多租户隔离：admin 只能查询自己绑定店铺的订单，不信任客户端传入的 shop_id
-    const adminShopId = user.shopId || DEFAULT_SHOP_ID;
+    // 商家锁定绑定店；平台管理员可用 query.shop_id 切换
+    const adminShopId = resolveAdminTargetShopId(user.shopId, query.shop_id, {
+      lockToBoundShop: !!user.shopId,
+    });
 
     let result: PaginatedData<OrderRecord>;
 
-    if (user.role === UserRole.ADMIN && query.user_id) {
+    if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.user_id) {
       result = await this.orderService.findByUserId(query.user_id, page, pageSize, query.status);
-    } else if (user.role === UserRole.ADMIN && query.rider_id) {
+    } else if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.rider_id) {
       result = await this.orderService.findByRiderId(query.rider_id, query.status, page, pageSize);
-    } else if (user.role === UserRole.ADMIN) {
-      // admin 查询自己店铺的订单（忽略客户端 shop_id，强制使用 user.shopId）
+    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) {
       result = await this.orderService.findByShopId(
         adminShopId, query.status, page, pageSize, query.is_pool === 'true',
       );
-    } else if (user.role === UserRole.RIDER && query.is_pool === 'true' && query.shop_id) {
-      result = await this.orderService.findByShopId(
-        query.shop_id, query.status, page, pageSize, true,
-      );
+    } else if (user.role === UserRole.RIDER && query.is_pool === 'true') {
+      // 骑手跨店抢单：可不传 shop_id 查看全部店铺待抢单；传则按店过滤
+      result = await this.orderService.findDeliveryPool(page, pageSize, query.shop_id);
     } else if (user.role === UserRole.RIDER) {
       result = await this.orderService.findByRiderId(user.userId, query.status, page, pageSize);
     } else if (user.role === UserRole.CUSTOMER) {
@@ -97,12 +102,13 @@ export class OrderController {
   }
 
   @Get('export')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async exportOrders(
     @Query('status') status: string | undefined,
     @Query('maxRows') maxRowsRaw: string | undefined,
     @Query('format') formatRaw: string | undefined,
-    @CurrentUser('shopId') userShopId?: string,
+    @Query('shop_id') queryShopId: string | undefined,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<
     ApiResponse<{
       csv: string;
@@ -113,7 +119,9 @@ export class OrderController {
       contentType?: string;
     }>
   > {
-    const shopId = userShopId || DEFAULT_SHOP_ID;
+    const shopId = resolveAdminTargetShopId(user.shopId, queryShopId, {
+      lockToBoundShop: !!user.shopId,
+    });
     const maxRows = maxRowsRaw ? parseInt(maxRowsRaw, 10) : 1000;
     const raw = String(formatRaw || 'both').toLowerCase();
     const format: 'csv' | 'xlsx' | 'both' =
@@ -126,36 +134,46 @@ export class OrderController {
     return success(data, '导出成功');
   }
 
+  private resolveAdminShopId(user: CurrentUserPayload, queryShopId?: string): string {
+    return resolveAdminTargetShopId(user.shopId, queryShopId, {
+      lockToBoundShop: !!user.shopId,
+    });
+  }
+
   @Get('stats/today')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async getOrderStats(
-    @CurrentUser('shopId') userShopId?: string,
+    @Query('shop_id') queryShopId: string | undefined,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<OrderStats>> {
-    // 多租户隔离：admin 只能查询自己绑定店铺的统计（shopId 从 JWT 取，不信任客户端）
-    const shopId = userShopId || DEFAULT_SHOP_ID;
+    const shopId = this.resolveAdminShopId(user, queryShopId);
     const stats = await this.orderService.getTodayStats(shopId);
     return success(stats);
   }
 
   @Get('stats/daily')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async getDailyStats(
     @Query('days') days: string | undefined,
-    @CurrentUser('shopId') userShopId?: string,
+    @Query('shop_id') queryShopId: string | undefined,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<DailyStatsItem[]>> {
-    const shopId = userShopId || DEFAULT_SHOP_ID;
+    const shopId = this.resolveAdminShopId(user, queryShopId);
     const daysNum = Math.min(Math.max(parseInt(days || '7', 10) || 7, 1), 90);
     const daily = await this.orderService.getDailyStats(shopId, daysNum);
     return success(daily);
   }
 
   @Get('stats/status-distribution')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async getStatusDistribution(
-    @CurrentUser('shopId') userShopId?: string,
+    @Query('shop_id') queryShopId: string | undefined,
+    @Query('days') days: string | undefined,
+    @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<StatusDistributionItem[]>> {
-    const shopId = userShopId || DEFAULT_SHOP_ID;
-    const dist = await this.orderService.getStatusDistribution(shopId);
+    const shopId = this.resolveAdminShopId(user, queryShopId);
+    const daysNum = days ? Math.min(Math.max(parseInt(days, 10) || 0, 0), 90) : undefined;
+    const dist = await this.orderService.getStatusDistribution(shopId, daysNum || undefined);
     return success(dist);
   }
 
@@ -171,7 +189,7 @@ export class OrderController {
   }
 
   @Post(':id/delivery-track')
-  @Roles(UserRole.ADMIN, UserRole.RIDER)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT, UserRole.RIDER)
   async appendDeliveryTrack(
     @Param('id') id: string,
     @Body() dto: DeliveryTrackPointDto,
@@ -204,7 +222,7 @@ export class OrderController {
   }
 
   @Post(':id/status')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateOrderStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOrderDto,
@@ -218,7 +236,7 @@ export class OrderController {
   }
 
   @Post(':id/cancel')
-  @Roles(UserRole.ADMIN, UserRole.CUSTOMER)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT, UserRole.CUSTOMER)
   async cancelOrder(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,

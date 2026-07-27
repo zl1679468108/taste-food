@@ -142,11 +142,11 @@ const ORDER_STATUS_LABEL: Record<string, string> = {
   paid: '已支付',
   accepted: '已接单',
   preparing: '制作中',
-  ready_for_pickup: '待自取',
+  ready_for_pickup: '待取餐',
   delivering: '配送中',
   completed: '已完成',
   cancelled: '已取消',
-  rejected: '已拒绝',
+  rejected: '已拒单',
 };
 
 const DELIVERY_TYPE_LABEL: Record<string, string> = {
@@ -1124,6 +1124,63 @@ export class OrderService {
     return this.paginate(filtered, page, pageSize);
   }
 
+
+  /**
+   * 骑手跨店抢单池：所有店铺 PREPARING 且无骑手的外送单
+   */
+  async findDeliveryPool(
+    page = 1,
+    pageSize = 20,
+    shopId?: string,
+  ): Promise<PaginatedData<OrderRecord>> {
+    if (hasSupabase() && supabase) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      let query = supabase
+        .from('tf_orders')
+        .select('*', { count: 'exact' })
+        .eq('delivery_type', DeliveryType.DELIVERY)
+        .is('rider_id', null)
+        .eq('status', OrderStatus.PREPARING)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      if (shopId) {
+        query = query.eq('shop_id', shopId);
+      }
+
+      const { data, error, count } = await query;
+      if (error) throw new BadRequestException(`查询抢单池失败: ${error.message}`);
+
+      const orders = (data || []).map((row) => this.toRecord(row));
+      const orderIds = orders.map((order) => order.id);
+      const itemsMap = await this.fetchItemsForOrders(orderIds);
+      for (const order of orders) {
+        order.items = itemsMap.get(order.id) || [];
+      }
+
+      return {
+        items: orders,
+        total: count || 0,
+        page,
+        pageSize,
+      };
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    let filtered = Array.from(memoryOrders.values())
+      .filter(
+        (o) =>
+          o.deliveryType === DeliveryType.DELIVERY &&
+          !o.riderId &&
+          o.status === OrderStatus.PREPARING &&
+          (!shopId || o.shopId === shopId),
+      )
+      .sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    return this.paginate(filtered, page, pageSize);
+  }
+
   async findByRiderId(
     riderId: string,
     status?: string,
@@ -1863,14 +1920,28 @@ export class OrderService {
   }
 
   /**
-   * 全店铺订单状态分布（用于 Dashboard 饼图）
+   * 店铺订单状态分布（用于 Dashboard 饼图）
+   * @param days 可选：仅统计近 N 天（按 created_at）；不传则全量
    */
-  async getStatusDistribution(shopId: string): Promise<StatusDistributionItem[]> {
+  async getStatusDistribution(shopId: string, days?: number): Promise<StatusDistributionItem[]> {
+    const startIso = (() => {
+      if (!days || days <= 0) return undefined;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const start = new Date(today);
+      start.setDate(start.getDate() - (days - 1));
+      return start.toISOString();
+    })();
+
     if (hasSupabase() && supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('tf_orders')
         .select('status')
         .eq('shop_id', shopId);
+      if (startIso) {
+        query = query.gte('created_at', startIso);
+      }
+      const { data, error } = await query;
       if (error) {
         this.logger.warn(`[OrderService] getStatusDistribution error: ${error.message}`);
         return [];
@@ -1883,7 +1954,12 @@ export class OrderService {
     }
 
     assertMemoryFallbackAllowed('OrderService');
-    const filtered = Array.from(memoryOrders.values()).filter((o) => o.shopId === shopId);
+    const startMs = startIso ? new Date(startIso).getTime() : undefined;
+    const filtered = Array.from(memoryOrders.values()).filter((o) => {
+      if (o.shopId !== shopId) return false;
+      if (startMs != null && new Date(o.createdAt).getTime() < startMs) return false;
+      return true;
+    });
     const map: Record<string, number> = {};
     for (const o of filtered) {
       map[o.status] = (map[o.status] || 0) + 1;

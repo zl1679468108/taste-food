@@ -63,7 +63,7 @@ const OrderConfirmPage = () => {
 
   const loadShopInfo = useCallback(async () => {
     try {
-      const res = await get<any>(`/shops/${DEFAULT_SHOP_ID}`);
+      const res = await get<any>(`/shops/${cartShopId || DEFAULT_SHOP_ID}`);
       const shop = res.data;
       setShopName(shop?.name || '');
       setShopAddress(shop?.address || '');
@@ -82,7 +82,7 @@ const OrderConfirmPage = () => {
   const loadPromotions = useCallback(async () => {
     setPromotionsLoading(true);
     try {
-      const res = await get<any[]>('/promotions', { shopId: DEFAULT_SHOP_ID });
+      const res = await get<any[]>('/promotions', { shopId: cartShopId || DEFAULT_SHOP_ID });
       const activePromos = (res.data || []).filter((p: any) => p.status === 'active');
       setPromotions(activePromos);
     } catch (e) {
@@ -104,7 +104,7 @@ const OrderConfirmPage = () => {
     if (!useAuthStore.getState().isLoggedIn) return;
     setAddressLoading(true);
     try {
-      const res = await get<AddressItem[]>('/addresses', { shopId: DEFAULT_SHOP_ID }, { useCache: false });
+      const res = await get<AddressItem[]>('/addresses', { shopId: cartShopId || DEFAULT_SHOP_ID }, { useCache: false });
       const list = res.data || [];
       const preferred = list.find((a) => a.isDefault) || list[0] || null;
       if (preferred) {

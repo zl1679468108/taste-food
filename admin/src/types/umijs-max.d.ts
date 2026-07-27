@@ -11,6 +11,14 @@ declare module '@umijs/max' {
 
   export function useModel<T = any>(namespace: string): T;
 
+  export function useLocation(): {
+    pathname: string;
+    search: string;
+    hash: string;
+    state: unknown;
+    key: string;
+  };
+
   export type RunTimeLayoutConfig = UmiRunTimeLayoutConfig;
 }
 
@@ -25,11 +33,22 @@ declare module '*.scss' {
 }
 
 declare namespace API {
+  interface UserRoleItem {
+    role: string;
+    shopId?: string | null;
+    status: string;
+  }
+
   interface CurrentUser {
     id: string;
     name: string;
     role: string;
     shopId?: string;
+    username?: string;
+    nickName?: string;
+    phone?: string;
+    roles?: UserRoleItem[];
+    avatar?: string;
   }
 }
 

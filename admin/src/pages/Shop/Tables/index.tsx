@@ -29,13 +29,13 @@ import {
   updateTable,
 } from '@/services/table';
 import { getShop } from '@/services/shop';
-import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { useShopContext } from '@/hooks/useShopContext';
 import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 
 const { Text } = Typography;
 
 export default function ShopTablesPage() {
-  const shopId = DEFAULT_SHOP_ID;
+  const { shopId, ready, currentShop } = useShopContext();
   const [loading, setLoading] = useState(false);
   const [tables, setTables] = useState<ShopTable[]>([]);
   const [shopName, setShopName] = useState<string>('');
@@ -50,6 +50,7 @@ export default function ShopTablesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      if (!shopId) return;
       const list = await listTables(shopId);
       setTables(Array.isArray(list) ? list : []);
     } catch (e) {
@@ -60,6 +61,7 @@ export default function ShopTablesPage() {
   }, [shopId]);
 
   const loadShopMeta = useCallback(async () => {
+    if (!shopId) return;
     try {
       const shop = await getShop(shopId);
       setShopName(shop?.name || '');
@@ -69,9 +71,10 @@ export default function ShopTablesPage() {
   }, [shopId]);
 
   useEffect(() => {
+    if (!ready || !shopId) return;
     load();
     loadShopMeta();
-  }, [load, loadShopMeta]);
+  }, [load, loadShopMeta, ready, shopId]);
 
   const onSubmit = async () => {
     const values = await form.validateFields();

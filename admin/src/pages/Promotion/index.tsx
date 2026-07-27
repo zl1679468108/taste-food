@@ -6,7 +6,7 @@ import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promo
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import { formatTime } from '@/utils/format';
-import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { useShopContext } from '@/hooks/useShopContext';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
@@ -38,22 +38,24 @@ const promotionTypeMap: Record<string, { color: string; text: string }> = {
 };
 
 const PromotionPage: React.FC = () => {
+  const { shopId, ready, currentShop } = useShopContext();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadPromotions = useCallback(async () => {
+    if (!shopId) return;
     setLoading(true);
     try {
-      const res = await getPromotions();
+      const res = await getPromotions(shopId);
       setPromotions(res || []);
     } catch (error) {
       console.error('加载促销失败:', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [shopId]);
 
   const {
     form,
@@ -87,12 +89,13 @@ const PromotionPage: React.FC = () => {
   const selectedType = Form.useWatch('type', form);
 
   useEffect(() => {
+    if (!ready || !shopId) return;
     loadPromotions();
-  }, [loadPromotions]);
+  }, [loadPromotions, ready, shopId]);
 
   const handleDelete = async (id: string) => {
     try {
-      await deletePromotion(id);
+      await deletePromotion(id, shopId);
       message.success('删除成功');
       loadPromotions();
     } catch (error) {
@@ -113,7 +116,7 @@ const PromotionPage: React.FC = () => {
         };
         if (!editing) {
           data.type = type;
-          data.shopId = DEFAULT_SHOP_ID;
+          data.shopId = shopId;
         }
         if (dateRange && dateRange[0] && dateRange[1]) {
           data.startDate = (dateRange[0] as dayjs.Dayjs).toISOString();
@@ -122,7 +125,7 @@ const PromotionPage: React.FC = () => {
         return data;
       },
       create: (values) => createPromotion(values as any),
-      update: (id, values) => updatePromotion(id, values as any),
+      update: (id, values) => updatePromotion(id, values as any, shopId),
     });
 
   const renderRuleSummary = (record: Promotion): string => {
@@ -222,7 +225,7 @@ const PromotionPage: React.FC = () => {
     <div className="tf-page">
       <PageHeaderActions
         icon={<GiftOutlined style={{ marginRight: 8 }} />}
-        title="促销管理"
+        title={currentShop?.name ? `促销管理 · ${currentShop.name}` : '促销管理'}
         addText="新增促销"
         onAdd={handleAdd}
         onRefresh={loadPromotions}

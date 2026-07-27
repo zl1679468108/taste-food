@@ -7,7 +7,6 @@ import { shortOrderId } from '../../utils/format';
 import { Order, OrderStatus } from '../../types/order';
 import { PaginatedData } from '../../types/api';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
-import { DEFAULT_SHOP_ID } from '../../env';
 import FilterTabs from '../../components/FilterTabs';
 import OrderCard from '../../components/OrderCard';
 import EmptyState from '../../components/EmptyState';
@@ -15,6 +14,7 @@ import SkeletonLoader from '../../components/SkeletonLoader';
 import { usePullRefresh } from '../../hooks/usePullRefresh';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import './index.scss';
+import ListEndTip from '../../components/ListEndTip';
 
 const DEMO_RIDER_COORD = { latitude: 30.27662, longitude: 120.16021 };
 
@@ -30,7 +30,24 @@ const RiderPage = () => {
   const [actingId, setActingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
-  const shopId = DEFAULT_SHOP_ID;
+  const [shopNameMap, setShopNameMap] = useState<Record<string, string>>({});
+
+  /** 加载店铺名映射（跨店抢单展示用） */
+  const ensureShopNames = async (list: Order[]) => {
+    const ids = Array.from(new Set(list.map((o) => o.shopId).filter(Boolean)));
+    const missing = ids.filter((id) => !shopNameMap[id]);
+    if (missing.length === 0) return;
+    try {
+      const res = await get<Array<{ id: string; name: string }>>('/shops');
+      const next = { ...shopNameMap };
+      for (const s of res.data || []) {
+        if (s?.id) next[s.id] = s.name || s.id;
+      }
+      setShopNameMap(next);
+    } catch {
+      // 忽略店名加载失败，卡片回退显示短 ID
+    }
+  };
 
   /** 加载数据 */
   const loadData = async (tab?: 'pool' | 'mine') => {
@@ -42,14 +59,16 @@ const RiderPage = () => {
     try {
       const params: Record<string, string | number> = { page: 1, pageSize: 50 };
       if (currentTab === 'pool') {
-        params.shop_id = shopId;
+        // 跨店抢单池：不传 shop_id，聚合全部店铺待抢单
         params.is_pool = 'true';
       } else {
         params.rider_id = user?.userId || '';
       }
 
       const res = await get<PaginatedData<Order>>('/orders', params);
-      setOrders(res.data.items);
+      const items = res.data.items || [];
+      setOrders(items);
+      void ensureShopNames(items);
       setLoadError(false);
       setCanRetry(false);
       setLoading(false);
@@ -217,7 +236,7 @@ const RiderPage = () => {
             <OrderCard
               key={order.id}
               order={{ ...order, items: order.items || [] }}
-              shopName={shortOrderId(order.id)}
+              shopName={shopNameMap[order.shopId] || shortOrderId(order.shopId || order.id)}
               footerExtra={
                 activeTab === 'pool' ? (
                   <View
@@ -257,6 +276,7 @@ const RiderPage = () => {
             />
           ))
         )}
+        <ListEndTip show={orders.length > 0 && !loading && !loadError} hasMore={false} />
       </ScrollView>
     </View>
   );

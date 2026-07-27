@@ -1,16 +1,12 @@
-import {
-  Injectable,
-  UnauthorizedException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
-import { WechatLoginDto, LoginResponseDto } from './dto/auth.dto';
 import { supabase, hasSupabase } from '../../database/supabase.client';
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
+import { hashPassword, verifyPassword } from '../../common/utils/password';
+import { WechatLoginDto, LoginResponseDto, RegisterDto, PasswordLoginDto } from './dto/auth.dto';
 import { TokenService } from './token.service';
 
 interface UserRecord {
@@ -20,6 +16,9 @@ interface UserRecord {
   shopId?: string;
   nickName: string;
   avatarUrl: string;
+  username?: string;
+  passwordHash?: string;
+  phone?: string;
   createdAt: string;
 }
 
@@ -44,10 +43,25 @@ const memoryRefreshIndex: Map<string, string> = new Map();
 
 const DEV_MOCK_USERS: Record<
   string,
-  { openid: string; role: UserRole; nickName: string; shopId?: string }
+  { openid: string; role: UserRole; nickName: string; shopId?: string | null }
 > = {
+  // 平台管理员：shopId 显式 null，可跨店管理
   admin_code: {
-    openid: 'mock_admin_openid_001',
+    openid: 'mock_platform_admin_openid_001',
+    role: UserRole.ADMIN,
+    nickName: '平台管理员',
+    shopId: null,
+  },
+  // 兼容旧登录码
+  platform_admin_code: {
+    openid: 'mock_platform_admin_openid_001',
+    role: UserRole.ADMIN,
+    nickName: '平台管理员',
+    shopId: null,
+  },
+  // 单店商家
+  merchant_code: {
+    openid: 'mock_merchant_openid_001',
     role: UserRole.ADMIN,
     nickName: '商家管理员',
     shopId: DEFAULT_SHOP_ID,
@@ -61,29 +75,47 @@ const DEV_MOCK_USERS: Record<
     openid: 'mock_rider_openid_001',
     role: UserRole.RIDER,
     nickName: '测试骑手',
-    shopId: DEFAULT_SHOP_ID,
+    // 骑手不绑定单店，可跨店抢单
   },
 };
 
 const isProduction = process.env.NODE_ENV === 'production';
+/** 平台管理员 openid：不绑定 shop，可跨店 */
+const PLATFORM_ADMIN_OPENIDS = new Set([
+  'mock_platform_admin_openid_001',
+]);
 const MAX_SESSIONS_PER_USER = 5;
 
 const initMemoryUsers = () => {
   if (memoryUsers.size > 0) return;
 
   const adminId = uuidv4();
-  const adminOpenid = 'mock_admin_openid_001';
+  const adminOpenid = 'mock_platform_admin_openid_001';
   const admin: UserRecord = {
     id: adminId,
     openid: adminOpenid,
+    role: UserRole.ADMIN,
+    shopId: undefined, // 平台管理员跨店
+    nickName: '平台管理员',
+    avatarUrl: '',
+    createdAt: '2025-06-01T00:00:00Z',
+  };
+  memoryUsers.set(adminId, admin);
+  openidToUser.set(adminOpenid, admin);
+
+  const merchantId = uuidv4();
+  const merchantOpenid = 'mock_merchant_openid_001';
+  const merchant: UserRecord = {
+    id: merchantId,
+    openid: merchantOpenid,
     role: UserRole.ADMIN,
     shopId: DEFAULT_SHOP_ID,
     nickName: '商家管理员',
     avatarUrl: '',
     createdAt: '2025-06-01T00:00:00Z',
   };
-  memoryUsers.set(adminId, admin);
-  openidToUser.set(adminOpenid, admin);
+  memoryUsers.set(merchantId, merchant);
+  openidToUser.set(merchantOpenid, merchant);
 
   const customerId = uuidv4();
   const customerOpenid = 'mock_customer_openid_001';
@@ -104,7 +136,6 @@ const initMemoryUsers = () => {
     id: riderId,
     openid: riderOpenid,
     role: UserRole.RIDER,
-    shopId: DEFAULT_SHOP_ID,
     nickName: '测试骑手',
     avatarUrl: '',
     createdAt: '2025-06-01T00:00:00Z',
@@ -122,12 +153,35 @@ export class AuthService {
   }
 
   /**
-   * admin/rider 若未绑定店铺，补 DEFAULT_SHOP_ID。
+   * admin（商家）若未绑定店铺，补 DEFAULT_SHOP_ID。
+   * 平台管理员可保持 shopId 为空以跨店查看（由上层传入 null 且 role 语义区分）。
+   * 骑手不强制绑定店铺，支持跨店取餐。
    * customer 保持无 shopId。
    */
-  private normalizeShopId(role: UserRole, shopId?: string | null): string | undefined {
-    if (role === UserRole.ADMIN || role === UserRole.RIDER) {
+  private isPlatformAdmin(openid: string, role: UserRole, shopId?: string | null): boolean {
+    if (role !== UserRole.ADMIN) return false;
+    if (PLATFORM_ADMIN_OPENIDS.has(openid)) return true;
+    // shopId 显式 null 视为平台管理员
+    return shopId === null;
+  }
+
+  private normalizeShopId(
+    role: UserRole,
+    shopId?: string | null,
+    openid?: string,
+  ): string | undefined {
+    if (role === UserRole.ADMIN) {
+      // 平台管理员始终不绑店
+      if (openid && this.isPlatformAdmin(openid, role, shopId)) return undefined;
+      if (shopId === null || shopId === undefined || shopId === '') return undefined;
+      // 历史误把商家写成 admin 的兼容：有 shopId 则保留
+      return shopId;
+    }
+    if (role === UserRole.MERCHANT) {
       return shopId || DEFAULT_SHOP_ID;
+    }
+    if (role === UserRole.RIDER || role === UserRole.CUSTOMER) {
+      return shopId || undefined;
     }
     return shopId || undefined;
   }
@@ -137,7 +191,7 @@ export class AuthService {
       userId: user.id,
       openid: user.openid,
       role: user.role,
-      shopId: this.normalizeShopId(user.role, user.shopId),
+      shopId: this.normalizeShopId(user.role, user.shopId, user.openid),
     };
   }
 
@@ -155,16 +209,19 @@ export class AuthService {
       id: data.id,
       openid: data.openid,
       role,
-      shopId: this.normalizeShopId(role, data.shop_id),
+      shopId: this.normalizeShopId(role, data.shop_id, data.openid),
       nickName: data.nick_name || '',
       avatarUrl: data.avatar_url || '',
+      username: (data as any).username || undefined,
+      passwordHash: (data as any).password_hash || undefined,
+      phone: (data as any).phone || undefined,
       createdAt: data.created_at || new Date().toISOString(),
     };
   }
 
-  /** admin/rider 无 shopId 时补 DEFAULT_SHOP_ID（内存 + 尽量回写 DB） */
+  /** 商家 admin 无 shopId 时补 DEFAULT_SHOP_ID（内存 + 尽量回写 DB）；骑手不强制绑店 */
   private async ensureAdminShopBinding(user: UserRecord): Promise<UserRecord> {
-    const shopId = this.normalizeShopId(user.role, user.shopId);
+    const shopId = this.normalizeShopId(user.role, user.shopId, user.openid);
     const next: UserRecord = { ...user, shopId };
     memoryUsers.set(next.id, next);
     openidToUser.set(next.openid, next);
@@ -172,7 +229,7 @@ export class AuthService {
     const needWrite =
       !!shopId &&
       !user.shopId &&
-      (user.role === UserRole.ADMIN || user.role === UserRole.RIDER) &&
+      user.role === UserRole.ADMIN &&
       hasSupabase() &&
       !!supabase;
     if (needWrite && supabase) {
@@ -305,6 +362,7 @@ export class AuthService {
     const bound = await this.ensureAdminShopBinding(user);
     const payload = this.toPayload(bound);
     const tokens = await this.createSession(bound.id);
+    const roles = await this.listUserRoles(bound.id, bound);
     return {
       token: tokens.token,
       refreshToken: tokens.refreshToken,
@@ -313,7 +371,269 @@ export class AuthService {
       role: bound.role,
       shopId: payload.shopId,
       nickName: bound.nickName,
+      username: bound.username,
+      phone: bound.phone,
+      roles,
     };
+  }
+
+  private async listUserRoles(
+    userId: string,
+    fallback?: UserRecord,
+  ): Promise<Array<{ role: string; shopId?: string | null; status: string }>> {
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_user_roles')
+        .select('role, shop_id, status')
+        .eq('user_id', userId)
+        .eq('status', 'active');
+      if (!error && data && data.length) {
+        return data.map((r) => ({
+          role: r.role,
+          shopId: r.shop_id,
+          status: r.status || 'active',
+        }));
+      }
+    }
+    if (fallback) {
+      return [
+        {
+          role: fallback.role,
+          shopId: fallback.shopId || null,
+          status: 'active',
+        },
+      ];
+    }
+    return [];
+  }
+
+  async register(dto: RegisterDto): Promise<LoginResponseDto> {
+    const username = dto.username.trim().toLowerCase();
+    if (!/^[a-zA-Z0-9_]{3,32}$/.test(username)) {
+      throw new BadRequestException('用户名需为 3-32 位字母数字下划线');
+    }
+    const passwordHash = hashPassword(dto.password);
+    const openid = `pwd_${username}`;
+    const nickName = dto.nickName?.trim() || username;
+    const phone = dto.phone?.trim();
+
+    // 始终先注册为顾客
+    if (hasSupabase() && supabase) {
+      const { data: existed } = await supabase
+        .from('tf_users')
+        .select('id')
+        .or(`username.eq.${username},openid.eq.${openid}`)
+        .maybeSingle();
+      if (existed) throw new BadRequestException('用户名已存在');
+
+      const id = uuidv4();
+      const { data, error } = await supabase
+        .from('tf_users')
+        .insert({
+          id,
+          openid,
+          username,
+          password_hash: passwordHash,
+          role: UserRole.CUSTOMER,
+          nick_name: nickName,
+          phone: phone || null,
+          avatar_url: '',
+        })
+        .select('*')
+        .single();
+      if (error || !data) {
+        this.logger.warn(`[Auth] register db failed: ${error?.message}`);
+        // fallthrough memory
+      } else {
+        await supabase.from('tf_user_roles').insert({
+          user_id: id,
+          role: UserRole.CUSTOMER,
+          status: 'active',
+        });
+        const user = this.toUserRecord({
+          ...data,
+          password_hash: passwordHash,
+          username,
+        });
+        return this.issueLoginResponse(user);
+      }
+    }
+
+    assertMemoryFallbackAllowed('AuthService');
+    if ([...openidToUser.values()].some((u) => u.username === username || u.openid === openid)) {
+      throw new BadRequestException('用户名已存在');
+    }
+    const id = uuidv4();
+    const user: UserRecord = {
+      id,
+      openid,
+      username,
+      passwordHash,
+      role: UserRole.CUSTOMER,
+      nickName,
+      phone,
+      avatarUrl: '',
+      createdAt: new Date().toISOString(),
+    };
+    memoryUsers.set(id, user);
+    openidToUser.set(openid, user);
+    return this.issueLoginResponse(user);
+  }
+
+  async passwordLogin(dto: PasswordLoginDto): Promise<LoginResponseDto> {
+    const username = dto.username.trim().toLowerCase();
+    let user: UserRecord | null = null;
+
+    if (hasSupabase() && supabase) {
+      const { data } = await supabase
+        .from('tf_users')
+        .select('*')
+        .eq('username', username)
+        .maybeSingle();
+      if (data) {
+        user = this.toUserRecord(data);
+        user.passwordHash = data.password_hash;
+        user.username = data.username;
+        user.phone = data.phone;
+      }
+    }
+    if (!user) {
+      assertMemoryFallbackAllowed('AuthService');
+      user = [...memoryUsers.values()].find((u) => u.username === username) || null;
+    }
+    if (!user || !verifyPassword(dto.password, user.passwordHash)) {
+      // 兼容种子 SEED_PENDING：自动写入 merchant123
+      if (user && user.passwordHash === 'SEED_PENDING' && dto.password === 'merchant123') {
+        const hash = hashPassword('merchant123');
+        user.passwordHash = hash;
+        if (hasSupabase() && supabase) {
+          await supabase.from('tf_users').update({ password_hash: hash }).eq('id', user.id);
+        }
+        memoryUsers.set(user.id, user);
+      } else {
+        throw new UnauthorizedException('用户名或密码错误');
+      }
+    }
+    return this.issueLoginResponse(user);
+  }
+
+  async getProfile(userId: string) {
+    const user = await this.getUserById(userId);
+    if (!user) throw new UnauthorizedException('用户不存在');
+    const roles = await this.listUserRoles(userId, user);
+    return {
+      userId: user.id,
+      openid: user.openid,
+      role: user.role,
+      shopId: user.shopId,
+      nickName: user.nickName,
+      username: user.username,
+      phone: user.phone,
+      avatarUrl: user.avatarUrl,
+      roles,
+    };
+  }
+
+  async switchRole(
+    userId: string,
+    role: string,
+    shopId?: string,
+  ): Promise<LoginResponseDto> {
+    const user = await this.getUserById(userId);
+    if (!user) throw new UnauthorizedException('用户不存在');
+
+    const roles = await this.listUserRoles(userId, user);
+    const allowed = roles.some((r) => r.role === role && r.status === 'active');
+    // 平台管理员可切 admin；种子用户可能无 roles 表
+    const isSelfAdmin = user.role === UserRole.ADMIN && role === UserRole.ADMIN;
+    if (!allowed && !isSelfAdmin && user.role !== role) {
+      // 若 roles 表空但当前 role 匹配
+      if (!(roles.length === 0 && user.role === role)) {
+        throw new ForbiddenException('无权切换到该角色');
+      }
+    }
+
+    let nextShopId: string | undefined = undefined;
+    if (role === UserRole.MERCHANT) {
+      nextShopId = shopId || roles.find((r) => r.role === 'merchant')?.shopId || user.shopId;
+      if (!nextShopId) throw new BadRequestException('商家角色缺少绑定店铺');
+    }
+
+    if (hasSupabase() && supabase) {
+      const { error } = await supabase
+        .from('tf_users')
+        .update({ role, shop_id: nextShopId || null })
+        .eq('id', userId);
+      if (error) throw new BadRequestException(`切换角色失败: ${error.message}`);
+    }
+
+    const next: UserRecord = {
+      ...user,
+      role: role as UserRole,
+      shopId: nextShopId,
+    };
+    memoryUsers.set(userId, next);
+    openidToUser.set(next.openid, next);
+    return this.issueLoginResponse(next);
+  }
+
+  async ensureDemoMerchant(): Promise<{ username: string; password: string; shopId: string }> {
+    const username = 'merchant';
+    const password = 'merchant123';
+    const hash = hashPassword(password);
+    const id = 'b0000000-0000-0000-0000-000000000001';
+    const openid = 'pwd_merchant_demo';
+    const shopId = DEFAULT_SHOP_ID;
+
+    if (hasSupabase() && supabase) {
+      const { data } = await supabase.from('tf_users').select('id').eq('id', id).maybeSingle();
+      if (data) {
+        await supabase
+          .from('tf_users')
+          .update({
+            username,
+            password_hash: hash,
+            role: UserRole.MERCHANT,
+            shop_id: shopId,
+            nick_name: '测试商家',
+          })
+          .eq('id', id);
+      } else {
+        await supabase.from('tf_users').insert({
+          id,
+          openid,
+          username,
+          password_hash: hash,
+          role: UserRole.MERCHANT,
+          shop_id: shopId,
+          nick_name: '测试商家',
+          phone: '13800000001',
+        });
+      }
+      await supabase.from('tf_user_roles').upsert(
+        [
+          { user_id: id, role: UserRole.MERCHANT, shop_id: shopId, status: 'active' },
+          { user_id: id, role: UserRole.CUSTOMER, shop_id: null, status: 'active' },
+        ],
+        { onConflict: 'user_id,role,shop_id' },
+      );
+    }
+
+    const user: UserRecord = {
+      id,
+      openid,
+      username,
+      passwordHash: hash,
+      role: UserRole.MERCHANT,
+      shopId,
+      nickName: '测试商家',
+      phone: '13800000001',
+      avatarUrl: '',
+      createdAt: new Date().toISOString(),
+    };
+    memoryUsers.set(id, user);
+    openidToUser.set(openid, user);
+    return { username, password, shopId };
   }
 
 
@@ -346,7 +666,7 @@ export class AuthService {
     let openid: string;
     let nickName: string;
     let role: UserRole = UserRole.CUSTOMER;
-    let shopId: string | undefined;
+    let shopId: string | null | undefined;
 
     if (isProduction) {
       // 生产环境：真实微信 API；角色由数据库记录决定
@@ -405,7 +725,7 @@ export class AuthService {
     nickName: string,
     dto: WechatLoginDto,
     role: UserRole = UserRole.CUSTOMER,
-    shopId?: string,
+    shopId?: string | null,
   ): Promise<LoginResponseDto> {
     assertMemoryFallbackAllowed('AuthService');
     let user = openidToUser.get(openid);
@@ -415,7 +735,7 @@ export class AuthService {
         id,
         openid,
         role,
-        shopId,
+        shopId: shopId === null ? undefined : shopId,
         nickName,
         avatarUrl: dto.avatarUrl || '',
         createdAt: new Date().toISOString(),
@@ -574,7 +894,7 @@ export class AuthService {
         if (mem) {
           return {
             ...mem,
-            shopId: this.normalizeShopId(mem.role, mem.shopId),
+            shopId: this.normalizeShopId(mem.role, mem.shopId, mem.openid),
           };
         }
         return null;
@@ -585,7 +905,7 @@ export class AuthService {
     if (!user) return null;
     return {
       ...user,
-      shopId: this.normalizeShopId(user.role, user.shopId),
+      shopId: this.normalizeShopId(user.role, user.shopId, user.openid),
     };
   }
 }

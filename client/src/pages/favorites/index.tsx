@@ -9,6 +9,8 @@ import { formatPriceWithSymbol } from '../../utils/format';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import FoodThumb from '../../components/FoodThumb';
+import Icon from '../../components/Icon';
+import ListEndTip from '../../components/ListEndTip';
 import './index.scss';
 
 interface FavoriteMenuItem {
@@ -17,6 +19,7 @@ interface FavoriteMenuItem {
   price: number;
   imageUrl?: string;
   description?: string;
+  salesCount?: number;
 }
 
 interface FavoriteItem {
@@ -166,45 +169,61 @@ export default function FavoritesPage() {
       <View className='favorites-page__list'>
         {favorites.map((item) => {
           const available = !!(item.menuItem?.name && item.menuItem?.price != null);
+          const name = item.menuItem?.name || '菜品已下架';
+          const priceText =
+            item.menuItem?.price != null
+              ? formatPriceWithSymbol(item.menuItem.price).replace('¥', '')
+              : '-';
+          const salesCount =
+            typeof item.menuItem?.salesCount === 'number' ? item.menuItem.salesCount : 0;
+
           return (
             <View
               key={item.id || item.menuItemId}
-              className='favorite-card'
-              aria-label={`收藏菜品 ${item.menuItem?.name || ''}`}
+              className={`favorite-card${available ? '' : ' favorite-card--disabled'}`}
+              aria-label={`收藏菜品 ${name}`}
             >
               <FoodThumb
-                className='favorite-card__image'
+                className='favorite-card__thumb'
                 src={item.menuItem?.imageUrl}
                 name={item.menuItem?.name}
-                tone='default'
-                size='sm'
-                round
+                size='md'
               />
               <View className='favorite-card__info'>
-                <View>
-                  <Text className='favorite-card__name'>{item.menuItem?.name || '菜品已下架'}</Text>
+                <View className='favorite-card__top'>
+                  <Text className='favorite-card__name'>{name}</Text>
                   {item.menuItem?.description ? (
                     <Text className='favorite-card__desc'>{item.menuItem.description}</Text>
                   ) : null}
                 </View>
                 <View className='favorite-card__bottom'>
-                  <Text className='favorite-card__price'>
-                    {item.menuItem?.price != null ? formatPriceWithSymbol(item.menuItem.price) : '-'}
-                  </Text>
+                  <View className='favorite-card__meta'>
+                    <View className='favorite-card__price-row'>
+                      <Text className='favorite-card__price-unit'>¥</Text>
+                      <Text className='favorite-card__price'>{priceText}</Text>
+                    </View>
+                    {available ? (
+                      <Text className='favorite-card__sales'>月售 {salesCount}</Text>
+                    ) : (
+                      <Text className='favorite-card__sales'>已下架</Text>
+                    )}
+                  </View>
                   <View className='favorite-card__actions'>
                     <View
-                      className={`favorite-card__add${available ? '' : ' favorite-card__add--disabled'}`}
-                      onClick={() => available && handleAddToCart(item)}
-                      aria-label={`加入购物车 ${item.menuItem?.name || ''}`}
+                      className='favorite-card__favorite is-active'
+                      onClick={() => handleRemove(item)}
+                      aria-label={`取消收藏 ${name}`}
                     >
-                      {addingId === item.menuItemId ? '加入中' : '加购'}
+                      <Icon name='heart-filled' size={16} color='#FF4D4F' />
                     </View>
                     <View
-                      className='favorite-card__remove'
-                      onClick={() => handleRemove(item)}
-                      aria-label={`取消收藏 ${item.menuItem?.name || ''}`}
+                      className={`favorite-card__add-btn${available ? '' : ' is-disabled'}`}
+                      onClick={() => available && handleAddToCart(item)}
+                      aria-label={`添加 ${name} 到购物车`}
                     >
-                      取消
+                      <Text className='favorite-card__add-icon'>
+                        {addingId === item.menuItemId ? '…' : '+'}
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -212,6 +231,7 @@ export default function FavoritesPage() {
             </View>
           );
         })}
+        <ListEndTip show={favorites.length > 0} hasMore={false} />
       </View>
       <View
         className='favorites-page__cta'

@@ -82,6 +82,7 @@ $gradient-status-pending:   linear-gradient(135deg, $warning-dark, #E67E22);
 $gradient-status-paid:      linear-gradient(135deg, #3498DB, #2980B9);
 $gradient-status-accepted:  linear-gradient(135deg, #9B59B6, #8E44AD);
 $gradient-status-preparing: linear-gradient(135deg, #E67E22, #D35400);
+$gradient-status-ready:    linear-gradient(135deg, #D946EF, #A21CAF);
 $gradient-status-delivering:linear-gradient(135deg, #1ABC9C, #16A085);
 $gradient-status-completed: linear-gradient(135deg, #2ECC71, #27AE60);
 $gradient-status-cancelled: linear-gradient(135deg, #95A5A6, #7F8C8D);
@@ -128,13 +129,17 @@ $font-5xl:   24px;  /* 展示数字 */
 $font-6xl:   28px;  /* 超大展示 */
 $font-7xl:   34px;  /* 英雄数字（少用） */
 
-/* 语义字号别名 */
-$font-caption:  $font-xs;
-$font-body:     $font-base;
-$font-subtitle: $font-md;
-$font-title:    $font-xl;
-$font-display:  $font-4xl;
-$font-hero:     $font-6xl;
+/* 语义字号别名（标题 / 菜单略放大） */
+$font-caption:       $font-xs;
+$font-body:          $font-base;
+$font-subtitle:      $font-lg;     /* 次级标题 16 */
+$font-title:         $font-2xl;    /* 区块/卡片标题 18 */
+$font-display:       $font-4xl;
+$font-hero:          $font-6xl;
+$font-nav-title:     $font-lg;     /* 导航标题语义 */
+$font-menu-name:     $font-lg;     /* 菜品名 */
+$font-menu-category: $font-base;   /* 侧栏分类名 */
+$font-tab-label:     $font-md;     /* Tab / 筛选标签（略放大可读） */
 
 /* ---------- 字重 ---------- */
 $weight-regular:  400;

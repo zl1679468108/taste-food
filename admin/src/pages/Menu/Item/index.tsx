@@ -9,11 +9,12 @@ import { useCrudModal } from '@/hooks/useCrudModal';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PriceDisplay from '@/components/PriceDisplay';
 import MediaPicker from '@/components/MediaPicker';
-import { DEFAULT_SHOP_ID } from '@/utils/constants';
+import { useShopContext } from '@/hooks/useShopContext';
 
 const { TextArea } = Input;
 
 const MenuItemPage: React.FC = () => {
+  const { shopId, ready, currentShop } = useShopContext();
   const [searchText, setSearchText] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState<string | undefined>();
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -21,11 +22,12 @@ const MenuItemPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
+    if (!shopId) return;
     setLoading(true);
     try {
       const [itemsRes, categoriesRes] = await Promise.all([
-        getMenuItems({ shop_id: DEFAULT_SHOP_ID }),
-        getCategories(DEFAULT_SHOP_ID),
+        getMenuItems({ shop_id: shopId }),
+        getCategories(shopId),
       ]);
       setItems(itemsRes || []);
       setCategories(categoriesRes || []);
@@ -36,7 +38,7 @@ const MenuItemPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [shopId]);
 
   const {
     form,
@@ -57,8 +59,9 @@ const MenuItemPage: React.FC = () => {
   });
 
   useEffect(() => {
+    if (!ready || !shopId) return;
     loadData();
-  }, [loadData]);
+  }, [loadData, ready, shopId]);
 
   const handleDelete = async (id: string) => {
     try {
@@ -76,13 +79,13 @@ const MenuItemPage: React.FC = () => {
         createMenuItem({
           ...values,
           price: Math.round(Number(values.price) * 100),
-          shopId: DEFAULT_SHOP_ID,
+          shopId,
         } as any),
       update: (id, values) =>
         updateMenuItem(id, {
           ...values,
           price: Math.round(Number(values.price) * 100),
-          shopId: DEFAULT_SHOP_ID,
+          shopId,
         } as any),
     });
 
@@ -166,7 +169,7 @@ const MenuItemPage: React.FC = () => {
     <div className="tf-page">
       <PageHeaderActions
         icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
-        title="菜品管理"
+        title={currentShop?.name ? `菜品管理 · ${currentShop.name}` : '菜品管理'}
         addText="新增菜品"
         onAdd={handleAdd}
         onRefresh={loadData}
@@ -255,7 +258,7 @@ const MenuItemPage: React.FC = () => {
               },
             ]}
           >
-            <MediaPicker shopId={DEFAULT_SHOP_ID} />
+            <MediaPicker shopId={shopId} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="active">
             <Select>

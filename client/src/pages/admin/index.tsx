@@ -4,7 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
-import { ORDER_STATUS_MAP, ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP } from '../../utils/constants';
+import { ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP, getOrderStatusLabel, getMerchantOrderActionHint } from '../../utils/constants';
 import { Order, OrderStatus } from '../../types/order';
 import { Category } from '../../types/menu';
 import { PaginatedData } from '../../types/api';
@@ -17,6 +17,7 @@ import {
 import type { OrderNewEvent } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
 import Icon from '../../components/Icon';
+import ListEndTip from '../../components/ListEndTip';
 import './index.scss';
 
 /** 商家新订单横幅数据（优先用 WS 摘要字段） */
@@ -43,11 +44,14 @@ interface OrderStats {
 const TABS = [
   { key: '', label: '全部' },
   { key: OrderStatus.PENDING_PAYMENT, label: '待支付' },
-  { key: OrderStatus.PAID, label: '已支付' },
+  { key: OrderStatus.PAID, label: '待接单' },
+  { key: OrderStatus.ACCEPTED, label: '已接单' },
   { key: OrderStatus.PREPARING, label: '制作中' },
+  { key: OrderStatus.READY_FOR_PICKUP, label: '待取餐' },
   { key: OrderStatus.DELIVERING, label: '配送中' },
   { key: OrderStatus.COMPLETED, label: '已完成' },
   { key: OrderStatus.CANCELLED, label: '已取消' },
+  { key: OrderStatus.REJECTED, label: '已拒单' },
 ];
 
 const AdminPage = () => {
@@ -514,7 +518,7 @@ const AdminPage = () => {
                         background: statusStyle.background,
                       }}
                     >
-                      {ORDER_STATUS_MAP[order.status] || order.status}
+                      {getOrderStatusLabel(order.status, order.deliveryType)}
                     </Text>
                   </View>
                   <View className='order-card__items'>
@@ -546,17 +550,11 @@ const AdminPage = () => {
           </View>
         )}
 
-        {loadingMore && (
-          <View className='load-more'>
-            <Text>加载中...</Text>
-          </View>
-        )}
-
-        {!hasMore && allOrders.length > 0 && (
-          <View className='load-more'>
-            <Text>—— 没有更多了 ——</Text>
-          </View>
-        )}
+        <ListEndTip
+          loading={loadingMore}
+          hasMore={hasMore}
+          show={allOrders.length > 0}
+        />
       </ScrollView>
 
       {/* 操作弹窗 */}
@@ -589,9 +587,17 @@ const AdminPage = () => {
                     color: ORDER_STATUS_COLOR_MAP[selectedOrder.status] || '#333',
                   }}
                 >
-                  {ORDER_STATUS_MAP[selectedOrder.status] || selectedOrder.status}
+                  {getOrderStatusLabel(selectedOrder.status, selectedOrder.deliveryType)}
                 </Text>
               </View>
+              {!!getMerchantOrderActionHint(selectedOrder.status, selectedOrder.deliveryType) && (
+                <View className='action-modal__info-row'>
+                  <Text className='action-modal__info-label'>下一步</Text>
+                  <Text className='action-modal__info-value'>
+                    {getMerchantOrderActionHint(selectedOrder.status, selectedOrder.deliveryType)}
+                  </Text>
+                </View>
+              )}
               <View className='action-modal__info-row'>
                 <Text className='action-modal__info-label'>用户</Text>
                 <Text className='action-modal__info-value'>{selectedOrder.userId.substring(0, 12)}...</Text>

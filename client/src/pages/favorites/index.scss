@@ -1,4 +1,5 @@
 @use '../../styles/design-tokens' as *;
+@use '../../styles/mixins' as *;
 
 .favorites-page {
   min-height: 100vh;
@@ -7,105 +8,168 @@
 }
 
 .favorites-page__list {
-  padding: 14px $space-3 $space-2;
+  padding: 10px $space-3 $space-2;
 }
 
+/* 与菜单 MenuItemCard 对齐：左侧图片纵向铺满卡片高度 */
 .favorite-card {
   display: flex;
-  gap: $space-3;
   background: $bg-card;
-  border-radius: $radius-md + 2px;
-  padding: $space-3;
-  margin-bottom: $space-3;
-  box-shadow: $shadow-sm;
-  transition: opacity $duration-fast $ease-out;
+  border-radius: $radius-sm;
+  overflow: hidden;
+  margin-bottom: $space-2;
+  box-shadow: $shadow-card;
 
   &:active {
-    opacity: 0.92;
+    opacity: 0.96;
   }
 
-  &__image {
+  &--disabled {
+    opacity: 0.72;
+  }
+
+  &__thumb {
+    width: 88px !important;
+    height: auto !important;
+    min-height: 88px;
+    align-self: stretch;
     flex-shrink: 0;
+    border-radius: 0 !important;
+    border-right: 1rpx solid rgba($black, 0.03);
+    position: relative;
+
+    .food-thumb__img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
   }
 
   &__info {
     flex: 1;
     min-width: 0;
+    padding: 9px 10px $space-2 9px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
   }
 
+  &__top {
+    min-width: 0;
+  }
+
   &__name {
-    font-size: $font-lg;
+    display: block;
+    font-size: $font-md;
+    line-height: $leading-snug;
     font-weight: $weight-semibold;
-    line-height: $leading-tight;
     color: $text-primary;
+    @include ellipsis(1);
   }
 
   &__desc {
-    margin-top: $space-1;
+    display: block;
+    margin-top: 3px;
     font-size: $font-xs;
+    line-height: $leading-snug;
     color: $text-secondary;
-    line-height: $leading-normal;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @include ellipsis(1);
   }
 
   &__bottom {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    margin-top: $space-2;
+    gap: 6px;
+    margin-top: 6px;
+  }
+
+  &__meta {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+  }
+
+  &__price-unit {
+    font-size: $font-xs;
+    font-weight: $weight-medium;
+    color: $text-price;
+    line-height: $leading-none;
   }
 
   &__price {
+    font-size: $font-xl;
+    font-weight: $weight-bold;
     color: $text-price;
-    font-size: $font-lg;
-    font-weight: $weight-semibold;
+    line-height: $leading-none;
+  }
+
+  &__sales {
+    font-size: $font-2xs;
+    color: $text-tertiary;
     line-height: $leading-tight;
   }
 
   &__actions {
     display: flex;
     align-items: center;
-    gap: $space-2;
+    gap: 6px;
+    flex-shrink: 0;
   }
 
-  &__add {
-    font-size: $font-xs;
-    color: $text-inverse;
+  &__favorite {
+    width: 26px;
+    height: 26px;
+    border-radius: $radius-full;
+    background: $gray-50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:active {
+      background: $bg-page;
+    }
+
+    &.is-active {
+      background: rgba($danger, 0.08);
+    }
+  }
+
+  &__add-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: $radius-full;
     background: $primary;
-    border-radius: $radius-md + 2px;
-    padding: $space-1 $space-3;
-    line-height: $leading-tight;
-    transition: transform $duration-fast $ease-out, opacity $duration-fast $ease-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 7px rgba($primary, 0.28);
 
     &:active {
-      opacity: 0.9;
-      transform: scale(0.96);
+      transform: scale(0.94);
     }
 
-    &--disabled {
-      opacity: 0.45;
+    &.is-disabled {
+      opacity: 0.4;
       pointer-events: none;
+      box-shadow: none;
     }
   }
 
-  &__remove {
-    font-size: $font-xs;
-    color: $text-secondary;
-    background: $bg-page;
-    border-radius: $radius-md + 2px;
-    padding: $space-1 10px;
-    line-height: $leading-tight;
-    transition: opacity $duration-fast $ease-out, background $duration-fast $ease-out;
-
-    &:active {
-      opacity: 0.85;
-      background: $gray-200;
-    }
+  &__add-icon {
+    color: $text-inverse;
+    font-size: $font-xl;
+    line-height: $leading-none;
+    font-weight: $weight-regular;
   }
 }
 
