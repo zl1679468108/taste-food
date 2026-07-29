@@ -133,3 +133,19 @@ textarea {
 .scrollbar-hide {
   @include scrollbar-hide;
 }
+
+
+/* ========== 表单必填星号 ========== */
+.form-required {
+  color: $text-danger;
+  margin-left: 2px;
+  font-weight: $weight-medium;
+}
+
+.form-field-label {
+  display: block;
+  font-size: $font-sm;
+  line-height: $leading-normal;
+  color: $text-primary;
+  margin-bottom: $space-1;
+}

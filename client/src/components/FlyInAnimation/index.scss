@@ -3,26 +3,48 @@
 .fly-in-animation {
   position: fixed;
   z-index: 9999;
+  width: 28px;
+  height: 28px;
   pointer-events: none;
-  animation: flyIn 0.6s ease-in-out forwards;
+  animation: fly-in-move 0.62s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
 
-  &__icon {
-    font-size: $font-7xl;
-    display: block;
+  &__ball {
+    width: 28px;
+    height: 28px;
+    border-radius: $radius-full;
+    background: $gradient-brand;
+    box-shadow: 0 4px 12px rgba($primary, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fly-in-scale 0.62s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
   }
 }
 
-@keyframes flyIn {
+/* 位移：从点击点飞向购物车栏 */
+@keyframes fly-in-move {
   0% {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
-  50% {
-    opacity: 0.8;
-    transform: translate(-40px, -60px) scale(0.7);
+  70% {
+    opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: translate(-80px, -120px) scale(0.4);
+    transform: translate3d(var(--fly-dx, -80px), var(--fly-dy, 160px), 0);
+  }
+}
+
+/* 尺寸：先略放大再缩小收束 */
+@keyframes fly-in-scale {
+  0% {
+    transform: scale(0.6);
+  }
+  18% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(0.35);
   }
 }

@@ -9,8 +9,10 @@ interface StatusTimelineProps {
   statusHistory: Array<{ status: string; time: string }>;
   /** delivery | pickup | dine_in；缺省时从 currentStatus/history 推断 */
   deliveryType?: string;
-  /** 展示在标题旁的辅助文案，如“下单时间” */
-  subtitle?: string;
+  /** 订单号展示文案，如 #E35F2661 */
+  orderNo?: string;
+  /** 下单时间 ISO/原始字符串 */
+  createdAt?: string;
 }
 
 const DELIVERY_FLOW = [
@@ -43,7 +45,8 @@ function StatusTimelineInner({
   currentStatus,
   statusHistory,
   deliveryType,
-  subtitle,
+  orderNo,
+  createdAt,
 }: StatusTimelineProps) {
   const steps = useMemo(() => {
     const isTerminalAbnormal =
@@ -100,12 +103,7 @@ function StatusTimelineInner({
   return (
     <View className='status-timeline'>
       <View className='status-timeline__header'>
-        <View className='status-timeline__heading'>
-          <Text className='status-timeline__title'>订单进度</Text>
-          {subtitle ? (
-            <Text className='status-timeline__subtitle'>{subtitle}</Text>
-          ) : null}
-        </View>
+        <Text className='status-timeline__title'>订单进度</Text>
         <Text className='status-timeline__hint'>左右滑动</Text>
       </View>
       <ScrollView
@@ -158,6 +156,24 @@ function StatusTimelineInner({
           })}
         </View>
       </ScrollView>
+      {(orderNo || createdAt) ? (
+        <View className='status-timeline__meta'>
+          {orderNo ? (
+            <View className='status-timeline__meta-item'>
+              <Text className='status-timeline__meta-label'>订单号</Text>
+              <Text className='status-timeline__meta-value'>{orderNo}</Text>
+            </View>
+          ) : null}
+          {createdAt ? (
+            <View className='status-timeline__meta-item'>
+              <Text className='status-timeline__meta-label'>下单时间</Text>
+              <Text className='status-timeline__meta-value'>
+                {formatTime(createdAt, 'YYYY-MM-DD HH:mm:ss')}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }

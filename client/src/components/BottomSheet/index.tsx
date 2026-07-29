@@ -1,4 +1,4 @@
-import { Component, PropsWithChildren } from 'react';
+import { Component, PropsWithChildren, ReactNode } from 'react';
 import { View, Text } from '@tarojs/components';
 import Icon from '../Icon';
 import './index.scss';
@@ -11,6 +11,10 @@ interface BottomSheetProps {
   compact?: boolean;
   /** 内容区去掉默认 padding，由内部自行控制边距 */
   flush?: boolean;
+  /** 页面带自定义 tabBar 时，把面板抬到 tabBar 之上，避免底部操作栏被压住 */
+  avoidTabBar?: boolean;
+  /** 标题栏右侧操作区（关闭按钮左侧），如「清空」 */
+  headerExtra?: ReactNode;
 }
 
 interface BottomSheetState {
@@ -44,14 +48,25 @@ export default class BottomSheet extends Component<PropsWithChildren<BottomSheet
   }
 
   render() {
-    const { visible, title, showClose = true, compact, flush, children } = this.props;
+    const {
+      visible,
+      title,
+      showClose = true,
+      compact,
+      flush,
+      avoidTabBar,
+      headerExtra,
+      children,
+    } = this.props;
     const { mounted } = this.state;
 
     if (!mounted) return null;
 
+    const showHeader = Boolean(title || headerExtra || showClose);
+
     return (
       <View
-        className={`bottom-sheet-overlay ${visible ? 'bottom-sheet-overlay--visible' : ''}`}
+        className={`bottom-sheet-overlay ${visible ? 'bottom-sheet-overlay--visible' : ''} ${avoidTabBar ? 'bottom-sheet-overlay--above-tab-bar' : ''}`}
         onClick={() => this.handleClose()}
       >
         <View
@@ -59,18 +74,23 @@ export default class BottomSheet extends Component<PropsWithChildren<BottomSheet
           onClick={(e) => e.stopPropagation()}
           onTransitionEnd={() => this.handleTransitionEnd()}
         >
-          <View className="bottom-sheet-panel__handle" />
-          {title && (
-            <View className="bottom-sheet-panel__header">
-              <Text className="bottom-sheet-panel__title">{title}</Text>
-              {showClose && (
-                <View className="bottom-sheet-panel__close" onClick={() => this.handleClose()}>
-                  <Icon name="close" size={16} color="#999999" />
-                </View>
-              )}
+          <View className='bottom-sheet-panel__handle' />
+          {showHeader && (
+            <View className='bottom-sheet-panel__header'>
+              <Text className='bottom-sheet-panel__title'>{title || ''}</Text>
+              <View className='bottom-sheet-panel__actions'>
+                {headerExtra ? (
+                  <View className='bottom-sheet-panel__extra'>{headerExtra}</View>
+                ) : null}
+                {showClose ? (
+                  <View className='bottom-sheet-panel__close' onClick={() => this.handleClose()}>
+                    <Icon name='close' size={16} color='#999999' />
+                  </View>
+                ) : null}
+              </View>
             </View>
           )}
-          <View className="bottom-sheet-panel__body">
+          <View className='bottom-sheet-panel__body'>
             {children}
           </View>
         </View>

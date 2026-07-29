@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Table, Tag, Typography } from 'antd';
 import { AuditOutlined } from '@ant-design/icons';
-import { AuditLog, getAuditLogs } from '@/services/audit';
+import { AuditLog } from '@/services/audit';
+import { useAuditLogs } from '@/hooks/queries';
 import { formatTime, shortOrderId } from '@/utils/format';
 import {
   getAuditActionLabel,
@@ -38,33 +39,15 @@ function renderAction(row: AuditLog): string {
 }
 
 export default function AuditPage() {
-  const [loading, setLoading] = useState(false);
-  const [logs, setLogs] = useState<AuditLog[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [total, setTotal] = useState(0);
   const [method, setMethod] = useState<string | undefined>();
   const [searchText, setSearchText] = useState('');
 
-  const load = useCallback(async (p = page, ps = pageSize, m = method) => {
-    setLoading(true);
-    try {
-      const res = await getAuditLogs({ page: p, pageSize: ps, method: m });
-      setLogs(res?.items || []);
-      setTotal(res?.total || 0);
-      setPage(res?.page || p);
-      setPageSize(res?.pageSize || ps);
-    } catch (e) {
-      console.error('加载审计日志失败:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, method]);
-
-  useEffect(() => {
-    load(1, pageSize, method);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [method]);
+  const auditQuery = useAuditLogs({ page, pageSize, method });
+  const logs = auditQuery.data?.items ?? [];
+  const total = auditQuery.data?.total ?? 0;
+  const loading = auditQuery.isPending;
 
   const filteredLogs = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -173,7 +156,7 @@ export default function AuditPage() {
       <PageHeaderActions
         icon={<AuditOutlined style={{ marginRight: 8 }} />}
         title="操作审计"
-        onRefresh={() => load(page, pageSize, method)}
+        onRefresh={() => void auditQuery.refetch()}
       />
 
       <TableCard>
@@ -215,7 +198,6 @@ export default function AuditPage() {
             onChange: (nextPage, nextPageSize) => {
               setPage(nextPage);
               setPageSize(nextPageSize);
-              load(nextPage, nextPageSize, method);
             },
             showTotal: (t) => `共 ${t} 条`,
           }}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Table,
   Button,
@@ -23,20 +23,23 @@ import {
   DeleteOutlined,
   ShopOutlined,
   TableOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { useModel } from '@umijs/max';
 import {
-  getShops,
-  createShop,
-  updateShop,
-  updateShopStatus,
-  updateBusinessHours,
-  deleteShop,
   BusinessDayKey,
   BusinessHours,
   Shop as ShopModel,
 } from '@/services/shop';
+import {
+  useShops,
+  useCreateShop,
+  useUpdateShop,
+  useUpdateShopStatus,
+  useUpdateBusinessHours,
+  useDeleteShop,
+} from '@/hooks/queries';
 import { formatTime, formatPrice } from '@/utils/format';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
@@ -44,7 +47,10 @@ import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import ShopTablesPanel from '@/components/ShopTablesPanel';
+import MediaPicker from '@/components/MediaPicker';
+import ShopLogo from '@/components/ShopLogo';
 import { useShopContext } from '@/hooks/useShopContext';
+import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 const { Text } = Typography;
 
@@ -131,26 +137,24 @@ const ShopManagePage: React.FC = () => {
     currentUser?.role === 'admin' && !boundShopId;
   const { loadShops: reloadShopContext } = useShopContext();
 
-  const [shops, setShops] = useState<ShopModel[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [hoursDraft, setHoursDraft] = useState<Record<BusinessDayKey, DayDraft>>(hoursToDraft());
   const [tablesShop, setTablesShop] = useState<ShopModel | null>(null);
 
-  const loadShops = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getShops();
-      const list = res || [];
-      // 商家账号只展示本店
-      setShops(boundShopId ? list.filter((s) => s.id === boundShopId) : list);
-    } catch (error) {
-      console.error('加载店铺失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [boundShopId]);
+  const shopsQuery = useShops();
+  const loading = shopsQuery.isPending;
+  // 商家账号只展示本店
+  const shops = useMemo<ShopModel[]>(() => {
+    const list = shopsQuery.data ?? [];
+    return boundShopId ? list.filter((s) => s.id === boundShopId) : list;
+  }, [shopsQuery.data, boundShopId]);
+
+  const createShopMutation = useCreateShop();
+  const updateShopMutation = useUpdateShop();
+  const updateHoursMutation = useUpdateBusinessHours();
+  const updateStatusMutation = useUpdateShopStatus();
+  const deleteShopMutation = useDeleteShop();
 
   const {
     form,
@@ -162,8 +166,8 @@ const ShopManagePage: React.FC = () => {
     close: closeModal,
     submit: submitModal,
   } = useCrudModal<ShopModel>({
-    onSuccess: async () => {
-      await loadShops();
+    // 列表刷新由 mutation 的 invalidate 负责，这里只同步全局店铺上下文
+    onSuccess: () => {
       void reloadShopContext();
     },
     mapRecordToForm: (record) => ({
@@ -182,19 +186,14 @@ const ShopManagePage: React.FC = () => {
     [openEditBase],
   );
 
-  useEffect(() => {
-    loadShops();
-  }, [loadShops]);
-
   const handleDelete = async (id: string) => {
     if (!isPlatformAdmin) {
       message.warning('仅平台管理员可删除店铺');
       return;
     }
     try {
-      await deleteShop(id);
+      await deleteShopMutation.mutateAsync(id);
       message.success('删除成功');
-      loadShops();
       void reloadShopContext();
     } catch (error) {
       console.error('删除店铺失败:', error);
@@ -203,9 +202,11 @@ const ShopManagePage: React.FC = () => {
 
   const handleStatusChange = async (record: ShopModel, checked: boolean) => {
     try {
-      await updateShopStatus(record.id, checked ? 'open' : 'closed');
+      await updateStatusMutation.mutateAsync({
+        id: record.id,
+        status: checked ? 'open' : 'closed',
+      });
       message.success('状态更新成功');
-      loadShops();
       void reloadShopContext();
     } catch (error) {
       console.error('状态更新失败:', error);
@@ -222,13 +223,38 @@ const ShopManagePage: React.FC = () => {
     }));
   };
 
+  const cloneDayDraft = (draft: DayDraft): DayDraft => ({
+    closed: draft.closed,
+    range: draft.range ? [draft.range[0].clone(), draft.range[1].clone()] : null,
+  });
+
+  // 仅本地草稿填充：把周一的休息状态与时段复制到周二-周日，不调用接口
+  const applyMondayToRestOfWeek = () => {
+    const monday = hoursDraft.mon;
+    if (!monday) return;
+    if (!monday.closed && !monday.range) {
+      message.warning('请先设置周一的营业时间或勾选休息');
+      return;
+    }
+    setHoursDraft((prev) => {
+      const source = cloneDayDraft(prev.mon);
+      const next = { ...prev } as Record<BusinessDayKey, DayDraft>;
+      for (const day of DAY_ORDER) {
+        if (day === 'mon') continue;
+        next[day] = cloneDayDraft(source);
+      }
+      return next;
+    });
+    message.success('已将周一设置同步到周二至周日');
+  };
+
   const handleSubmit = () =>
     submitModal({
       create: async (values) => {
         if (!isPlatformAdmin) {
           throw new Error('仅平台管理员可新增店铺');
         }
-        const shop = await createShop({
+        const shop = await createShopMutation.mutateAsync({
           name: values.name as string,
           description: values.description as string,
           address: values.address as string,
@@ -241,25 +267,28 @@ const ShopManagePage: React.FC = () => {
         // 新建后同步营业时段
         try {
           const businessHours = draftToHours(hoursDraft);
-          await updateBusinessHours(shop.id, businessHours);
+          await updateHoursMutation.mutateAsync({ id: shop.id, businessHours });
         } catch (e) {
           console.warn('新建店铺营业时段保存失败:', e);
         }
         return shop;
       },
       update: async (id, values) => {
-        await updateShop(id, {
-          name: values.name as string,
-          description: values.description as string,
-          address: values.address as string,
-          phone: values.phone as string,
-          logoUrl: values.logoUrl as string,
-          deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
-          deliveryFee: Math.round(Number(values.deliveryFee) * 100),
-          minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
-        } as any);
+        await updateShopMutation.mutateAsync({
+          id,
+          data: {
+            name: values.name as string,
+            description: values.description as string,
+            address: values.address as string,
+            phone: values.phone as string,
+            logoUrl: values.logoUrl as string,
+            deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
+            deliveryFee: Math.round(Number(values.deliveryFee) * 100),
+            minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
+          } as any,
+        });
         const businessHours = draftToHours(hoursDraft);
-        await updateBusinessHours(id, businessHours);
+        await updateHoursMutation.mutateAsync({ id, businessHours });
       },
     });
 
@@ -281,18 +310,21 @@ const ShopManagePage: React.FC = () => {
       title: '店铺名称',
       dataIndex: 'name',
       key: 'name',
-      width: 180,
+      width: 220,
       ellipsis: true,
       render: (name: string, record: ShopModel) => (
-        <div>
-          <Text strong>{name}</Text>
-          {record.phone ? (
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {record.phone}
-              </Text>
-            </div>
-          ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <ShopLogo src={record.logoUrl} size={40} />
+          <div style={{ minWidth: 0 }}>
+            <Text strong>{name}</Text>
+            {record.phone ? (
+              <div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {record.phone}
+                </Text>
+              </div>
+            ) : null}
+          </div>
         </div>
       ),
     },
@@ -344,7 +376,7 @@ const ShopManagePage: React.FC = () => {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 160,
-      render: (time: string) => formatTime(time, 'YYYY-MM-DD HH:mm'),
+      render: (time: string) => formatTime(time),
     },
     {
       title: '操作',
@@ -393,7 +425,7 @@ const ShopManagePage: React.FC = () => {
           setHoursDraft(hoursToDraft(defaultHours()));
           handleAdd();
         } : undefined}
-        onRefresh={loadShops}
+        onRefresh={() => shopsQuery.refetch()}
       />
 
       <TableCard>
@@ -458,8 +490,30 @@ const ShopManagePage: React.FC = () => {
           >
             <Input placeholder="例如 13800138000 或 010-12345678" />
           </Form.Item>
-          <Form.Item name="logoUrl" label="Logo URL" rules={[{ type: 'url', message: '请输入合法的 URL' }]}>
-            <Input placeholder="https://..." />
+          <Form.Item
+            name="logoUrl"
+            label="店铺 Logo"
+            extra="支持从图库选择或单张上传；未上传时前台自动使用默认 Logo"
+            rules={[
+              {
+                validator: async (_, value) => {
+                  if (!value) return;
+                  try {
+                    // eslint-disable-next-line no-new
+                    new URL(value);
+                  } catch {
+                    throw new Error('请选择或上传合法的图片');
+                  }
+                },
+              },
+            ]}
+          >
+            <MediaPicker
+              shopId={editingShop?.id || boundShopId || DEFAULT_SHOP_ID}
+              selectedHint="已选择店铺 Logo"
+              emptyHint="尚未上传 Logo，将使用默认店铺图标"
+              libraryButtonText="从图库选择 Logo"
+            />
           </Form.Item>
           <Row gutter={16}>
             <Col span={8}>
@@ -497,6 +551,12 @@ const ShopManagePage: React.FC = () => {
           <Divider orientation="left" plain>
             营业时段
           </Divider>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+            <Text type="secondary">先配周一，再一键同步到其余天（仅本地草稿）</Text>
+            <Button size="small" icon={<CopyOutlined />} onClick={applyMondayToRestOfWeek}>
+              同步周一到全周
+            </Button>
+          </div>
           <Space direction="vertical" style={{ width: '100%' }} size={8}>
             {DAY_ORDER.map((day) => {
               const draft = hoursDraft[day];

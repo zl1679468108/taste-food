@@ -44,8 +44,8 @@ describe('format 工具函数', () => {
 
   describe('shortOrderId', () => {
     test('截取前8位并大写', () => {
-      expect(shortOrderId('abc12345-6789')).toBe('#ABC12345');
-      expect(shortOrderId('12345678')).toBe('#12345678');
+      expect(shortOrderId('abc12345-6789')).toBe('ABC12345');
+      expect(shortOrderId('12345678')).toBe('12345678');
     });
   });
 

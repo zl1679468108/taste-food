@@ -9,6 +9,9 @@ import './index.scss';
 
 type AppRole = 'customer' | 'admin' | 'merchant' | 'rider';
 
+const BRAND_COLOR = '#FF6B35';
+const MUTED_ICON_COLOR = '#C2C2C2';
+
 interface MenuItem {
   key: string;
   label: string;
@@ -28,7 +31,16 @@ export default function MinePage() {
   const logout = useAuthStore((s) => s.logout);
   const getRoleLabel = useAuthStore((s) => s.getRoleLabel);
   const switchRole = useAuthStore((s) => s.switchRole);
-  const switchableRoles = useAuthStore((s) => s.getSwitchableRoles());
+  // 直接读取 user.roles 原始数据，避免在 selector 里调用方法返回新数组导致无限重渲染
+  const userRoles = useAuthStore((s) => s.user?.roles);
+  const switchableRoles = useMemo(() => {
+    const roles = userRoles || [];
+    const activeRoles = roles.filter((r) => r.status === 'active' && r.role !== 'admin');
+    if (!activeRoles.some((r) => r.role === 'customer')) {
+      return [{ role: 'customer', shopId: null as string | null, status: 'active' }, ...activeRoles];
+    }
+    return activeRoles;
+  }, [userRoles]);
 
   const role = normalizeRole(user?.role);
   const roleLabel = getRoleLabel(role);
@@ -49,7 +61,7 @@ export default function MinePage() {
           label: '商家工作台',
           desc: '接单处理 · 今日数据',
           icon: 'shop',
-          onClick: () => Taro.navigateTo({ url: '/pages/admin/index' }),
+          onClick: () => Taro.switchTab({ url: '/pages/admin/index' }),
         },
         {
           key: 'menu-manage',
@@ -82,7 +94,7 @@ export default function MinePage() {
           label: '骑手工作台',
           desc: '待抢单 / 我的配送',
           icon: 'order',
-          onClick: () => Taro.navigateTo({ url: '/pages/rider/index' }),
+          onClick: () => Taro.switchTab({ url: '/pages/rider/index' }),
         },
       ];
     }
@@ -116,7 +128,7 @@ export default function MinePage() {
       title: '退出登录',
       content: '确定退出当前账号吗？',
       confirmText: '退出',
-      confirmColor: '#FF6B35',
+      confirmColor: BRAND_COLOR,
       success: (res) => {
         if (res.confirm) logout();
       },
@@ -142,14 +154,12 @@ export default function MinePage() {
   return (
     <View className='mine-page'>
       <View className='mine-hero'>
-        <View className='mine-hero__decor mine-hero__decor--one' />
-        <View className='mine-hero__decor mine-hero__decor--two' />
         <View className='mine-hero__card'>
           <View className='mine-hero__avatar'>
             <Icon
               name={role === 'admin' || role === 'merchant' ? 'shop' : role === 'rider' ? 'order' : 'food'}
               size={32}
-              color='#FF6B35'
+              color={BRAND_COLOR}
             />
           </View>
           <View className='mine-hero__meta'>
@@ -173,7 +183,7 @@ export default function MinePage() {
               {serviceMenus.map((item) => (
                 <View key={item.key} className='mine-grid__item' onClick={item.onClick}>
                   <View className='mine-grid__icon'>
-                    <Icon name={item.icon} size={22} color='#FF6B35' />
+                    <Icon name={item.icon} size={22} color={BRAND_COLOR} />
                   </View>
                   <Text className='mine-grid__label'>{item.label}</Text>
                 </View>
@@ -188,13 +198,13 @@ export default function MinePage() {
                   onClick={item.onClick}
                 >
                   <View className='mine-list__icon'>
-                    <Icon name={item.icon} size={20} color='#FF6B35' />
+                    <Icon name={item.icon} size={20} color={BRAND_COLOR} />
                   </View>
                   <View className='mine-list__body'>
                     <Text className='mine-list__label'>{item.label}</Text>
                     {!!item.desc && <Text className='mine-list__desc'>{item.desc}</Text>}
                   </View>
-                  <Icon name='arrow-right' size={16} color='#C2C2C2' />
+                  <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
                 </View>
               ))}
             </View>
@@ -207,20 +217,20 @@ export default function MinePage() {
           </View>
           <View className='mine-list'>
             <View className='mine-list__item' onClick={() => Taro.navigateTo({ url: '/pages/mine/role-apply' })}>
-              <View className='mine-list__icon'><Icon name='shop' size={20} color='#FF6B35' /></View>
+              <View className='mine-list__icon'><Icon name='shop' size={20} color={BRAND_COLOR} /></View>
               <View className='mine-list__body'>
                 <Text className='mine-list__label'>身份申请</Text>
                 <Text className='mine-list__desc'>申请成为商家 / 骑手</Text>
               </View>
-              <Icon name='arrow-right' size={16} color='#C2C2C2' />
+              <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
             </View>
             <View className='mine-list__item mine-list__item--last' onClick={() => Taro.navigateTo({ url: '/pages/mine/notifications' })}>
-              <View className='mine-list__icon'><Icon name='list' size={20} color='#FF6B35' /></View>
+              <View className='mine-list__icon'><Icon name='list' size={20} color={BRAND_COLOR} /></View>
               <View className='mine-list__body'>
                 <Text className='mine-list__label'>消息中心</Text>
                 <Text className='mine-list__desc'>审批结果与系统通知</Text>
               </View>
-              <Icon name='arrow-right' size={16} color='#C2C2C2' />
+              <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
             </View>
           </View>
         </View>
@@ -240,7 +250,7 @@ export default function MinePage() {
                     switchRole(r.role as any, r.shopId || undefined);
                   }}
                 >
-                  <Text>{getRoleLabel(r.role)}</Text>
+                  <Text className='mine-role-switch__label'>{getRoleLabel(r.role)}</Text>
                 </View>
               ))}
             </View>

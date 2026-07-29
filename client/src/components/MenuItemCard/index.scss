@@ -130,6 +130,7 @@
   }
 
   &__add-btn {
+    position: relative;
     width: 26px;
     height: 26px;
     border-radius: $radius-full;
@@ -149,5 +150,28 @@
     font-size: $font-xl;
     line-height: $leading-none;
     font-weight: $weight-regular;
+  }
+
+  &__qty-badge {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: $radius-full;
+    background: $danger;
+    border: 1px solid $bg-card;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+  }
+
+  &__qty-badge-text {
+    color: $text-inverse;
+    font-size: $font-2xs;
+    line-height: $leading-none;
+    font-weight: $weight-semibold;
   }
 }

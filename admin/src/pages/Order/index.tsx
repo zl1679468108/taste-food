@@ -1,15 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Spin, Popconfirm } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Table, Button, Typography, Tabs, Modal, Descriptions, message, Space, Spin, Input, Form } from 'antd';
 import { EyeOutlined, DownloadOutlined, ShoppingOutlined } from '@ant-design/icons';
 import {
-  getOrders,
   getOrder,
-  updateOrderStatus,
-  cancelOrder,
   exportOrders,
   Order,
   OrderExportResult,
 } from '@/services/order';
+import { useOrders, useUpdateOrderStatus, useCancelOrder } from '@/hooks/queries';
 import DeliveryTypeTag from '@/components/DeliveryTypeTag';
 import OrderStatusTag from '@/components/OrderStatusTag';
 import PriceDisplay from '@/components/PriceDisplay';
@@ -190,22 +188,35 @@ function buildExportBlob(data: OrderExportResult): { blob: Blob; filename: strin
 
 const OrderPage: React.FC = () => {
   const { shopId, ready, currentShop } = useShopContext();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState('');
   const [detailVisible, setDetailVisible] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [reasonModal, setReasonModal] = useState<{
+    open: boolean;
+    orderId: string;
+    mode: 'cancel' | 'reject';
+    title: string;
+  } | null>(null);
+  const [reasonForm] = Form.useForm<{ reason: string }>();
+  const [reasonSubmitting, setReasonSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    loadOrders();
-  }, [activeTab, page, pageSize, shopId, ready]);
+  const ordersQuery = useOrders({
+    shopId: ready && shopId ? shopId : '',
+    status: activeTab || undefined,
+    page,
+    pageSize,
+  });
+  const orders = ordersQuery.data?.items ?? [];
+  const total = ordersQuery.data?.total ?? 0;
+  const loading = ordersQuery.isPending;
+
+  const updateStatusMutation = useUpdateOrderStatus();
+  const cancelOrderMutation = useCancelOrder();
 
   const handleExport = async () => {
     setExporting(true);
@@ -225,30 +236,6 @@ const OrderPage: React.FC = () => {
     }
   };
 
-  const loadOrders = async () => {
-    if (!shopId) return;
-    setLoading(true);
-    try {
-      const params: { shop_id: string; status?: string; page: number; pageSize: number } = {
-        shop_id: shopId,
-        page,
-        pageSize,
-      };
-      if (activeTab) {
-        params.status = activeTab;
-      }
-      const res = await getOrders(params);
-      setOrders(res?.items || []);
-      setTotal(res?.total || 0);
-    } catch (error) {
-      console.error('加载订单失败:', error);
-      setOrders([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleViewDetail = async (order: Order) => {
     setSelectedOrder(order);
     setDetailVisible(true);
@@ -263,39 +250,68 @@ const OrderPage: React.FC = () => {
     }
   };
 
-  const handleStatusUpdate = async (orderId: string, status: string) => {
+  /** 变更后刷新弹窗内的详情快照（列表由 mutation 内部 invalidate 处理） */
+  const refreshDetailSnapshot = async (orderId: string) => {
+    if (selectedOrder?.id !== orderId) return;
     try {
-      await updateOrderStatus(orderId, status);
-      message.success('状态更新成功');
-      loadOrders();
-      if (selectedOrder?.id === orderId) {
-        try {
-          const fresh = await getOrder(orderId);
-          setSelectedOrder(fresh);
-        } catch {
-          // ignore
-        }
-      }
+      const fresh = await getOrder(orderId);
+      setSelectedOrder(fresh);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleStatusUpdate = async (orderId: string, status: string, reason?: string) => {
+    try {
+      await updateStatusMutation.mutateAsync({ id: orderId, status, reason });
+      message.success(status === 'rejected' ? '已拒单' : '状态更新成功');
+      await refreshDetailSnapshot(orderId);
     } catch (error) {
       console.error('状态更新失败:', error);
     }
   };
 
-  const handleCancelOrder = async (orderId: string) => {
+  const handleCancelOrder = async (orderId: string, reason: string) => {
     try {
-      await cancelOrder(orderId);
+      await cancelOrderMutation.mutateAsync({ id: orderId, reason });
       message.success('订单已取消');
-      loadOrders();
-      if (selectedOrder?.id === orderId) {
-        try {
-          const fresh = await getOrder(orderId);
-          setSelectedOrder(fresh);
-        } catch {
-          // ignore
-        }
-      }
+      await refreshDetailSnapshot(orderId);
     } catch (error) {
       console.error('取消订单失败:', error);
+    }
+  };
+
+  const openReasonModal = (orderId: string, mode: 'cancel' | 'reject') => {
+    setReasonModal({
+      open: true,
+      orderId,
+      mode,
+      title: mode === 'reject' ? '拒单原因' : '取消原因',
+    });
+    reasonForm.resetFields();
+  };
+
+  const submitReasonModal = async () => {
+    if (!reasonModal) return;
+    try {
+      const values = await reasonForm.validateFields();
+      const reason = values.reason.trim();
+      setReasonSubmitting(true);
+      if (reasonModal.mode === 'cancel') {
+        await handleCancelOrder(reasonModal.orderId, reason);
+      } else {
+        await handleStatusUpdate(reasonModal.orderId, 'rejected', reason);
+      }
+      setReasonModal(null);
+      reasonForm.resetFields();
+    } catch (error) {
+      // 校验失败或接口失败，保持弹窗
+      if (error && typeof error === 'object' && 'errorFields' in (error as object)) {
+        return;
+      }
+      console.error('提交原因失败:', error);
+    } finally {
+      setReasonSubmitting(false);
     }
   };
 
@@ -398,7 +414,7 @@ const OrderPage: React.FC = () => {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 140,
-      render: (time: string) => formatTime(time, 'MM-DD HH:mm'),
+      render: (time: string) => formatTime(time),
     },
     {
       title: '操作',
@@ -415,20 +431,17 @@ const OrderPage: React.FC = () => {
             详情
           </Button>
           {getAvailableActions(record).map((action) =>
-            action.cancel ? (
-              <Popconfirm
+            action.cancel || action.status === 'rejected' ? (
+              <Button
                 key={action.status}
-                title="确认取消该订单？"
-                description="取消后不可恢复，已支付订单将进入退款流程"
-                okText="确认取消"
-                cancelText="再想想"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => handleCancelOrder(record.id)}
+                type="link"
+                danger
+                onClick={() =>
+                  openReasonModal(record.id, action.cancel ? 'cancel' : 'reject')
+                }
               >
-                <Button type="link" danger>
-                  {action.label}
-                </Button>
-              </Popconfirm>
+                {action.label}
+              </Button>
             ) : (
               <Button
                 key={action.status}
@@ -463,7 +476,7 @@ const OrderPage: React.FC = () => {
       <PageHeaderActions
         icon={<ShoppingOutlined style={{ marginRight: 8 }} />}
         title={currentShop?.name ? `订单管理 · ${currentShop.name}` : '订单管理'}
-        onRefresh={loadOrders}
+        onRefresh={() => ordersQuery.refetch()}
         extra={
           <Button icon={<DownloadOutlined />} loading={exporting} onClick={handleExport}>
             导出 Excel
@@ -516,44 +529,32 @@ const OrderPage: React.FC = () => {
         title="订单详情"
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
-        footer={selectedOrder ? (
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={() => setDetailVisible(false)}>关闭</Button>
-            {getAvailableActions(selectedOrder).map((action) =>
-              action.cancel ? (
-                <Popconfirm
-                  key={action.status}
-                  title="确认取消该订单？"
-                  description="取消后不可恢复，已支付订单将进入退款流程"
-                  okText="确认取消"
-                  cancelText="再想想"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={async () => {
-                    await handleCancelOrder(selectedOrder.id);
-                  }}
-                >
-                  <Button danger>{action.label}</Button>
-                </Popconfirm>
-              ) : (
-                <Button
-                  key={action.status}
-                  type={action.type === 'primary' ? 'primary' : 'default'}
-                  danger={action.type === 'danger'}
-                  onClick={() => handleStatusUpdate(selectedOrder.id, action.status)}
-                >
-                  {action.label}
-                </Button>
-              ),
-            )}
-          </Space>
-        ) : null}
-        width={600}
+        footer={[
+          <Button key="close" onClick={() => setDetailVisible(false)}>
+            关闭
+          </Button>,
+        ]}
+        width={720}
+        destroyOnClose
       >
         <Spin spinning={detailLoading}>
           {selectedOrder && (
-            <Descriptions column={2} bordered size="middle">
+            <Descriptions
+              column={2}
+              bordered
+              size="middle"
+              labelStyle={{ width: 110, whiteSpace: 'nowrap' }}
+              contentStyle={{ background: brand.bgCard }}
+            >
               <Descriptions.Item label="订单号">
-                <Text strong style={{ fontFamily: 'monospace' }}>
+                <Text
+                  strong
+                  copyable
+                  style={{
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   {displayOrderNo(selectedOrder)}
                 </Text>
               </Descriptions.Item>
@@ -564,7 +565,7 @@ const OrderPage: React.FC = () => {
                 <DeliveryTypeTag type={selectedOrder.deliveryType} />
               </Descriptions.Item>
               <Descriptions.Item label="金额">
-                <Text strong style={{ color: brand.textPrice, fontSize: 16 }}>
+                <Text strong style={{ color: brand.textPrice, fontSize: 16, whiteSpace: 'nowrap' }}>
                   {formatPrice(selectedOrder.total)}
                 </Text>
               </Descriptions.Item>
@@ -573,18 +574,40 @@ const OrderPage: React.FC = () => {
                   ? selectedOrder.items.map((item) => `${item.name} x${item.quantity}`).join('、')
                   : '-'}
               </Descriptions.Item>
-              {selectedOrder.address && (
+              {selectedOrder.address ? (
                 <Descriptions.Item label="地址" span={2}>{selectedOrder.address}</Descriptions.Item>
-              )}
-              {selectedOrder.tableNo && (
+              ) : null}
+              {selectedOrder.tableNo ? (
                 <Descriptions.Item label="桌号">{selectedOrder.tableNo}</Descriptions.Item>
-              )}
-              {selectedOrder.remark && (
+              ) : null}
+              {selectedOrder.contactName ? (
+                <Descriptions.Item label="联系人">{selectedOrder.contactName}</Descriptions.Item>
+              ) : null}
+              {selectedOrder.contactPhone ? (
+                <Descriptions.Item label="联系电话" contentStyle={{ whiteSpace: 'nowrap' }}>
+                  {selectedOrder.contactPhone}
+                </Descriptions.Item>
+              ) : null}
+              {/* 单列字段奇数个时补空位，避免后续 span=2 被挤到右半边出现空白行 */}
+              {([selectedOrder.tableNo, selectedOrder.contactName, selectedOrder.contactPhone].filter(Boolean).length % 2 === 1) ? (
+                <Descriptions.Item label=" ">{' '}</Descriptions.Item>
+              ) : null}
+              {selectedOrder.remark ? (
                 <Descriptions.Item label="备注" span={2}>
                   <Text type="warning">{selectedOrder.remark}</Text>
                 </Descriptions.Item>
-              )}
-              {selectedOrder.invoiceNeeded && (
+              ) : null}
+              {selectedOrder.cancelReason ? (
+                <Descriptions.Item label="取消原因" span={2}>
+                  <Text type="danger">{selectedOrder.cancelReason}</Text>
+                </Descriptions.Item>
+              ) : null}
+              {selectedOrder.rejectReason ? (
+                <Descriptions.Item label="拒单原因" span={2}>
+                  <Text type="danger">{selectedOrder.rejectReason}</Text>
+                </Descriptions.Item>
+              ) : null}
+              {selectedOrder.invoiceNeeded ? (
                 <Descriptions.Item label="发票" span={2}>
                   <Text>
                     需要开票
@@ -596,19 +619,51 @@ const OrderPage: React.FC = () => {
                       : ''}
                   </Text>
                 </Descriptions.Item>
-              )}
-              {selectedOrder.contactName && (
-                <Descriptions.Item label="联系人">{selectedOrder.contactName}</Descriptions.Item>
-              )}
-              {selectedOrder.contactPhone && (
-                <Descriptions.Item label="联系电话">{selectedOrder.contactPhone}</Descriptions.Item>
-              )}
-              <Descriptions.Item label="创建时间" span={2}>
+              ) : null}
+              <Descriptions.Item label="创建时间" span={2} contentStyle={{ whiteSpace: 'nowrap' }}>
                 {formatTime(selectedOrder.createdAt)}
               </Descriptions.Item>
             </Descriptions>
           )}
         </Spin>
+      </Modal>
+
+      <Modal
+        title={reasonModal?.title || '填写原因'}
+        open={!!reasonModal?.open}
+        onCancel={() => {
+          if (reasonSubmitting) return;
+          setReasonModal(null);
+          reasonForm.resetFields();
+        }}
+        onOk={submitReasonModal}
+        okText={reasonModal?.mode === 'reject' ? '确认拒单' : '确认取消'}
+        cancelText="再想想"
+        okButtonProps={{ danger: true, loading: reasonSubmitting }}
+        destroyOnClose
+      >
+        <Form form={reasonForm} layout="vertical" requiredMark>
+          <Form.Item
+            name="reason"
+            label="原因"
+            rules={[
+              { required: true, message: '请填写原因' },
+              { whitespace: true, message: '请填写原因' },
+              { min: 2, message: '原因至少 2 个字' },
+            ]}
+          >
+            <Input.TextArea
+              rows={4}
+              maxLength={200}
+              showCount
+              placeholder={
+                reasonModal?.mode === 'reject'
+                  ? '请填写拒单原因（必填）'
+                  : '请填写取消原因（必填）'
+              }
+            />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

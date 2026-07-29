@@ -1,5 +1,6 @@
 /* 菜单页 — 规格选择器优化版 */
 @use '../../styles/design-tokens' as *;
+@use '../../styles/mixins' as *;
 
 .menu-page {
   height: 100vh;
@@ -9,41 +10,79 @@
   overflow: hidden;
 }
 
-/* ---- 顶部店铺信息 ---- */
+/* ---- 顶部店铺信息（品牌 Hero，与「我的」页统一） ---- */
 .menu-header {
   flex-shrink: 0;
-  background: $gradient-brand;
+  @include brand-hero-surface;
   padding: $space-5 $space-4 $space-4;
   display: flex;
   align-items: center;
   gap: $space-3;
 
   &__avatar {
-    width: 48px;
-    height: 48px;
-    background: rgba($white, 0.2);
-    border-radius: $radius-md;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: $font-6xl;
-    line-height: $leading-tight;
-    font-weight: $weight-semibold;
-    flex-shrink: 0;
+    @include brand-hero-avatar(52px);
+    padding: 0;
+    overflow: hidden;
+    background: $bg-card;
+
+    .shop-logo {
+      width: 100%;
+      height: 100%;
+      border-radius: inherit;
+      box-shadow: none;
+    }
   }
 
   &__info {
     flex: 1;
+    min-width: 0;
     color: $text-inverse;
   }
 
-  &__name {
-    font-size: $font-4xl;
-    font-weight: $weight-semibold;
-    line-height: $leading-tight;
+  &__top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $space-2;
+    min-width: 0;
+  }
+
+  &__title-row {
     display: flex;
     align-items: center;
     gap: $space-2;
+    min-width: 0;
+    flex: 1;
+  }
+
+  &__name {
+    font-size: $font-3xl;
+    font-weight: $weight-bold;
+    line-height: $leading-tight;
+    color: $text-inverse;
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__switch {
+    @include brand-hero-chip;
+  }
+
+  &__open-badge {
+    @include brand-hero-chip;
+    background: rgba($white, 0.94);
+    border-color: rgba($white, 0.94);
+    color: $success-dark;
+    font-weight: $weight-medium;
+
+    &--closed {
+      background: rgba($black, 0.28);
+      border-color: rgba($white, 0.12);
+      color: $text-inverse;
+      font-weight: $weight-regular;
+    }
   }
 
   &__actions {
@@ -54,57 +93,20 @@
   }
 
   &__action-btn {
-    width: 32px;
-    height: 32px;
-    border-radius: $radius-xl;
-    background: $bg-overlay-soft;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    &:active {
-      opacity: 0.8;
-    }
+    @include brand-hero-action-btn;
 
     &--active {
       background: $bg-mask-light;
     }
   }
 
-  &__status {
-    font-size: $font-xs;
-    line-height: $leading-normal;
-    background: rgba($white, 0.25);
-    padding: 2px $space-2;
-    border-radius: $radius-md;
-  }
-
   &__desc {
-    font-size: $font-base;
+    display: block;
+    margin-top: 5px;
+    font-size: $font-sm;
     line-height: $leading-normal;
-    opacity: 0.85;
-    margin-top: $space-1;
-  }
-
-  &__title-row {
-    display: flex;
-    align-items: center;
-    gap: $space-2;
-    min-width: 0;
-  }
-
-  &__open-badge {
-    flex-shrink: 0;
-    font-size: $font-xs;
-    line-height: $leading-none;
-    padding: $space-1 $space-2;
-    border-radius: $radius-md;
-    background: rgba($success, 0.95);
-    color: $text-inverse;
-
-    &--closed {
-      background: rgba($black, 0.35);
-    }
+    color: rgba($white, 0.88);
+    @include ellipsis(2);
   }
 
   &__rest-hint {
@@ -116,6 +118,11 @@
     background: rgba($black, 0.2);
     border-radius: $radius-sm;
     padding: $space-1 $space-2;
+  }
+
+  /* 兼容旧类名，避免残留引用 */
+  &__status {
+    @include brand-hero-chip;
   }
 }
 
@@ -201,15 +208,17 @@
   }
 }
 
-/* 菜品列表 */
+/* 菜品列表：只用 ScrollView 滚，避免与 overflow 双滚动抢位置 */
 .menu-items {
   flex: 1;
   height: 100%;
-  overflow-y: auto;
+  overflow: hidden;
   background: $bg-page;
 
   &__content {
-    padding: 6px $space-3 120px;
+    padding: 6px $space-3 0;
+    /* 让最后一项不被购物车条 + 自定义 tabBar 压住 */
+    @include tab-bar-spacer(80px);
   }
 
   &__end-tip {
@@ -238,8 +247,8 @@
 /* ---- 底部购物车栏 ---- */
 .cart-bar {
   position: fixed;
-  /* 页面内容区 bottom:0 已在原生 tabBar 上方，无需再叠加 safe-area */
-  bottom: $space-3;
+  /* 自定义 tabBar 悬浮在页面之上，购物车条需抬到它上方 */
+  @include above-tab-bar($space-3);
   left: $space-3;
   right: $space-3;
   height: 50px;
@@ -253,6 +262,26 @@
   margin: 0;
   box-shadow: 0 4px 12px rgba($black, 0.18);
   box-sizing: border-box;
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition:
+    opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform;
+
+  &--hidden {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.98);
+    pointer-events: none;
+  }
+
+  &--pulse {
+    animation: cart-bar-pulse 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  &--pulse &__icon-wrap {
+    animation: cart-icon-bounce 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  }
 
   &__icon-wrap {
     position: absolute;
@@ -368,11 +397,12 @@
     color: $text-primary;
   }
 
+  /* 清空按钮挂在 BottomSheet 标题栏右侧 */
   &__clear {
-    font-size: $font-base;
+    font-size: $font-sm;
     line-height: $leading-normal;
     color: $text-secondary;
-    cursor: pointer;
+    padding: $space-1 $space-2;
   }
 
   &__body {
@@ -390,10 +420,6 @@
     max-height: none;
     padding-bottom: 0;
     border-radius: 0;
-
-    .cart-popup__header {
-      padding-top: 0;
-    }
 
     /* 底部购物车栏仍浮在弹层之上，预留空间避免最后一项被遮挡 */
     .cart-popup__body {
@@ -477,6 +503,17 @@
    规格选择弹窗 — 优化版
    ============================================================ */
 .spec-popup {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+
+  &__scroll-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   &__handle {
     display: flex;
     justify-content: center;
@@ -838,14 +875,6 @@
 
 
 /* ---- 门店切换 ---- */
-.menu-header__switch {
-  font-size: $font-xs;
-  line-height: $leading-normal;
-  background: rgba($white, 0.22);
-  padding: 2px $space-2;
-  border-radius: $radius-md;
-  color: $text-inverse;
-}
 
 .shop-picker {
   padding: $space-2 $space-4 $space-6;
@@ -878,6 +907,18 @@
 .shop-picker__main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: $space-3;
+}
+
+.shop-picker__logo {
+  flex-shrink: 0;
+}
+
+.shop-picker__text {
+  flex: 1;
+  min-width: 0;
 }
 
 .shop-picker__name {
@@ -900,4 +941,17 @@
   flex-shrink: 0;
   font-size: $font-xs;
   color: $primary;
+}
+
+
+@keyframes cart-bar-pulse {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  35% { transform: translate3d(0, -2px, 0) scale(1.03); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes cart-icon-bounce {
+  0% { transform: translateY(-50%) scale(1); }
+  40% { transform: translateY(-50%) scale(1.18); }
+  100% { transform: translateY(-50%) scale(1); }
 }

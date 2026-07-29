@@ -32,6 +32,8 @@ interface RequestOptions {
   retryDelay?: number;
   /** 强制指定是否可重试（覆盖自动判断） */
   retryable?: boolean;
+  /** 跳过全局 401 自动登出拦截（用于 /auth/refresh 等认证接口） */
+  skipAuthRedirect?: boolean;
 }
 
 const RETRYABLE_BUSINESS_CODES = new Set([500, 502, 503, 504, -1, -2]);
@@ -101,12 +103,25 @@ function isNetworkLikeError(error: unknown): boolean {
   );
 }
 
+/** 后端 UNAUTHORIZED 业务码（与 HTTP 401 分离，见 server BizErrorCode） */
+const UNAUTHORIZED_BIZ_CODE = 1004;
+
+/** 判断是否未认证：兼容历史 code=401 与当前业务码 1004 */
+export function isUnauthorizedCode(code: unknown): boolean {
+  return code === 401 || code === UNAUTHORIZED_BIZ_CODE;
+}
+
 function shouldRetry(error: unknown, options?: RequestOptions): boolean {
   if (typeof options?.retryable === 'boolean') {
     return options.retryable;
   }
   if (error instanceof RequestError) {
-    if (error.code === 401 || error.code === 400 || error.code === 403 || error.code === 404) {
+    if (
+      isUnauthorizedCode(error.code) ||
+      error.code === 400 ||
+      error.code === 403 ||
+      error.code === 404
+    ) {
       return false;
     }
     return error.retryable || RETRYABLE_BUSINESS_CODES.has(error.code);
@@ -160,6 +175,7 @@ async function request<T>(
 
   let attempt = 0;
   let weakNetWarned = false;
+  let tokenRefreshed = false;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -191,35 +207,46 @@ async function request<T>(
       const responseData = response.data as ApiResponse<T>;
 
       if (responseData.code !== 0) {
-        if (responseData.code === 401) {
-          // 401 联动 authStore.logout：统一清理 token/refreshTimer/socket 状态
+       if (isUnauthorizedCode(responseData.code) && !options?.skipAuthRedirect) {
+          // access token 过期：先尝试用 refreshToken 换新 token，再重试原请求
+          // 注意：后端业务码是 1004（UNAUTHORIZED），不是 HTTP 语义的 401
+          if (!tokenRefreshed) {
+            tokenRefreshed = true;
+            try {
+              await useAuthStore.getState().refreshSession();
+              // refreshSession 成功后 store 里已更新，从 storage 取最新 token
+              const newToken = getToken();
+              if (newToken) {
+                headers['Authorization'] = `Bearer ${newToken}`;
+                // 重新发起原请求（不计入 attempt 重试计数）
+                continue;
+              }
+            } catch {
+              // refreshSession 内部会在 refreshToken 过期时自行 logout，这里仅 fallthrough
+            }
+          }
+          // 刷新失败且 refreshSession 内部未处理登出（token 仍存在但刷新接口返回 1004/401）
+          // 若 storage token 已被清空，说明 refreshSession 内部已经 logout，避免重复处理
+          if (!getToken()) break;
+          // 刷新后 token 依然存在但再次未认证，走登出流程
           const pages = Taro.getCurrentPages();
           const currentPage = pages[pages.length - 1];
           const isLoginPage = currentPage?.route === 'pages/auth/login';
           if (!isLoginPage) {
             Taro.showToast({ title: '登录已过期，请重新登录', icon: 'none' });
-            try {
-              Taro.removeStorageSync('token');
-              Taro.removeStorageSync('refreshToken');
-              Taro.removeStorageSync('user');
-            } catch {
-              // ignore
-            }
             if (!isTestEnv) {
-              // 延迟调用 logout，避免在请求拦截中立即触发 reLaunch 导致页面栈混乱
               setTimeout(() => {
                 useAuthStore.getState().logout();
               }, 1500);
             }
           } else {
-            // 已在登录页则只清状态，不跳转
             try {
               useAuthStore.getState().stopAutoRefresh();
             } catch {
               // ignore
             }
           }
-        }
+       }
 
         const businessError = new RequestError(
           responseData.message || '请求失败',

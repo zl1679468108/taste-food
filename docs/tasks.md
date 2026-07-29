@@ -9,6 +9,126 @@
 
 ## 当前待办
 
+### P0 — 取消/拒单原因必填（T219）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T219.1 | 数据库增加 cancel_reason / reject_reason | database | §3.1 / §5.1 | P0 | ✅ done 2026-07-29 | tf_orders 新增字段；database-init.sql 同步 |
+| T219.2 | 后端 cancel/status 校验并写入原因 | server | §3.1 / §4.4 | P0 | ✅ done 2026-07-29 | cancel 与 rejected 必填 reason；写入 cancel_reason/reject_reason |
+| T219.3 | PC 后台拒单/取消原因弹窗 | admin | §3.4 | P0 | ✅ done 2026-07-29 | 弹窗 Form 必填 + 详情展示原因 |
+| T219.4 | 小程序顾客取消原因弹层 | client | §3.1.4 | P0 | ✅ done 2026-07-29 | BottomSheet + Textarea 必填；详情展示原因 |
+
+### P1 — 订单列表/进度条布局修复（T216）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T216.1 | 订单列表页底部避让自定义 tabBar | client/order-list | §3.1.4 | P1 | ✅ done 2026-07-29 | page 级 box-sizing + tab-bar-spacer；列表视口不再伸入底栏；ListEndTip 去掉重复 tab 留白 |
+| T216.2 | 订单进度条节点真机不对齐 | client/StatusTimeline | §3.1.4 | P1 | ✅ done 2026-07-29 | track 顶对齐；连线绝对定位压中线；label 固定行高，避免当前态字号把圆点顶歪 |
+| T217 | 配送轨迹放大查看 | client/order-detail | §3.1.4 | P1 | ✅ done 2026-07-29 | 预览图点击或全屏按钮可放大查看轨迹，包含缩放拖动，includePoints 自动适配视口 |
+| T218 | 订单号和下单时间标签值样式对齐 | client/order-detail | §3.1.4 | P1 | ✅ done 2026-07-29 | order-meta__item 改为 flex 结构，label 固定宽度，value 自动伸展 |
+
+
+### P1 — 菜单滚动回顶修复（T220）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T220.1 | 点击 + / 唤起 picker 列表回顶 | client/menu | §3.1.2 | P1 | ✅ done 2026-07-29 | flushSync 先提交 scrollTop 再 addItem；角标改回父层同批下发；二次回写 + 丢位时 pin 菜品；去掉双滚动 overflow |
+
+
+### P1 — 菜单加购交互优化（T215）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T215.1 | 卡片点击开规格 / + 直加购物车 | client | §3.1.2 | P1 | ✅ done 2026-07-29 | MenuItemCard 拆分 onItemClick/onAddClick；+ 用默认规格直加，缺默认必选才开 picker |
+| T215.2 | 加购后列表不回顶 | client | §3.1.2 | P1 | ✅ done 2026-07-29 | 初版 scrollTop 回写；残留问题见 T220 |
+| T215.3 | 规格弹层打开加速 | client | §3.1.2 | P1 | ✅ done 2026-07-29 | 先开 BottomSheet 再拉规格；本地 specs 缓存；二次打开秒开 |
+
+
+### P0 — 顾客取消订单权限修复（T214）— ✅ 2026-07-28
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T214.1 | 小程序取消改调 /orders/:id/cancel | client | §3.1 / §4.4 / §5.2 | P0 | ✅ done 2026-07-28 | 原误调商家专用 /status 触发 code 1003；待支付/已支付可自主取消 |
+| T214.2 | 取消接口区分顾客与商家身份校验 | server | §4.4 / §5.2 | P0 | ✅ done 2026-07-28 | 顾客传 userId 校验本人；商家/管理员仅店铺访问校验；接单后不可直接取消 |
+| T214.3 | 取消规则单测与文档闭环 | server/docs | §3.1 / §4.4 / §5.2 | P0 | ✅ done 2026-07-28 | order-cancel.test.ts；prd 明确顾客自主取消边界 |
+
+
+### P0 — 后台店铺页双请求与左侧留白（T213）— ✅ 2026-07-28
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T213.1 | shopContext 与 useShops 共用 react-query 缓存 | admin | §3.4 / §3.18 | P0 | ✅ done 2026-07-28 | 顶栏上下文改走 queryKeys.shops.list()，刷新店铺页不再打两次 /api/shops |
+| T213.2 | 去掉 PageContainer 与 .tf-page 叠加左内边距 | admin | §3.4 | P0 | ✅ done 2026-07-28 | children-container padding 归零；contentStyle padding 归零，只保留 .tf-page 24px |
+
+### P1 — 菜单搜索改为前端本地过滤（T212）— ✅ 2026-07-28
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T212.1 | 菜单页搜索改本地过滤 | client | §3.1.2 | P1 | ✅ done 2026-07-28 | 保留全量 allCategories 快照；按 name/description 本地过滤；去掉 `/menu-items?search=` 请求；清空搜索恢复全量 |
+| T212.2 | 文档同步 search 语义 | docs | §3.1.2 / §4 | P1 | ✅ done 2026-07-28 | prd menu-items 说明改为小程序本地过滤，后端 search 仅兼容保留 |
+
+### P1 — 腾讯地图坐标对齐（T211）— ✅ 2026-07-28
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T211.1 | 店铺/地址/订单坐标字段与 database-init | database/server | §3.17 / §5.1 | P1 | ✅ done 2026-07-28 | tf_shops/tf_addresses lat/lng；tf_orders shop_/delivery_ 快照；schema 1.0.3；线上需 v16 + NOTIFY pgrst reload schema |
+| T211.2 | 腾讯地图 geocode 与地址/店铺写入 | server | §3.17 | P1 | ✅ done 2026-07-28 | TENCENT_MAP_KEY；resolveGeoPoint；保存时解析 GCJ-02 |
+| T211.3 | 下单快照坐标 + 订单详情真实地图 | server/client | §3.17 / §3.1.4 | P1 | ✅ done 2026-07-28 | 外送快照起终点；去掉杭州假点；无坐标降级 |
+| T211.4 | 地址簿选点 + 后台店铺坐标 | client/admin | §3.17 | P1 | ✅ done 2026-07-28 | chooseLocation；admin lat/lng；下单传 delivery 坐标 |
+
+### P1 — 店铺 Logo 自定义上传与默认回退（T210）— ✅ 2026-07-28
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T210.1 | 默认店铺 Logo 资源与解析工具 | client/admin | §3.4 / §3.1 | P1 | ✅ done 2026-07-28 | 提供默认图；空 URL / 加载失败回退 |
+| T210.2 | 后台店铺编辑改上传/图库选 Logo | admin | §3.4 / §4.7 | P1 | ✅ done 2026-07-28 | 去掉纯 URL 输入；复用 MediaPicker；列表/选择器预览 |
+| T210.3 | 小程序菜单/切店展示自定义 Logo | client | §3.1 | P1 | ✅ done 2026-07-28 | 菜单头像与门店列表使用 ShopLogo |
+| T210.4 | 文档与任务闭环 | docs | §3.4 | P1 | ✅ done 2026-07-28 | prd/tasks 同步 |
+
+
+### P2 — 店铺号与订单号有含义重构（T209）— ✅ 2026-07-28
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T209.1 | tf_shops 新增 shop_no 列并写入有含义编号 | database | §5.1 | P2 | ✅ done 2026-07-28 | 格式 SH+YY+MM+5位顺序号（如 SH260600001）；Supabase ALTER+UPDATE 已执行 |
+| T209.2 | tf_orders 批量重新生成 order_no | database | §5.1 | P2 | ✅ done 2026-07-28 | 格式 TF+YYYYMMDD+类型码(D/P/I)+店铺序号2位+流水4位（如 TF20260726D010001）；13条历史订单已更新 |
+| T209.3 | 后端 allocateOrderNo 改造 | server | §4.2 | P2 | ✅ done 2026-07-28 | 加入 deliveryType 参数；deliveryTypeCode()/shopSeqNo()/buildOrderNo() 重写；序号统计按类型分维度 |
+| T209.4 | 同步 database-init.sql 与文档 | database/docs | §5.1 | P2 | ✅ done 2026-07-28 | tf_shops 加 shop_no 字段定义+增量迁移；order_no 注释更新 |
+
+### P0 — 小程序开发环境请求连通性修复（T208）— ✅ 2026-07-27
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T208.1 | 微信开发者工具模拟器 API 地址改为本机回环 | client/config | §3.1 / §4 | P0 | ✅ done 2026-07-27 | 开发构建默认 API/WS 使用 127.0.0.1，避免模拟器访问局域网 HTTP 地址导致 Network 0B failed；真机调试按注释改局域网 IP |
+
+### P2 — 小程序我的页视觉打磨（T207）— ✅ 2026-07-27
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T207.1 | 我的页头部与功能区样式优化 | client/mine | §3.1 / §3.12 | P2 | ✅ done 2026-07-27 | 头部信息层级、功能入口网格、账号服务列表与身份切换控件统一 token 与间距 |
+
+### P0 — 后台登录首屏与店铺请求收口（T206）— ✅ 2026-07-27
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T206.1 | 登录/注册后权限路由初始化修复 | admin | §3.4 / §3.19 | P0 | ✅ done 2026-07-27 | 持久化会话后整页进入首页，避免首次进入 /dashboard 命中旧权限标记 403 |
+| T206.2 | 店铺列表请求去重 | admin | §3.4 / §3.18 | P0 | ✅ done 2026-07-27 | 移除 ShopSelector 重复加载；shopContext 对 StrictMode/并发加载单飞 |
+
+### P0 — 后台登录后权限 403 修复（T205）— ✅ 2026-07-27
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T205.1 | users 接口放开 MERCHANT 权限 | server | §2 / §3.4 / §3.19 | P0 | ✅ done 2026-07-27 | user.controller @Roles(ADMIN)→(ADMIN,MERCHANT)；service 已按 shopId 收敛，商家仅见本店账号，修复 /api/users 返回 code 1003 |
+| T205.2 | 平台管理员种子账号 admin/admin123 | server/database | §2 / §5.1 | P0 | ✅ done 2026-07-27 | passwordLogin SEED_PENDING 支持 admin123/merchant123 激活；内存 admin 补 username/passwordHash；database-init.sql 新增 tf_users/tf_user_roles 平台管理员种子（shop_id NULL） |
+
+
+### P2 — PC 时间展示统一（T204）— ✅ 2026-07-27
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T204.1 | PC 端业务时间统一到年月日时分秒 | admin | §3.4 / §3.18 | P2 | ✅ done 2026-07-27 | admin formatTime 默认 YYYY-MM-DD HH:mm:ss；订单/用户/店铺/促销等展示同步 |
+
+
 ### P1 — 后台店铺菜单整合与看板口径（T203）— ✅ 2026-07-26
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
@@ -28,18 +148,19 @@
 | T202.3 | 我的页入口 + 文档同步 | client/docs | §3.12 / §4.10 | P2 | ✅ done 2026-07-26 | 顾客常用功能入口；prd/tasks/API |
 
 
-### P0 — 账号注册登录与角色审批（T201）— 🔄 进行中
+### P0 — 账号注册登录与角色审批（T201）— ✅ 2026-07-27
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T201.1 | merchant 角色 + 多角色/申请/通知表 + 种子商家 | server/docs/db | §3.19 / §2 | P0 | 🔄 in_progress | 测试商家已写入 Supabase；需执行 docs/migrations/v15-auth-roles.sql 补 password/表 |
-| T201.2 | 密码注册/登录/me/switch-role（双 Token） | server | §3.19 / §4.1 | P0 | 🔄 in_progress | 对齐 family-bookkeeping 会话模型 |
-| T201.3 | 商家/骑手申请与管理员审批 API | server | §3.19 | P0 | 🔄 in_progress | 一店一商家；驳回可重提 |
-| T201.4 | 站内消息通知 API | server | §3.19 | P0 | 🔄 in_progress | 列表/未读/已读；审批事件写入 |
-| T201.5 | PC 登录注册 + 角色分流菜单 | admin | §3.19 / §3.4 | P0 | ⏳ todo | admin/merchant 运营；顾客骑手轻量页 |
-| T201.6 | PC 审批中心 + 消息中心 | admin | §3.19 | P0 | ⏳ todo | 审批通过/驳回；消息铃铛 |
-| T201.7 | 小程序登录注册申请切换（禁 admin） | client | §3.19 / §3.1 | P0 | ⏳ todo | 身份申请、角色切换、消息列表 |
-| T201.8 | 权限守卫 merchant 化（全站 Roles） | server | §3.19 / §2 | P0 | 🔄 in_progress | 商家接口 merchant；平台接口 admin |
+| T201.1 | merchant 角色 + 多角色/申请/通知表 + 种子商家 | server/docs/db | §3.19 / §2 | P0 | ✅ done 2026-07-27 | 测试商家已写入 Supabase；v15 迁移已执行 |
+| T201.2 | 密码注册/登录/me/switch-role（双 Token） | server | §3.19 / §4.1 | P0 | ✅ done 2026-07-27 | 对齐 family-bookkeeping 会话模型；顾客默认身份 |
+| T201.3 | 商家/骑手申请与管理员审批 API | server | §3.19 | P0 | ✅ done 2026-07-27 | 一店一商家；申请前资格/店铺占用校验；驳回可重提 |
+| T201.4 | 站内消息通知 API | server | §3.19 | P0 | ✅ done 2026-07-27 | 列表/未读/已读；审批事件写入 |
+| T201.5 | PC 登录注册 + 角色分流菜单 | admin | §3.19 / §3.4 | P0 | ✅ done 2026-07-27 | 登录/顾客注册；按角色分流；申请入口资格提示 |
+| T201.6 | PC 审批中心 + 消息中心 | admin | §3.19 | P0 | ✅ done 2026-07-27 | 审批通过/驳回；消息中心 |
+| T201.7 | 小程序登录注册申请切换（禁 admin） | client | §3.19 / §3.1 | P0 | ✅ done 2026-07-27 | 顾客注册；身份申请/消息/切换；按角色切 tab |
+| T201.8 | 权限守卫 merchant 化（全站 Roles） | server | §3.19 / §2 | P0 | ✅ done 2026-07-27 | 商家接口 merchant；平台接口 admin |
+| T201.9 | 测试商家顾客视角可切回 | admin/server | §3.19 / §4.1 | P0 | ✅ done 2026-07-27 | 角色列表兜底补 merchant/customer；switch-role 回填 tf_user_roles；PC 切换器补默认顾客选项 |
 
 
 ### P1 — PC 多店铺与统一体验（T200）— ✅ 2026-07-26
@@ -608,10 +729,10 @@
 |------|------|
 | ⏳ todo | 8 |
 | 🔧 in_progress | 0 |
-| ✅ done | 141 |
+| ✅ done | 154 |
 | 🚫 blocked | 0 |
 | 📋 paused | 2 |
-| **总计** | **149** |
+| **总计** | **162** |
 
 > 说明：T151–T200 已完成；T43 仍为 paused。线上库 schema 落后于 database-init.sql，当前靠服务端兼容回退可演示上线。
 
@@ -621,15 +742,15 @@
 |--------|------|------|
 | P0 | 17 | ✅ 17 完成 |
 | P1 | 51 | ✅ 51 完成（含 T200 全系列） |
-| P2 | 80 | ✅ 79 完成 + 📋 1 暂缓（T43）；体验增强/质量基线 T151–T179 完成 |
+| P2 | 81 | ✅ 80 完成 + 📋 1 暂缓（T43）；体验增强/质量基线 T151–T179 完成 |
 
 ### 按模块分布
 
 | 模块 | 数量 | 任务范围 |
 |------|------|----------|
 | server | 52 | 含安全、订单、营业、地址、评价、审计、配送轨迹、下单核价与测试基线、多店铺隔离（T200.5） |
-| client | 45 | 含顾客/商家/骑手小程序体验、性能、测试基线、Sass 模块语法、切换门店（T200.7） |
-| admin | 23 | 含后台页面、ProComponents、测试与 TypeScript 门禁、SearchFilterBar/店铺上下文/审计中文（T200.1/2/4） |
+| client | 46 | 含顾客/商家/骑手小程序体验、性能、测试基线、Sass 模块语法、切换门店（T200.7）与我的页样式打磨（T207） |
+| admin | 24 | 含后台页面、ProComponents、测试与 TypeScript 门禁、SearchFilterBar/店铺上下文/审计中文（T200.1/2/4） |
 | client/admin | 4 | 小程序与后台共同完成项 |
 | server/client | 4 | 后端与小程序共同完成项（含骑手跨店 T200.6） |
 | database | 3 | 基础数据一致性任务 |
@@ -662,4 +783,4 @@
 
 ---
 
-*最后更新: 2026-07-26（T203 店铺菜单整合/看板口径/用户账号创建 done）*
+*最后更新: 2026-07-28（T211 腾讯地图坐标对齐 done）*

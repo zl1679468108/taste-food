@@ -25,6 +25,16 @@ export class RoleApplicationController {
     return success(rows);
   }
 
+  @Get('check-eligibility')
+  async checkEligibility(
+    @CurrentUser('userId') userId: string,
+    @Query('applyRole') applyRole: 'merchant' | 'rider',
+    @Query('shopName') shopName?: string,
+  ): Promise<ApiResponse<any>> {
+    const data = await this.service.checkEligibility(userId, applyRole, shopName);
+    return success(data);
+  }
+
   @Get()
   @Roles(UserRole.ADMIN)
   async list(@Query('status') status?: string): Promise<ApiResponse<any>> {

@@ -32,8 +32,11 @@ interface SessionRecord {
   createdAt: string;
 }
 
+type UserRoleItem = { role: string; shopId?: string | null; status: string };
+
 const memoryUsers: Map<string, UserRecord> = new Map();
 const openidToUser: Map<string, UserRecord> = new Map();
+const memoryUserRoles: Map<string, UserRoleItem[]> = new Map();
 /** 开发环境会话回退：sessionId -> session */
 const memorySessions: Map<string, SessionRecord> = new Map();
 /** access hash -> sessionId */
@@ -85,6 +88,9 @@ const PLATFORM_ADMIN_OPENIDS = new Set([
   'mock_platform_admin_openid_001',
 ]);
 const MAX_SESSIONS_PER_USER = 5;
+const DEMO_MERCHANT_USER_ID = 'b0000000-0000-0000-0000-000000000001';
+const DEMO_MERCHANT_OPENID = 'pwd_merchant_demo';
+const DEMO_MERCHANT_USERNAME = 'merchant';
 
 const initMemoryUsers = () => {
   if (memoryUsers.size > 0) return;
@@ -98,6 +104,9 @@ const initMemoryUsers = () => {
     shopId: undefined, // 平台管理员跨店
     nickName: '平台管理员',
     avatarUrl: '',
+    // 支持账号密码登录（开发种子：admin / admin123）；首次登录激活 SEED_PENDING
+    username: 'admin',
+    passwordHash: 'SEED_PENDING',
     createdAt: '2025-06-01T00:00:00Z',
   };
   memoryUsers.set(adminId, admin);
@@ -380,7 +389,8 @@ export class AuthService {
   private async listUserRoles(
     userId: string,
     fallback?: UserRecord,
-  ): Promise<Array<{ role: string; shopId?: string | null; status: string }>> {
+  ): Promise<UserRoleItem[]> {
+    const fallbackRoles = fallback ? this.inferFallbackRoles(fallback) : [];
     if (hasSupabase() && supabase) {
       const { data, error } = await supabase
         .from('tf_user_roles')
@@ -388,23 +398,107 @@ export class AuthService {
         .eq('user_id', userId)
         .eq('status', 'active');
       if (!error && data && data.length) {
-        return data.map((r) => ({
+        const dbRoles = data.map((r) => ({
           role: r.role,
           shopId: r.shop_id,
           status: r.status || 'active',
         }));
+        return this.mergeRoleItems(dbRoles, fallbackRoles);
       }
     }
-    if (fallback) {
-      return [
-        {
-          role: fallback.role,
-          shopId: fallback.shopId || null,
-          status: 'active',
-        },
-      ];
+    return this.mergeRoleItems(memoryUserRoles.get(userId) || [], fallbackRoles);
+  }
+
+  private inferFallbackRoles(user: UserRecord): UserRoleItem[] {
+    const roles: UserRoleItem[] = [];
+    const addRole = (role: string, shopId?: string | null) => {
+      const key = `${role}::${shopId || ''}`;
+      if (!roles.some((item) => `${item.role}::${item.shopId || ''}` === key)) {
+        roles.push({ role, shopId: shopId || null, status: 'active' });
+      }
+    };
+
+    if (
+      user.id === DEMO_MERCHANT_USER_ID ||
+      user.openid === DEMO_MERCHANT_OPENID ||
+      user.username === DEMO_MERCHANT_USERNAME
+    ) {
+      addRole(UserRole.MERCHANT, DEFAULT_SHOP_ID);
     }
-    return [];
+
+    if (user.role !== UserRole.CUSTOMER) {
+      addRole(user.role, this.normalizeShopId(user.role, user.shopId, user.openid) || null);
+    }
+    addRole(UserRole.CUSTOMER, null);
+    return roles;
+  }
+
+  private mergeRoleItems(...groups: UserRoleItem[][]): UserRoleItem[] {
+    const merged = new Map<string, UserRoleItem>();
+    for (const group of groups) {
+      for (const item of group) {
+        const key = `${item.role}::${item.shopId || ''}`;
+        if (!merged.has(key)) {
+          merged.set(key, {
+            role: item.role,
+            shopId: item.shopId || null,
+            status: item.status || 'active',
+          });
+        }
+      }
+    }
+    return [...merged.values()];
+  }
+
+  private async ensureActiveUserRoles(userId: string, roles: UserRoleItem[]) {
+    const activeRoles = roles.filter((item) => item.status === 'active');
+    memoryUserRoles.set(
+      userId,
+      this.mergeRoleItems(memoryUserRoles.get(userId) || [], activeRoles),
+    );
+
+    if (!hasSupabase() || !supabase) return;
+
+    for (const item of activeRoles) {
+      try {
+        let query = supabase
+          .from('tf_user_roles')
+          .select('id, status')
+          .eq('user_id', userId)
+          .eq('role', item.role)
+          .limit(1);
+        query = item.shopId ? query.eq('shop_id', item.shopId) : query.is('shop_id', null);
+        const { data, error } = await query;
+        if (error) {
+          this.logger.warn(`[Auth] 查询用户角色失败: ${error.message}`);
+          return;
+        }
+        if (data && data.length > 0) {
+          if (data[0].status !== 'active') {
+            await supabase
+              .from('tf_user_roles')
+              .update({ status: 'active' })
+              .eq('id', data[0].id);
+          }
+          continue;
+        }
+        const { error: insertError } = await supabase.from('tf_user_roles').insert({
+          user_id: userId,
+          role: item.role,
+          shop_id: item.shopId || null,
+          status: 'active',
+        });
+        if (insertError && insertError.code !== '23505') {
+          this.logger.warn(`[Auth] 补写用户角色失败: ${insertError.message}`);
+          return;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Auth] 补写用户角色异常: ${e instanceof Error ? e.message : e}`,
+        );
+        return;
+      }
+    }
   }
 
   async register(dto: RegisterDto): Promise<LoginResponseDto> {
@@ -502,9 +596,18 @@ export class AuthService {
       user = [...memoryUsers.values()].find((u) => u.username === username) || null;
     }
     if (!user || !verifyPassword(dto.password, user.passwordHash)) {
-      // 兼容种子 SEED_PENDING：自动写入 merchant123
-      if (user && user.passwordHash === 'SEED_PENDING' && dto.password === 'merchant123') {
-        const hash = hashPassword('merchant123');
+      // 兼容种子 SEED_PENDING：首次登录用约定的默认口令激活账号（仅开发种子账号）
+      // 平台管理员 admin/admin123；测试商家 merchant/merchant123
+      const seedDefaults: Record<string, string> = {
+        admin: 'admin123',
+        merchant: 'merchant123',
+      };
+      if (
+        user &&
+        user.passwordHash === 'SEED_PENDING' &&
+        seedDefaults[user.username || ''] === dto.password
+      ) {
+        const hash = hashPassword(dto.password);
         user.passwordHash = hash;
         if (hasSupabase() && supabase) {
           await supabase.from('tf_users').update({ password_hash: hash }).eq('id', user.id);
@@ -543,10 +646,13 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('用户不存在');
 
     const roles = await this.listUserRoles(userId, user);
+    await this.ensureActiveUserRoles(userId, roles);
     const allowed = roles.some((r) => r.role === role && r.status === 'active');
     // 平台管理员可切 admin；种子用户可能无 roles 表
     const isSelfAdmin = user.role === UserRole.ADMIN && role === UserRole.ADMIN;
-    if (!allowed && !isSelfAdmin && user.role !== role) {
+    // 任何登录用户都可切回顾客视角（顾客为默认身份）
+    const isCustomerFallback = role === UserRole.CUSTOMER;
+    if (!allowed && !isSelfAdmin && !isCustomerFallback && user.role !== role) {
       // 若 roles 表空但当前 role 匹配
       if (!(roles.length === 0 && user.role === role)) {
         throw new ForbiddenException('无权切换到该角色');

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Card, Col, Row, Space, Spin, Segmented,
 } from 'antd';
@@ -12,32 +12,21 @@ import {
   PieChartOutlined,
 } from '@ant-design/icons';
 import { Line, Pie } from '@ant-design/charts';
-import {
-  getOrderStats,
-  getDailyStats,
-  getStatusDistribution,
-  OrderStats,
-  DailyStatsItem as ApiDailyStatsItem,
-  StatusDistributionItem,
-} from '@/services/order';
+import { DailyStatsItem as ApiDailyStatsItem, StatusDistributionItem } from '@/services/order';
 import { formatPrice } from '@/utils/format';
 import StatisticCard from '@/components/StatisticCard';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useShopContext } from '@/hooks/useShopContext';
 import { brand } from '@/theme';
+import {
+  useOrderStatsToday,
+  useDailyStats,
+  useStatusDistribution,
+} from '@/hooks/queries';
+import { queryClient } from '@/lib/queryClient';
+import { queryKeys } from '@/hooks/queries/queryKeys';
 
 type RangeKey = '1' | '7' | '30';
-
-interface DailyStats {
-  date: string;
-  orders: number;
-  revenue: number;
-}
-
-interface StatusStats {
-  type: string;
-  value: number;
-}
 
 const RANGE_OPTIONS = [
   { label: '今日', value: '1' },
@@ -64,84 +53,68 @@ function getStatusText(status: string): string {
 const DashboardPage: React.FC = () => {
   const { shopId, ready, currentShop } = useShopContext();
   const [range, setRange] = useState<RangeKey>('7');
-  const [stats, setStats] = useState<OrderStats | null>(null);
-  const [chartLoading, setChartLoading] = useState(true);
-  const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
-  const [statusStats, setStatusStats] = useState<StatusStats[]>([]);
-  const [rangeStats, setRangeStats] = useState({ orders: 0, revenue: 0, completed: 0 });
 
-  const loadData = useCallback(async (days: number) => {
-    if (!shopId) return;
-    setChartLoading(true);
-    try {
-      const [statsResult, dailyResult, distResult] = await Promise.all([
-        getOrderStats(shopId),
-        getDailyStats(shopId, days),
-        // 状态分布与顶部时间范围对齐，避免「近7天订单12 / 已完成0 / 饼图全量」口径打架
-        getStatusDistribution(shopId, days),
-      ]);
+  // ---- React Query 替换原 useState + useEffect 手动拉取 ----
+  const { data: stats, isFetching: statsFetching } = useOrderStatsToday(shopId ?? undefined);
 
-      setStats(statsResult);
+  const { data: dailyRaw, isFetching: dailyFetching } = useDailyStats(
+    ready ? shopId ?? undefined : undefined,
+    Number(range),
+  );
 
-      const dailyData = (dailyResult || []).map((d: ApiDailyStatsItem) => {
-        const parts = d.date.split('-');
-        return {
-          date: parts.length >= 3 ? `${parts[1]}-${parts[2]}` : d.date,
-          orders: d.orders,
-          revenue: Math.round((d.revenue || 0) / 100),
-        };
-      });
-      setDailyStats(dailyData);
+  const { data: distRaw, isFetching: distFetching } = useStatusDistribution(
+    ready ? shopId ?? undefined : undefined,
+    Number(range),
+  );
 
-      const rangeOrders = dailyData.reduce((s, d) => s + d.orders, 0);
-      const rangeRevenue = dailyData.reduce((s, d) => s + d.revenue, 0);
-      const rangeCompleted = (distResult || [])
-        .filter((item) => item.status === 'completed')
-        .reduce((s, item) => s + (item.count || 0), 0);
-      setRangeStats({ orders: rangeOrders, revenue: rangeRevenue, completed: rangeCompleted });
+  const chartLoading = dailyFetching || distFetching;
 
-      const distData = (distResult || []).map((item: StatusDistributionItem) => ({
-        type: getStatusText(item.status),
-        value: item.count,
-      }));
-      setStatusStats(distData.length > 0 ? distData : [{ type: '暂无数据', value: 1 }]);
-    } catch (error) {
-      console.error('加载数据失败:', error);
-    } finally {
-      setChartLoading(false);
-    }
-  }, [shopId]);
-
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    void loadData(Number(range));
-  }, [range, loadData, ready, shopId]);
-
-  const handleRangeChange = (value: string | number) => {
-    setRange(String(value) as RangeKey);
+  // 手动刷新：精准 invalidate 当前页用到的三个 key
+  const handleRefresh = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.orders.statsToday(shopId ?? undefined) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.orders.statsDaily(shopId ?? undefined, Number(range)) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.orders.statsStatus(shopId ?? undefined, Number(range)) });
   };
 
-  // 今日：顶部卡用 today stats；7/30 天：订单/营收/已完成用区间口径；待处理始终为「当前」实时值
+  // 派生展示数据
+  const dailyStats = (dailyRaw || []).map((d: ApiDailyStatsItem) => {
+    const parts = d.date.split('-');
+    return {
+      date: parts.length >= 3 ? `${parts[1]}-${parts[2]}` : d.date,
+      orders: d.orders,
+      revenue: Math.round((d.revenue || 0) / 100),
+    };
+  });
+
+  const rangeOrders = dailyStats.reduce((s, d) => s + d.orders, 0);
+  const rangeRevenue = dailyStats.reduce((s, d) => s + d.revenue, 0);
+  const rangeCompleted = (distRaw || [])
+    .filter((item) => item.status === 'completed')
+    .reduce((s, item) => s + (item.count || 0), 0);
+
+  const statusStats = (distRaw || []).map((item: StatusDistributionItem) => ({
+    type: getStatusText(item.status),
+    value: item.count,
+  }));
+  const pieData = statusStats.length > 0 ? statusStats : [{ type: '暂无数据', value: 1 }];
+
   const isToday = range === '1';
-  const displayOrders = isToday ? (stats?.totalOrders || 0) : rangeStats.orders;
+  const displayOrders = isToday ? (stats?.totalOrders || 0) : rangeOrders;
   const displayRevenue = isToday
     ? (stats?.totalRevenue ? formatPrice(stats.totalRevenue).replace('¥', '') : '0.00')
-    : rangeStats.revenue.toFixed(2);
-  const displayCompleted = isToday ? (stats?.completedCount || 0) : rangeStats.completed;
-  const ordersTitle = isToday ? '今日订单' : `近${range}天订单`;
-  const revenueTitle = isToday ? '今日营收' : `近${range}天营收`;
-  const completedTitle = isToday ? '今日已完成' : `近${range}天已完成`;
+    : rangeRevenue.toFixed(2);
+  const displayCompleted = isToday ? (stats?.completedCount || 0) : rangeCompleted;
 
   const statCards = [
     {
-      title: ordersTitle,
+      title: isToday ? '今日订单' : `近${range}天订单`,
       value: displayOrders,
       icon: <ShoppingCartOutlined />,
       color: brand.primary,
       bgColor: brand.primaryLight,
     },
     {
-      title: revenueTitle,
+      title: isToday ? '今日营收' : `近${range}天营收`,
       value: displayRevenue,
       suffix: '元',
       icon: <MoneyCollectOutlined />,
@@ -156,7 +129,7 @@ const DashboardPage: React.FC = () => {
       bgColor: brand.warningSoft,
     },
     {
-      title: completedTitle,
+      title: isToday ? '今日已完成' : `近${range}天已完成`,
       value: displayCompleted,
       icon: <CheckCircleOutlined />,
       color: brand.success,
@@ -185,7 +158,7 @@ const DashboardPage: React.FC = () => {
   };
 
   const pieConfig = {
-    data: statusStats,
+    data: pieData,
     angleField: 'value',
     colorField: 'type',
     radius: 0.8,
@@ -202,14 +175,14 @@ const DashboardPage: React.FC = () => {
       <PageHeaderActions
         icon={<RiseOutlined style={{ marginRight: 8 }} />}
         title={currentShop?.name ? `数据看板 · ${currentShop.name}` : '数据看板'}
-        onRefresh={() => loadData(Number(range))}
+        onRefresh={handleRefresh}
       />
 
       <div style={{ marginBottom: 16 }}>
         <Segmented
           options={RANGE_OPTIONS}
           value={range}
-          onChange={handleRangeChange}
+          onChange={(v) => setRange(String(v) as RangeKey)}
         />
       </div>
 
@@ -231,12 +204,7 @@ const DashboardPage: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={14}>
           <Card
-            title={
-              <Space>
-                <LineChartOutlined />
-                <span>{rangeLabel}订单趋势</span>
-              </Space>
-            }
+            title={<Space><LineChartOutlined /><span>{rangeLabel}订单趋势</span></Space>}
             bordered={false}
             style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
           >
@@ -245,20 +213,13 @@ const DashboardPage: React.FC = () => {
                 <Spin />
               </div>
             ) : (
-              <div style={{ height: 300 }}>
-                <Line {...lineConfig} />
-              </div>
+              <div style={{ height: 300 }}><Line {...lineConfig} /></div>
             )}
           </Card>
         </Col>
         <Col xs={24} lg={10}>
           <Card
-            title={
-              <Space>
-                <PieChartOutlined />
-                <span>{isToday ? '今日' : `近${range}天`}订单状态分布</span>
-              </Space>
-            }
+            title={<Space><PieChartOutlined /><span>{isToday ? '今日' : `近${range}天`}订单状态分布</span></Space>}
             bordered={false}
             style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
           >
@@ -267,9 +228,7 @@ const DashboardPage: React.FC = () => {
                 <Spin />
               </div>
             ) : (
-              <div style={{ height: 300 }}>
-                <Pie {...pieConfig} />
-              </div>
+              <div style={{ height: 300 }}><Pie {...pieConfig} /></div>
             )}
           </Card>
         </Col>
@@ -278,12 +237,7 @@ const DashboardPage: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col span={24}>
           <Card
-            title={
-              <Space>
-                <LineChartOutlined />
-                <span>{rangeLabel}营收趋势（元）</span>
-              </Space>
-            }
+            title={<Space><LineChartOutlined /><span>{rangeLabel}营收趋势（元）</span></Space>}
             bordered={false}
             style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
           >
@@ -292,14 +246,11 @@ const DashboardPage: React.FC = () => {
                 <Spin />
               </div>
             ) : (
-              <div style={{ height: 280 }}>
-                <Line {...revenueConfig} />
-              </div>
+              <div style={{ height: 280 }}><Line {...revenueConfig} /></div>
             )}
           </Card>
         </Col>
       </Row>
-
     </div>
   );
 };

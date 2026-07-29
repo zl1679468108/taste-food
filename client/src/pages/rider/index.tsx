@@ -156,7 +156,7 @@ const RiderPage = () => {
     }
   };
 
-  const getCurrentLocationOrDemo = async () => {
+  const getCurrentLocationOrDemo = async (order?: Order) => {
     try {
       const res = await Taro.getLocation({ type: 'gcj02' });
       return {
@@ -168,9 +168,29 @@ const RiderPage = () => {
       };
     } catch {
       const drift = (Date.now() % 60000) / 60000;
+      const shopLat = order?.shopLatitude;
+      const shopLng = order?.shopLongitude;
+      const destLat = order?.deliveryLatitude;
+      const destLng = order?.deliveryLongitude;
+      const baseLat =
+        typeof shopLat === 'number' && typeof destLat === 'number'
+          ? (shopLat + destLat) / 2
+          : typeof destLat === 'number'
+            ? destLat
+            : typeof shopLat === 'number'
+              ? shopLat
+              : DEMO_RIDER_COORD.latitude;
+      const baseLng =
+        typeof shopLng === 'number' && typeof destLng === 'number'
+          ? (shopLng + destLng) / 2
+          : typeof destLng === 'number'
+            ? destLng
+            : typeof shopLng === 'number'
+              ? shopLng
+              : DEMO_RIDER_COORD.longitude;
       return {
-        latitude: DEMO_RIDER_COORD.latitude + drift * 0.004,
-        longitude: DEMO_RIDER_COORD.longitude + drift * 0.005,
+        latitude: baseLat + drift * 0.004,
+        longitude: baseLng + drift * 0.005,
         speed: 0,
         accuracy: 0,
         source: 'demo_location',
@@ -180,10 +200,11 @@ const RiderPage = () => {
 
   /** 上报配送位置 */
   const handleReportLocation = async (orderId: string) => {
+    const target = orders.find((o) => o.id === orderId);
     if (actingId) return;
     setActingId(`track-${orderId}`);
     try {
-      const location = await getCurrentLocationOrDemo();
+      const location = await getCurrentLocationOrDemo(target);
       await post(`/orders/${orderId}/delivery-track`, location);
       Taro.showToast({ title: '位置已更新', icon: 'success' });
     } catch (e) {
@@ -196,13 +217,6 @@ const RiderPage = () => {
 
   return (
     <View className='rider-page'>
-      <View className='rider-page__mine-entry' onClick={() => Taro.switchTab({ url: '/pages/mine/index' })}>
-        <View className='rider-page__mine-entry-left'>
-          <Text className='rider-page__mine-entry-title'>我的账号</Text>
-          <Text className='rider-page__mine-entry-desc'>账号信息 · 退出登录</Text>
-        </View>
-        <Text className='rider-page__mine-entry-go'>进入</Text>
-      </View>
       <FilterTabs
         tabs={[
           { key: 'pool', label: '待抢单' },

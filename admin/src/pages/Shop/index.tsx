@@ -28,23 +28,23 @@ import {
   ShoppingCartOutlined,
   ClockCircleOutlined,
   SaveOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import {
-  getShop,
-  updateShopStatus,
-  updateShop,
-  updateBusinessHours,
   BusinessDayKey,
   BusinessHours,
   Shop,
 } from '@/services/shop';
+import { useShop, useUpdateShop, useUpdateShopStatus, useUpdateBusinessHours } from '@/hooks/queries';
 import { useShopContext } from '@/hooks/useShopContext';
 import { formatPrice } from '@/utils/format';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 import StatisticCard from '@/components/StatisticCard';
 import { brand } from '@/theme';
+import MediaPicker from '@/components/MediaPicker';
+import ShopLogo from '@/components/ShopLogo';
 
 const { Text, Title } = Typography;
 
@@ -133,49 +133,41 @@ const draftToHours = (draft: Record<BusinessDayKey, DayDraft>): BusinessHours =>
 
 const ShopPage: React.FC = () => {
   const { shopId, ready, loadShops: reloadShopContext } = useShopContext();
-  const [shop, setShop] = useState<Shop | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editSaving, setEditSaving] = useState(false);
-  const [hoursSaving, setHoursSaving] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [hoursDraft, setHoursDraft] = useState<Record<BusinessDayKey, DayDraft>>(hoursToDraft());
   const [form] = Form.useForm();
 
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    loadShop();
-  }, [ready, shopId]);
+  const shopQuery = useShop(ready && shopId ? shopId : '');
+  const shop: Shop | null = shopQuery.data ?? null;
+  const loading = shopQuery.isPending;
+  const loadError = shopQuery.isError;
 
-  const loadShop = async () => {
-    setLoading(true);
-    setLoadError(false);
-    try {
-      const res = await getShop(shopId);
-      setShop(res);
-      setHoursDraft(hoursToDraft(res.businessHours));
-    } catch (error) {
-      console.error('加载店铺失败:', error);
-      setShop(null);
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const updateShopMutation = useUpdateShop();
+  const updateStatusMutation = useUpdateShopStatus();
+  const updateHoursMutation = useUpdateBusinessHours();
+  const saving = updateStatusMutation.isPending;
+  const editSaving = updateShopMutation.isPending;
+  const hoursSaving = updateHoursMutation.isPending;
+
+  // 营业时段是本地可编辑草稿。依赖序列化后的内容而非 shop 对象身份，
+  // 避免窗口聚焦触发的后台 refetch 覆盖用户正在编辑的草稿
+  const businessHoursKey = shop?.businessHours ? JSON.stringify(shop.businessHours) : '';
+  useEffect(() => {
+    if (!businessHoursKey) return;
+    setHoursDraft(hoursToDraft(JSON.parse(businessHoursKey) as BusinessHours));
+  }, [businessHoursKey]);
 
   const handleStatusChange = async (checked: boolean) => {
     if (!shop) return;
-    setSaving(true);
     try {
-      await updateShopStatus(shop.id || shopId, checked ? 'open' : 'closed');
+      await updateStatusMutation.mutateAsync({
+        id: shop.id || shopId,
+        status: checked ? 'open' : 'closed',
+      });
       message.success('状态更新成功');
-      loadShop();
       void reloadShopContext();
     } catch (error) {
       console.error('状态更新失败:', error);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -184,6 +176,8 @@ const ShopPage: React.FC = () => {
       name: shop?.name || '',
       description: shop?.description || '',
       address: shop?.address || '',
+      latitude: shop?.latitude,
+      longitude: shop?.longitude,
       phone: shop?.phone || '',
       logoUrl: shop?.logoUrl || '',
       deliveryRange: shop?.deliveryRange ? shop.deliveryRange / 1000 : 3,
@@ -196,26 +190,27 @@ const ShopPage: React.FC = () => {
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      setEditSaving(true);
-      await updateShop(shop?.id || shopId, {
-        name: values.name,
-        description: values.description,
-        address: values.address,
-        phone: values.phone,
-        logoUrl: values.logoUrl,
-        deliveryRange: Math.round(values.deliveryRange * 1000),
-        deliveryFee: Math.round(values.deliveryFee * 100),
-        minOrderAmount: Math.round(values.minOrderAmount * 100),
+      await updateShopMutation.mutateAsync({
+        id: shop?.id || shopId,
+        data: {
+          name: values.name,
+          description: values.description,
+          address: values.address,
+          latitude: values.latitude === '' || values.latitude == null ? undefined : Number(values.latitude),
+          longitude: values.longitude === '' || values.longitude == null ? undefined : Number(values.longitude),
+          phone: values.phone,
+          logoUrl: values.logoUrl,
+          deliveryRange: Math.round(values.deliveryRange * 1000),
+          deliveryFee: Math.round(values.deliveryFee * 100),
+          minOrderAmount: Math.round(values.minOrderAmount * 100),
+        },
       });
       message.success('保存成功');
       setEditModalVisible(false);
-      loadShop();
       void reloadShopContext();
     } catch (error) {
       if ((error as { errorFields?: unknown })?.errorFields) return;
       console.error('保存失败:', error);
-    } finally {
-      setEditSaving(false);
     }
   };
 
@@ -229,14 +224,40 @@ const ShopPage: React.FC = () => {
     }));
   };
 
+  const cloneDayDraft = (draft: DayDraft): DayDraft => ({
+    closed: draft.closed,
+    range: draft.range ? [draft.range[0].clone(), draft.range[1].clone()] : null,
+  });
+
+  // 仅本地草稿填充：把周一的休息状态与时段复制到周二-周日，不调用接口
+  const applyMondayToRestOfWeek = () => {
+    const monday = hoursDraft.mon;
+    if (!monday) return;
+    if (!monday.closed && !monday.range) {
+      message.warning('请先设置周一的营业时间或勾选休息');
+      return;
+    }
+    setHoursDraft((prev) => {
+      const source = cloneDayDraft(prev.mon);
+      const next = { ...prev } as Record<BusinessDayKey, DayDraft>;
+      for (const day of DAY_ORDER) {
+        if (day === 'mon') continue;
+        next[day] = cloneDayDraft(source);
+      }
+      return next;
+    });
+    message.success('已将周一设置同步到周二至周日（本地草稿，点保存后生效）');
+  };
+
   const handleSaveHours = async () => {
     if (!shop) return;
     try {
       const businessHours = draftToHours(hoursDraft);
-      setHoursSaving(true);
-      await updateBusinessHours(shop.id || shopId, businessHours);
+      await updateHoursMutation.mutateAsync({
+        id: shop.id || shopId,
+        businessHours,
+      });
       message.success('营业时段已保存');
-      loadShop();
     } catch (error) {
       // 客户端校验错误需要本地提示；接口错误由拦截器处理
       if (error instanceof Error && error.message.includes('开始时间')) {
@@ -244,8 +265,6 @@ const ShopPage: React.FC = () => {
       } else {
         console.error('保存营业时段失败:', error);
       }
-    } finally {
-      setHoursSaving(false);
     }
   };
 
@@ -260,7 +279,7 @@ const ShopPage: React.FC = () => {
       <PageHeaderActions
         icon={<ShopOutlined style={{ marginRight: 8 }} />}
         title="店铺信息"
-        onRefresh={loadShop}
+        onRefresh={() => shopQuery.refetch()}
         extra={
           shop ? (
             <Button type="primary" icon={<EditOutlined />} onClick={handleEdit}>
@@ -273,7 +292,7 @@ const ShopPage: React.FC = () => {
       {loadError && !loading ? (
         <TableCard>
           <Empty description="店铺信息加载失败" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-            <Button type="primary" icon={<ReloadOutlined />} onClick={loadShop}>
+            <Button type="primary" icon={<ReloadOutlined />} onClick={() => shopQuery.refetch()}>
               重新加载
             </Button>
           </Empty>
@@ -375,15 +394,21 @@ const ShopPage: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="店铺地址" span={2}>
                 {shop?.address || '-'}
+                {typeof shop?.latitude === 'number' && typeof shop?.longitude === 'number'
+                  ? `（${shop.latitude.toFixed(6)}, ${shop.longitude.toFixed(6)}）`
+                  : ''}
               </Descriptions.Item>
               <Descriptions.Item label="Logo">
-                {shop?.logoUrl ? (
-                  <Text ellipsis style={{ maxWidth: 280 }} title={shop.logoUrl}>
-                    {shop.logoUrl}
-                  </Text>
-                ) : (
-                  '-'
-                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <ShopLogo src={shop?.logoUrl} size={48} preview />
+                  {shop?.logoUrl ? (
+                    <Text ellipsis style={{ maxWidth: 280 }} title={shop.logoUrl}>
+                      {shop.logoUrl}
+                    </Text>
+                  ) : (
+                    <Text type="secondary">默认 Logo</Text>
+                  )}
+                </div>
               </Descriptions.Item>
               <Descriptions.Item label="配送参数">
                 {shop
@@ -415,7 +440,14 @@ const ShopPage: React.FC = () => {
                   营业时段
                 </Title>
               </Space>
-              <Space>
+              <Space wrap>
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={applyMondayToRestOfWeek}
+                  disabled={!shop || hoursSaving}
+                >
+                  同步周一到全周
+                </Button>
                 <Button
                   onClick={() => setHoursDraft(hoursToDraft(shop?.businessHours))}
                   disabled={!shop || hoursSaving}
@@ -435,7 +467,7 @@ const ShopPage: React.FC = () => {
             </div>
 
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-              按星期配置营业时段（每天一段）。勾选「休息」表示当日不营业。
+              按星期配置营业时段（每天一段）。勾选「休息」表示当日不营业。可先配好周一，再点「同步周一到全周」批量填充其余天（仅本地草稿）。
             </Text>
 
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
@@ -531,6 +563,47 @@ const ShopPage: React.FC = () => {
             <Input placeholder="请输入店铺地址" />
           </Form.Item>
           <Form.Item
+            label="腾讯地图坐标"
+            extra="GCJ-02；可填选点结果。若只填地址且服务端配置了 TENCENT_MAP_KEY，将自动地理编码。"
+          >
+            <Input.Group compact>
+              <Form.Item
+                name="latitude"
+                noStyle
+                rules={[
+                  {
+                    validator: async (_, value) => {
+                      if (value === undefined || value === null || value === '') return;
+                      const n = Number(value);
+                      if (!Number.isFinite(n) || n < -90 || n > 90) {
+                        throw new Error('纬度需在 -90 ~ 90');
+                      }
+                    },
+                  },
+                ]}
+              >
+                <Input style={{ width: '50%' }} placeholder="纬度 latitude" allowClear />
+              </Form.Item>
+              <Form.Item
+                name="longitude"
+                noStyle
+                rules={[
+                  {
+                    validator: async (_, value) => {
+                      if (value === undefined || value === null || value === '') return;
+                      const n = Number(value);
+                      if (!Number.isFinite(n) || n < -180 || n > 180) {
+                        throw new Error('经度需在 -180 ~ 180');
+                      }
+                    },
+                  },
+                ]}
+              >
+                <Input style={{ width: '50%' }} placeholder="经度 longitude" allowClear />
+              </Form.Item>
+            </Input.Group>
+          </Form.Item>
+          <Form.Item
             name="phone"
             label="联系电话"
             rules={[
@@ -548,7 +621,8 @@ const ShopPage: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="logoUrl"
-            label="Logo URL"
+            label="店铺 Logo"
+            extra="支持从图库选择或单张上传；未上传时前台自动使用默认 Logo"
             rules={[
               {
                 validator: async (_, value) => {
@@ -557,13 +631,18 @@ const ShopPage: React.FC = () => {
                     // eslint-disable-next-line no-new
                     new URL(value);
                   } catch {
-                    throw new Error('请输入合法的 URL');
+                    throw new Error('请选择或上传合法的图片');
                   }
                 },
               },
             ]}
           >
-            <Input placeholder="https://...（可选）" allowClear />
+            <MediaPicker
+              shopId={shop?.id || shopId}
+              selectedHint="已选择店铺 Logo"
+              emptyHint="尚未上传 Logo，将使用默认店铺图标"
+              libraryButtonText="从图库选择 Logo"
+            />
           </Form.Item>
           <Row gutter={16}>
             <Col span={8}>

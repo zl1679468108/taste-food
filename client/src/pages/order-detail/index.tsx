@@ -16,9 +16,6 @@ import BottomSheet from '../../components/BottomSheet';
 import orderActiveIcon from '../../assets/icons/order-active.png';
 import './index.scss';
 
-const DEFAULT_SHOP_COORD = { latitude: 30.27415, longitude: 120.15515 };
-const DEFAULT_CUSTOMER_COORD = { latitude: 30.27958, longitude: 120.16638 };
-
 type MapPoint = {
   latitude: number;
   longitude: number;
@@ -55,6 +52,10 @@ const OrderDetailPage = () => {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [goodsExpanded, setGoodsExpanded] = useState(false);
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
+  const [cancelSheetVisible, setCancelSheetVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   // orderId 跨渲染持久化（不触发重渲染）
   const orderIdRef = useRef<string>('');
@@ -284,25 +285,39 @@ const OrderDetailPage = () => {
     }
   };
 
-  /** 取消订单 */
+  /** 打开取消原因弹层 */
+  const openCancelSheet = () => {
+    if (!order) return;
+    setCancelReason('');
+    setCancelSheetVisible(true);
+  };
+
+  /** 取消订单：待支付/已支付可自主取消；商家接单后不可自行取消；原因必填 */
   const cancelOrder = async () => {
     if (!order) return;
+    const reason = cancelReason.trim();
+    if (!reason) {
+      Taro.showToast({ title: '请填写取消原因', icon: 'none' });
+      return;
+    }
+    if (reason.length < 2) {
+      Taro.showToast({ title: '原因至少 2 个字', icon: 'none' });
+      return;
+    }
 
-    Taro.showModal({
-      title: '确认取消',
-      content: '确定要取消此订单吗？',
-      success: async (res) => {
-        if (res.confirm) {
-          try {
-            await post(`/orders/${order.id}/status`, { status: OrderStatus.CANCELLED });
-            Taro.showToast({ title: '订单已取消', icon: 'success' });
-            loadOrder(order.id);
-          } catch (error: any) {
-            console.error('取消订单失败:', error);
-          }
-        }
-      },
-    });
+    setCancelling(true);
+    try {
+      // 顾客取消走专用 /cancel（含本人校验与已支付退款），不要走商家专用 /status
+      await post(`/orders/${order.id}/cancel`, { reason });
+      setCancelSheetVisible(false);
+      setCancelReason('');
+      Taro.showToast({ title: '订单已取消', icon: 'success' });
+      loadOrder(order.id);
+    } catch (error: any) {
+      console.error('取消订单失败:', error);
+    } finally {
+      setCancelling(false);
+    }
   };
 
 
@@ -353,59 +368,112 @@ const OrderDetailPage = () => {
   const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const total = order.total;
   const lastTrackPoint = deliveryTrack[deliveryTrack.length - 1];
-  const mapCenter: MapPoint = lastTrackPoint || DEFAULT_CUSTOMER_COORD;
-  const routePoints: MapPoint[] =
-    deliveryTrack.length > 0
-      ? [DEFAULT_SHOP_COORD, ...deliveryTrack.map((point) => ({
-          latitude: point.latitude,
-          longitude: point.longitude,
-        })), DEFAULT_CUSTOMER_COORD]
-      : [DEFAULT_SHOP_COORD, DEFAULT_CUSTOMER_COORD];
+  const shopPoint: MapPoint | null =
+    typeof order.shopLatitude === 'number' && typeof order.shopLongitude === 'number'
+      ? { latitude: order.shopLatitude, longitude: order.shopLongitude }
+      : null;
+  const customerPoint: MapPoint | null =
+    typeof order.deliveryLatitude === 'number' && typeof order.deliveryLongitude === 'number'
+      ? { latitude: order.deliveryLatitude, longitude: order.deliveryLongitude }
+      : null;
+  const hasMapPoints = !!(shopPoint || customerPoint || lastTrackPoint || deliveryTrack.length > 0);
+  const mapCenter: MapPoint =
+    lastTrackPoint
+    || customerPoint
+    || shopPoint
+    || { latitude: 28.6820, longitude: 115.8579 }; // 仅作无点兜底中心，不用于标注
+  const routePoints: MapPoint[] = [];
+  if (shopPoint) routePoints.push(shopPoint);
+  if (deliveryTrack.length > 0) {
+    routePoints.push(
+      ...deliveryTrack.map((point) => ({
+        latitude: point.latitude,
+        longitude: point.longitude,
+      })),
+    );
+  }
+  if (customerPoint) routePoints.push(customerPoint);
+  // 无轨迹且仅有起终点时保留两点预估线
+  if (routePoints.length === 0 && shopPoint && customerPoint) {
+    routePoints.push(shopPoint, customerPoint);
+  }
+
+  const mapIncludePoints: MapPoint[] = [];
+  {
+    const seen = new Set<string>();
+    const push = (p?: MapPoint | null) => {
+      if (!p) return;
+      const key = `${p.latitude},${p.longitude}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      mapIncludePoints.push(p);
+    };
+    push(shopPoint);
+    for (const p of routePoints) push(p);
+    push(customerPoint);
+    if (lastTrackPoint) {
+      push({ latitude: lastTrackPoint.latitude, longitude: lastTrackPoint.longitude });
+    }
+  }
+
+  const deliveryPolyline = routePoints.length >= 2
+    ? [{
+        points: routePoints,
+        color: '#FF6B35',
+        width: 5,
+        dottedLine: deliveryTrack.length === 0,
+      }]
+    : [];
+
   const deliveryMarkers: any[] = [
-    {
-      id: 1,
-      latitude: DEFAULT_SHOP_COORD.latitude,
-      longitude: DEFAULT_SHOP_COORD.longitude,
-      iconPath: orderActiveIcon,
-      width: 28,
-      height: 28,
-      callout: {
-        content: '商家',
-        color: '#FFFFFF',
-        fontSize: 11,
-        borderRadius: 10,
-        borderWidth: 0,
-        borderColor: '#FF6B35',
-        bgColor: '#FF6B35',
-        padding: 4,
-        display: 'ALWAYS' as const,
-        textAlign: 'center',
-        anchorX: 0,
-        anchorY: 0,
-      },
-    },
-    {
-      id: 2,
-      latitude: DEFAULT_CUSTOMER_COORD.latitude,
-      longitude: DEFAULT_CUSTOMER_COORD.longitude,
-      iconPath: orderActiveIcon,
-      width: 28,
-      height: 28,
-      callout: {
-        content: '送达',
-        color: '#FFFFFF',
-        fontSize: 11,
-        borderRadius: 10,
-        borderWidth: 0,
-        borderColor: '#00C853',
-        bgColor: '#00C853',
-        padding: 4,
-        display: 'ALWAYS' as const,
-        textAlign: 'center',
-        anchorX: 0,
-        anchorY: 0,
-      },
-    },
+    ...(shopPoint
+      ? [{
+          id: 1,
+          latitude: shopPoint.latitude,
+          longitude: shopPoint.longitude,
+          iconPath: orderActiveIcon,
+          width: 28,
+          height: 28,
+          callout: {
+            content: '商家',
+            color: '#FFFFFF',
+            fontSize: 11,
+            borderRadius: 10,
+            borderWidth: 0,
+            borderColor: '#FF6B35',
+            bgColor: '#FF6B35',
+            padding: 4,
+            display: 'ALWAYS' as const,
+            textAlign: 'center',
+            anchorX: 0,
+            anchorY: 0,
+          },
+        }]
+      : []),
+    ...(customerPoint
+      ? [{
+          id: 2,
+          latitude: customerPoint.latitude,
+          longitude: customerPoint.longitude,
+          iconPath: orderActiveIcon,
+          width: 28,
+          height: 28,
+          callout: {
+            content: '送达',
+            color: '#FFFFFF',
+            fontSize: 11,
+            borderRadius: 10,
+            borderWidth: 0,
+            borderColor: '#00C853',
+            bgColor: '#00C853',
+            padding: 4,
+            display: 'ALWAYS' as const,
+            textAlign: 'center',
+            anchorX: 0,
+            anchorY: 0,
+          },
+        }]
+      : []),
     ...(lastTrackPoint
       ? [{
           id: 3,
@@ -437,7 +505,8 @@ const OrderDetailPage = () => {
       <StatusTimeline
         currentStatus={order.status}
         deliveryType={order.deliveryType}
-        subtitle={`当前${statusText} · 下单 ${formatTime(order.createdAt, 'MM-DD HH:mm')}`}
+        orderNo={shortOrderId(order.id, order.orderNo)}
+        createdAt={order.createdAt}
         statusHistory={[
           { status: 'pending_payment', time: order.createdAt },
           ...(order.status !== 'pending_payment'
@@ -446,37 +515,85 @@ const OrderDetailPage = () => {
         ]}
       />
 
+      {(order.cancelReason || order.rejectReason) && (
+        <View className='info-card order-reason-card'>
+          {order.cancelReason ? (
+            <View className='info-row'>
+              <Text className='info-row__label'>取消原因</Text>
+              <Text className='info-row__value info-row__value--danger'>{order.cancelReason}</Text>
+            </View>
+          ) : null}
+          {order.rejectReason ? (
+            <View className='info-row'>
+              <Text className='info-row__label'>拒单原因</Text>
+              <Text className='info-row__value info-row__value--danger'>{order.rejectReason}</Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
       {order.deliveryType === DeliveryType.DELIVERY && (
         <View className='delivery-map'>
           <View className='delivery-map__header'>
             <Text className='delivery-map__title'>配送轨迹</Text>
-            <Text className='delivery-map__status'>
-              {trackLoading
-                ? '更新中'
-                : lastTrackPoint
-                  ? `最后更新 ${formatTime(lastTrackPoint.recordedAt, 'HH:mm')}`
-                  : order.status === OrderStatus.DELIVERING
-                    ? '等待骑手上报位置'
-                    : '待开始配送'}
-            </Text>
+            <View className='delivery-map__header-right'>
+              <Text className='delivery-map__status'>
+                {trackLoading
+                  ? '更新中'
+                  : lastTrackPoint
+                    ? `最后更新 ${formatTime(lastTrackPoint.recordedAt, 'HH:mm')}`
+                    : !hasMapPoints
+                      ? '暂无定位信息'
+                      : order.status === OrderStatus.DELIVERING
+                        ? '等待骑手上报位置'
+                        : '待开始配送'}
+              </Text>
+              {hasMapPoints ? (
+                <View
+                  className='delivery-map__expand'
+                  onClick={() => setMapFullscreen(true)}
+                >
+                  <Text className='delivery-map__expand-text'>全屏</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
-          <TaroMap
-            className='delivery-map__map'
-            latitude={mapCenter.latitude}
-            longitude={mapCenter.longitude}
-            scale={14}
-            markers={deliveryMarkers}
-            polyline={[{
-              points: routePoints,
-              color: '#FF6B35',
-              width: 5,
-              dottedLine: deliveryTrack.length === 0,
-            }]}
-            showLocation={false}
-            onError={() => {
-              console.warn('配送地图加载失败');
-            }}
-          />
+          {hasMapPoints ? (
+            <View
+              className='delivery-map__map-wrap'
+              onClick={() => setMapFullscreen(true)}
+            >
+              {/* 全屏时卸载预览 map，避免原生组件层级穿透遮罩 */}
+              {!mapFullscreen ? (
+                <TaroMap
+                  className='delivery-map__map'
+                  latitude={mapCenter.latitude}
+                  longitude={mapCenter.longitude}
+                  scale={14}
+                  markers={deliveryMarkers}
+                  polyline={deliveryPolyline}
+                  showLocation={false}
+                  enableScroll={false}
+                  enableZoom={false}
+                  includePoints={mapIncludePoints}
+                  onTap={() => setMapFullscreen(true)}
+                  onError={() => {
+                    console.warn('配送地图加载失败');
+                  }}
+                />
+              ) : (
+                <View className='delivery-map__map delivery-map__map--placeholder'>
+                  <Text className='delivery-map__tap-tip-text'>全屏查看中</Text>
+                </View>
+              )}
+            </View>
+          ) : (
+            <View className='delivery-map__empty'>
+              <Text className='delivery-map__empty-text'>
+                暂无可用坐标。请在地址簿地图选点，或为店铺配置腾讯地图坐标后重新下单。
+              </Text>
+            </View>
+          )}
           <View className='delivery-map__meta'>
             <View className='delivery-map__meta-item'>
               <View className='delivery-map__legend-dot delivery-map__legend-dot--shop' />
@@ -498,7 +615,7 @@ const OrderDetailPage = () => {
         </View>
       )}
 
-      {/* 配送信息 */}
+      {/* 配送信息：方式 → 地址/桌号 → 联系人 → 电话 → 备注 → 发票 */}
       <View className='info-card'>
         <View className='info-row'>
           <Text className='info-row__label'>配送方式</Text>
@@ -516,6 +633,18 @@ const OrderDetailPage = () => {
             <Text className='info-row__value'>{order.tableNo}</Text>
           </View>
         )}
+        {order.contactName && (
+          <View className='info-row'>
+            <Text className='info-row__label'>联系人</Text>
+            <Text className='info-row__value'>{order.contactName}</Text>
+          </View>
+        )}
+        {order.contactPhone && (
+          <View className='info-row'>
+            <Text className='info-row__label'>联系电话</Text>
+            <Text className='info-row__value'>{order.contactPhone}</Text>
+          </View>
+        )}
         {order.remark && (
           <View className='info-row'>
             <Text className='info-row__label'>备注</Text>
@@ -530,18 +659,6 @@ const OrderDetailPage = () => {
               {order.invoiceTitle ? ` · ${order.invoiceTitle}` : ''}
               {order.invoiceTaxNo ? ` · 税号${order.invoiceTaxNo}` : ''}
             </Text>
-          </View>
-        )}
-        {order.contactName && (
-          <View className='info-row'>
-            <Text className='info-row__label'>联系人</Text>
-            <Text className='info-row__value'>{order.contactName}</Text>
-          </View>
-        )}
-        {order.contactPhone && (
-          <View className='info-row'>
-            <Text className='info-row__label'>联系电话</Text>
-            <Text className='info-row__value'>{order.contactPhone}</Text>
           </View>
         )}
       </View>
@@ -597,23 +714,13 @@ const OrderDetailPage = () => {
           </View>
         </View>
       </View>
-      {/* 订单信息 */}
-      <View className='order-meta'>
-        <Text className='order-meta__item'>
-          订单号: {shortOrderId(order.id)}
-        </Text>
-        <Text className='order-meta__item'>
-          下单时间: {formatTime(order.createdAt, 'YYYY-MM-DD HH:mm:ss')}
-        </Text>
-      </View>
-
       {/* 底部操作栏 */}
       <View className='order-actions'>
         {/* 取消按钮：待支付/已支付均可取消（已支付触发退款） */}
         {[OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status) && (
           <View
             className='order-actions__btn order-actions__btn--danger'
-            onClick={() => cancelOrder()}
+            onClick={() => openCancelSheet()}
           >
             取消订单
           </View>
@@ -769,6 +876,98 @@ const OrderDetailPage = () => {
           )}
         </View>
       </BottomSheet>
+
+      {/* 取消原因弹层 */}
+      <BottomSheet
+        visible={cancelSheetVisible}
+        onClose={() => !cancelling && setCancelSheetVisible(false)}
+        title="取消订单"
+        showClose
+      >
+        <View className='order-cancel-sheet'>
+          <Text className='order-cancel__hint'>
+            请填写取消原因（必填，至少 2 个字），商家/平台审核时会查看
+          </Text>
+          <Textarea
+            className='order-cancel__textarea'
+            value={cancelReason}
+            maxlength={200}
+            placeholder='请填写取消原因...'
+            onInput={(e) => setCancelReason(e.detail.value)}
+            disabled={cancelling}
+          />
+          <View className='order-cancel__btns'>
+            <View
+              className={`order-cancel__btn order-cancel__btn--cancel ${cancelling ? 'disabled' : ''}`}
+              onClick={() => !cancelling && setCancelSheetVisible(false)}
+            >
+              再想想
+            </View>
+            <View
+              className={`order-cancel__btn order-cancel__btn--danger ${cancelling || !cancelReason.trim() ? 'disabled' : ''}`}
+              onClick={() => !cancelling && cancelOrder()}
+            >
+              {cancelling ? '提交中...' : '确认取消'}
+            </View>
+          </View>
+        </View>
+      </BottomSheet>
+      {mapFullscreen && hasMapPoints ? (
+        <View className='map-fullscreen'>
+          <View className='map-fullscreen__header'>
+            <View
+              className='map-fullscreen__close'
+              onClick={() => setMapFullscreen(false)}
+            >
+              <Icon name='close' size={18} color='#333333' />
+              <Text className='map-fullscreen__close-text'>关闭</Text>
+            </View>
+            <Text className='map-fullscreen__title'>配送轨迹</Text>
+            <Text className='map-fullscreen__status'>
+              {lastTrackPoint
+                ? `更新 ${formatTime(lastTrackPoint.recordedAt, 'HH:mm')}`
+                : '预估路线'}
+            </Text>
+          </View>
+          <TaroMap
+            className='map-fullscreen__map'
+            latitude={mapCenter.latitude}
+            longitude={mapCenter.longitude}
+            scale={15}
+            markers={deliveryMarkers}
+            polyline={deliveryPolyline}
+            showLocation={false}
+            enableScroll
+            enableZoom
+            includePoints={mapIncludePoints}
+            onError={() => {
+              console.warn('全屏配送地图加载失败');
+            }}
+          />
+          <View className='map-fullscreen__legend'>
+            <View className='map-fullscreen__legend-item'>
+              <View className='map-fullscreen__dot map-fullscreen__dot--shop' />
+              <Text className='map-fullscreen__legend-text'>商家</Text>
+            </View>
+            <View className='map-fullscreen__legend-item'>
+              <View className='map-fullscreen__dot map-fullscreen__dot--route' />
+              <Text className='map-fullscreen__legend-text'>
+                {lastTrackPoint ? '配送中' : '预估路线'}
+              </Text>
+            </View>
+            <View className='map-fullscreen__legend-item'>
+              <View className='map-fullscreen__dot map-fullscreen__dot--dest' />
+              <Text className='map-fullscreen__legend-text'>送达</Text>
+            </View>
+            {lastTrackPoint ? (
+              <View className='map-fullscreen__legend-item'>
+                <View className='map-fullscreen__dot map-fullscreen__dot--rider' />
+                <Text className='map-fullscreen__legend-text'>骑手</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 };

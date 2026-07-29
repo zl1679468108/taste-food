@@ -15,6 +15,8 @@ export interface Order {
   address?: string;
   tableNo?: string;
   remark?: string;
+  cancelReason?: string;
+  rejectReason?: string;
   contactName?: string;
   contactPhone?: string;
   invoiceNeeded?: boolean;
@@ -82,12 +84,12 @@ export const getStatusDistribution = (shopId?: string, days?: number) =>
     },
   }) as Promise<StatusDistributionItem[]>;
 
-export const updateOrderStatus = (id: string, status: string) =>
-  request.post(`/api/orders/${id}/status`, { status });
+export const updateOrderStatus = (id: string, status: string, reason?: string) =>
+  request.post(`/api/orders/${id}/status`, { status, reason });
 
 // 取消订单：调用专用 /cancel 接口（后端原子处理状态校验 + 退款记录 + daily_stats 联动）
-export const cancelOrder = (id: string) =>
-  request.post(`/api/orders/${id}/cancel`);
+export const cancelOrder = (id: string, reason: string) =>
+  request.post(`/api/orders/${id}/cancel`, { reason });
 
 /** 导出订单（服务端生成；可能返回 csv 字符串或 xlsx base64/blob 字段） */
 export interface OrderExportResult {

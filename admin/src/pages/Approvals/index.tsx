@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   Button,
   Form,
@@ -11,11 +11,8 @@ import {
   message,
 } from 'antd';
 import { CheckOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons';
-import {
-  listApplications,
-  reviewApplication,
-  type RoleApplication,
-} from '@/services/role-application';
+import { type RoleApplication } from '@/services/role-application';
+import { useApplications, useReviewApplication } from '@/hooks/queries';
 import { formatTime } from '@/utils/format';
 import { DEFAULT_TABLE_LOCALE, DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import TableCard from '@/components/TableCard';
@@ -35,29 +32,17 @@ const roleMap: Record<string, string> = {
 };
 
 const ApprovalsPage: React.FC = () => {
-  const [list, setList] = useState<RoleApplication[]>([]);
-  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | undefined>('pending');
   const [rejectOpen, setRejectOpen] = useState(false);
   const [current, setCurrent] = useState<RoleApplication | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const rows = await listApplications(status);
-      setList(Array.isArray(rows) ? rows : []);
-    } catch {
-      setList([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [status]);
+  const applicationsQuery = useApplications(status);
+  const list = applicationsQuery.data ?? [];
+  const loading = applicationsQuery.isPending;
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const reviewMutation = useReviewApplication();
+  const submitting = reviewMutation.isPending;
 
   const handleApprove = (row: RoleApplication) => {
     Modal.confirm({
@@ -69,9 +54,8 @@ const ApprovalsPage: React.FC = () => {
       okText: '通过',
       onOk: async () => {
         try {
-          await reviewApplication(row.id, { status: 'approved' });
+          await reviewMutation.mutateAsync({ id: row.id, params: { status: 'approved' } });
           message.success('已通过');
-          await load();
         } catch {
           // toast
         }
@@ -89,19 +73,18 @@ const ApprovalsPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       if (!current) return;
-      setSubmitting(true);
-      await reviewApplication(current.id, {
-        status: 'rejected',
-        rejectReason: values.rejectReason,
+      await reviewMutation.mutateAsync({
+        id: current.id,
+        params: {
+          status: 'rejected',
+          rejectReason: values.rejectReason,
+        },
       });
       message.success('已驳回');
       setRejectOpen(false);
       setCurrent(null);
-      await load();
     } catch {
       // validation / toast
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -204,7 +187,7 @@ const ApprovalsPage: React.FC = () => {
           </Title>
           <Text type="secondary">平台管理员审核商家 / 骑手入驻申请</Text>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={() => void load()}>
+        <Button icon={<ReloadOutlined />} onClick={() => void applicationsQuery.refetch()}>
           刷新
         </Button>
       </Space>

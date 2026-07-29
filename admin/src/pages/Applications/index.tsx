@@ -1,30 +1,37 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Button,
-  Card,
+  Alert,
   Form,
   Input,
   Modal,
   Radio,
-  Space,
   Table,
   Tag,
   Typography,
   message,
 } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { FormOutlined } from '@ant-design/icons';
 import { useLocation } from '@umijs/max';
+import { useQueryClient } from '@tanstack/react-query';
 import {
-  createRoleApplication,
-  listMyApplications,
+  checkRoleApplicationEligibility,
   type RoleApplication,
   type ApplyRole,
+  type RoleApplicationEligibility,
 } from '@/services/role-application';
+import {
+  useMyApplications,
+  useCreateRoleApplication,
+  useRoleApplicationEligibility,
+} from '@/hooks/queries';
+import { queryKeys } from '@/hooks/queries/queryKeys';
 import { formatTime } from '@/utils/format';
-import { DEFAULT_TABLE_LOCALE, DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import { DEFAULT_TABLE_LOCALE, DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_SIZE } from '@/utils/table';
 import TableCard from '@/components/TableCard';
+import PageHeaderActions from '@/components/PageHeaderActions';
+import { brand } from '@/theme';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: 'processing', text: '待审批' },
@@ -47,28 +54,26 @@ function useQueryIntent(): ApplyRole | undefined {
 
 const ApplicationsPage: React.FC = () => {
   const intent = useQueryIntent();
-  const [list, setList] = useState<RoleApplication[]>([]);
-  const [loading, setLoading] = useState(false);
+  const qc = useQueryClient();
   const [open, setOpen] = useState(!!intent);
-  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
-  const applyRole = Form.useWatch('applyRole', form);
+  const applyRole = Form.useWatch('applyRole', form) as ApplyRole | undefined;
+  const shopName = Form.useWatch('shopName', form) as string | undefined;
+  // 店铺名逐字输入会打请求，防抖后才参与 query key
+  const [debouncedShopName, setDebouncedShopName] = useState<string | undefined>();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const rows = await listMyApplications();
-      setList(Array.isArray(rows) ? rows : []);
-    } catch {
-      setList([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const myApplicationsQuery = useMyApplications();
+  const list = myApplicationsQuery.data ?? [];
+  const loading = myApplicationsQuery.isPending;
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const createMutation = useCreateRoleApplication();
+  const submitting = createMutation.isPending;
+
+  const eligibilityQuery = useRoleApplicationEligibility(
+    open ? applyRole : undefined,
+    debouncedShopName,
+  );
+  const eligibility: RoleApplicationEligibility | null = eligibilityQuery.data ?? null;
 
   useEffect(() => {
     if (intent) {
@@ -77,11 +82,27 @@ const ApplicationsPage: React.FC = () => {
     }
   }, [intent, form]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedShopName(shopName), 350);
+    return () => window.clearTimeout(timer);
+  }, [shopName]);
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      setSubmitting(true);
-      await createRoleApplication({
+      // 提交前用最新数据再校验一次，避免读到缓存里的过期结论
+      const normalizedName =
+        values.applyRole === 'merchant' ? (values.shopName as string)?.trim() || undefined : undefined;
+      const checked = await qc.fetchQuery({
+        queryKey: queryKeys.roleApplications.eligibility(values.applyRole, normalizedName),
+        queryFn: () => checkRoleApplicationEligibility(values.applyRole, normalizedName),
+        staleTime: 0,
+      });
+      if (!checked.eligible) {
+        message.warning(checked.reason || '当前不可提交申请');
+        return;
+      }
+      await createMutation.mutateAsync({
         applyRole: values.applyRole,
         shopName: values.shopName,
         shopAddress: values.shopAddress,
@@ -92,11 +113,8 @@ const ApplicationsPage: React.FC = () => {
       message.success('申请已提交');
       setOpen(false);
       form.resetFields();
-      await load();
     } catch {
       // validation or interceptor
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -142,38 +160,30 @@ const ApplicationsPage: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <Title level={4} style={{ margin: 0 }}>
-            我的申请
-          </Title>
-          <Text type="secondary">申请商家或骑手身份，等待平台管理员审批</Text>
-        </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void load()}>
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              form.resetFields();
-              form.setFieldsValue({ applyRole: intent || 'merchant' });
-              setOpen(true);
-            }}
-          >
-            提交申请
-          </Button>
-        </Space>
-      </Space>
+    <div className="tf-page">
+      <PageHeaderActions
+        icon={<FormOutlined style={{ marginRight: 8 }} />}
+        title="我的申请"
+        onRefresh={() => void myApplicationsQuery.refetch()}
+        addText="提交申请"
+        onAdd={() => {
+          form.resetFields();
+          setDebouncedShopName(undefined);
+          form.setFieldsValue({ applyRole: intent || 'merchant' });
+          setOpen(true);
+        }}
+      />
 
-      <TableCard>
+      <TableCard
+        title="身份申请记录"
+        extra={<Text type="secondary">申请商家或骑手身份，等待平台管理员审批</Text>}
+      >
         <Table
           rowKey="id"
           loading={loading}
           dataSource={list}
           columns={columns}
+          size={DEFAULT_TABLE_SIZE}
           pagination={DEFAULT_TABLE_PAGINATION}
           locale={DEFAULT_TABLE_LOCALE}
         />
@@ -185,7 +195,9 @@ const ApplicationsPage: React.FC = () => {
         onCancel={() => setOpen(false)}
         onOk={() => void handleSubmit()}
         confirmLoading={submitting}
+        okButtonProps={{ disabled: eligibility?.eligible === false }}
         destroyOnClose
+        width={560}
       >
         <Form form={form} layout="vertical" initialValues={{ applyRole: 'merchant' }}>
           <Form.Item
@@ -198,6 +210,14 @@ const ApplicationsPage: React.FC = () => {
               <Radio value="rider">骑手</Radio>
             </Radio.Group>
           </Form.Item>
+          {eligibility && !eligibility.eligible && (
+            <Alert
+              type="warning"
+              showIcon
+              message={eligibility.reason || '当前不可提交申请'}
+              style={{ marginBottom: brand.space4 }}
+            />
+          )}
           {applyRole === 'merchant' && (
             <>
               <Form.Item

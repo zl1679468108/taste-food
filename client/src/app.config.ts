@@ -5,6 +5,8 @@ export default defineAppConfig({
     'pages/order-detail/index',
     'pages/order-list/index',
     'pages/mine/index',
+    'pages/admin/index',
+    'pages/rider/index',
     'pages/mine/role-apply',
     'pages/mine/notifications',
     'pages/auth/login',
@@ -13,23 +15,9 @@ export default defineAppConfig({
     'pages/reviews/index',
     'pages/address/index',
     'pages/address/edit',
-  ],
-  subpackages: [
-    {
-      root: 'pages/admin',
-      pages: [
-        'index',
-        'menu-manage',
-        'user-manage',
-        'reviews',
-      ],
-    },
-    {
-      root: 'pages/rider',
-      pages: [
-        'index',
-      ],
-    },
+    'pages/admin/menu-manage',
+    'pages/admin/user-manage',
+    'pages/admin/reviews',
   ],
   window: {
     navigationBarTitleText: '小买卖点餐',
@@ -38,7 +26,14 @@ export default defineAppConfig({
     backgroundColor: '#F5F5F5',
     backgroundTextStyle: 'dark',
   },
+  permission: {
+    'scope.userLocation': {
+      desc: '用于选择配送地址、展示配送轨迹与骑手位置上报',
+    },
+  },
+  requiredPrivateInfos: ['getLocation', 'chooseLocation'],
   tabBar: {
+    custom: true,
     color: '#999999',
     selectedColor: '#FF6B35',
     backgroundColor: '#ffffff',
@@ -53,6 +48,18 @@ export default defineAppConfig({
       {
         pagePath: 'pages/order-list/index',
         text: '订单',
+        iconPath: 'assets/icons/order.png',
+        selectedIconPath: 'assets/icons/order-active.png',
+      },
+      {
+        pagePath: 'pages/admin/index',
+        text: '工作台',
+        iconPath: 'assets/icons/menu.png',
+        selectedIconPath: 'assets/icons/menu-active.png',
+      },
+      {
+        pagePath: 'pages/rider/index',
+        text: '接单',
         iconPath: 'assets/icons/order.png',
         selectedIconPath: 'assets/icons/order-active.png',
       },

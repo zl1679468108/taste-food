@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useModel } from '@umijs/max';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getShops, type Shop } from '@/services/shop';
+import { queryKeys } from '@/hooks/queries/queryKeys';
+import { STALE_TIMES } from '@/lib/queryClient';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 export const ADMIN_SHOP_STORAGE_KEY = 'tf_admin_shop_id';
@@ -26,16 +29,16 @@ function writeStoredShopId(shopId: string) {
  *
  * 务实策略：业务页始终绑定具体店铺；平台管理员可切换任意店。
  * 商家账号若绑定单一 shopId 且无法跨店，则锁定选择器。
+ *
+ * 店铺列表与 useShops 共用 queryKeys.shops.list()，避免顶栏 + 页面各打一次 /api/shops。
  */
 export default function useShopContextModel() {
   const { initialState } = useModel('@@initialState');
   const currentUser = initialState?.currentUser;
   const boundShopId = currentUser?.shopId || undefined;
+  const queryClient = useQueryClient();
 
-  const [shops, setShops] = useState<Shop[]>([]);
   const [shopId, setShopIdState] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
   /**
    * 平台管理员（无 boundShopId）可切换任意店；
@@ -69,44 +72,51 @@ export default function useShopContextModel() {
     [boundShopId, canSwitchShops],
   );
 
-  const loadShops = useCallback(async () => {
-    setLoading(true);
-    try {
-      const list = (await getShops()) || [];
-      setShops(list);
-      setShopIdState((prev) => {
-        if (prev && list.some((s) => s.id === prev)) {
-          return prev;
-        }
-        const next = resolveInitialShopId(list);
-        if (next) writeStoredShopId(next);
-        return next;
-      });
-    } catch (error) {
-      console.error('加载店铺列表失败:', error);
-      // 回退：至少保证有一个可用 shopId
-      setShopIdState((prev) => {
-        if (prev) return prev;
-        const fallback = boundShopId || DEFAULT_SHOP_ID;
-        writeStoredShopId(fallback);
-        return fallback;
-      });
-    } finally {
-      setLoading(false);
-      setLoaded(true);
-    }
-  }, [boundShopId, resolveInitialShopId]);
+  const shopsQuery = useQuery({
+    queryKey: queryKeys.shops.list(),
+    queryFn: getShops,
+    enabled: !!currentUser,
+    staleTime: STALE_TIMES.STATIC,
+  });
+
+  const shops = shopsQuery.data ?? [];
+  // 仅首屏/无缓存时显示 loading，避免 window focus 刷新时顶栏闪烁
+  const loading = shopsQuery.isLoading;
+  const loaded = !currentUser || shopsQuery.isFetched || shopsQuery.isError;
 
   useEffect(() => {
-    // 登录后才拉店铺；未登录跳过
     if (!currentUser) {
-      setShops([]);
       setShopIdState('');
-      setLoaded(false);
       return;
     }
-    void loadShops();
-  }, [currentUser?.id, loadShops]);
+
+    if (!shops.length) {
+      if (shopsQuery.isError) {
+        const fallback = boundShopId || DEFAULT_SHOP_ID;
+        setShopIdState((prev) => prev || fallback);
+        writeStoredShopId(fallback);
+      }
+      return;
+    }
+
+    setShopIdState((prev) => {
+      if (prev && shops.some((s) => s.id === prev)) {
+        return prev;
+      }
+      const next = resolveInitialShopId(shops);
+      if (next) writeStoredShopId(next);
+      return next;
+    });
+  }, [boundShopId, currentUser, resolveInitialShopId, shops, shopsQuery.isError]);
+
+  const loadShops = useCallback(async () => {
+    if (!currentUser) return;
+    await queryClient.fetchQuery({
+      queryKey: queryKeys.shops.list(),
+      queryFn: getShops,
+      staleTime: STALE_TIMES.STATIC,
+    });
+  }, [currentUser, queryClient]);
 
   const setShopId = useCallback(
     (next: string) => {

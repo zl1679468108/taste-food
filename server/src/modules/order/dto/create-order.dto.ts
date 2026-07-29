@@ -8,6 +8,7 @@ import {
   ValidateNested,
   ValidateIf,
   Min,
+  Max,
   MinLength,
   MaxLength,
   Matches,
@@ -71,6 +72,21 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   address?: string;
+
+  /** 配送地址纬度（GCJ-02）；优先客户端选点，缺省服务端 geocode */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  deliveryLatitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  deliveryLongitude?: number;
 
   @IsString()
   @IsOptional()

@@ -14,6 +14,8 @@ export interface Shop {
   name: string;
   description: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   phone: string;
   logoUrl: string;
   status: string;

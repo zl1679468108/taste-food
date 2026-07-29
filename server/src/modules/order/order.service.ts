@@ -8,10 +8,15 @@ import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderGateway } from './order.gateway';
 import { PromotionService } from '../promotion/promotion.service';
 import { ShopService } from '../shop/shop.service';
+import { AddressService } from '../address/address.service';
 import { MenuService } from '../menu/menu.service';
 import { supabase, hasSupabase } from '../../database/supabase.client';
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { DeliveryTrackPointDto } from './dto/delivery-track.dto';
+import {
+  normalizeGeoPoint,
+  resolveGeoPoint,
+} from '../../common/utils/tencent-map';
 
 export interface OrderItemRecord {
   id: string;
@@ -36,8 +41,14 @@ export interface OrderRecord {
   deliveryFee: number;
   deliveryType: DeliveryType;
   address?: string;
+  shopLatitude?: number;
+  shopLongitude?: number;
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
   tableNo?: string;
   remark?: string;
+  cancelReason?: string;
+  rejectReason?: string;
   contactName?: string;
   contactPhone?: string;
   invoiceNeeded?: boolean;
@@ -76,6 +87,8 @@ interface OrderRow {
   address?: string;
   table_no?: string;
   remark?: string;
+  cancel_reason?: string;
+  reject_reason?: string;
   contact_name?: string;
   contact_phone?: string;
   invoice_needed?: boolean;
@@ -165,6 +178,7 @@ export class OrderService {
     private readonly promotionService: PromotionService,
     private readonly shopService: ShopService,
     private readonly menuService: MenuService,
+    private readonly addressService: AddressService,
   ) {}
 
   private isMissingColumnError(error: { message?: string } | null | undefined): boolean {
@@ -188,11 +202,36 @@ export class OrderService {
     );
   }
 
-  /** 店铺短码：shopId 去横线后取末 4 位大写 */
-  private shopShortCode(shopId: string): string {
-    const raw = String(shopId || '').replace(/-/g, '').toUpperCase();
-    if (!raw) return '0000';
-    return raw.slice(-4).padStart(4, '0');
+  /** 配送类型码：D=外卖 P=自取 I=堂食 */
+  private deliveryTypeCode(deliveryType: string): string {
+    const map: Record<string, string> = {
+      delivery: 'D',
+      pickup: 'P',
+      dine_in: 'I',
+    };
+    return map[deliveryType] ?? 'X';
+  }
+
+  /** 店铺序号：从 tf_shops 按 created_at 排序取序号，格式2位；内存兜底用 UUID 末2位 */
+  private async shopSeqNo(shopId: string): Promise<string> {
+    if (hasSupabase() && supabase) {
+      try {
+        const { data } = await supabase
+          .from('tf_shops')
+          .select('id')
+          .order('created_at', { ascending: true });
+        if (data && data.length > 0) {
+          const idx = data.findIndex((s) => s.id === shopId);
+          const seq = idx >= 0 ? idx + 1 : data.length + 1;
+          return String(seq).padStart(2, '0');
+        }
+      } catch (e) {
+        this.logger.warn(`[Order] 获取店铺序号失败: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    // 内存兜底：取 shopId 末2位数字字符
+    const digits = String(shopId || '').replace(/\D/g, '');
+    return (digits.slice(-2) || '01').padStart(2, '0');
   }
 
   private formatOrderDateKey(date = new Date()): string {
@@ -202,8 +241,9 @@ export class OrderService {
     return `${y}${m}${d}`;
   }
 
-  private buildOrderNo(shopId: string, dateKey: string, seq: number): string {
-    return `TF${dateKey}${this.shopShortCode(shopId)}${String(seq).padStart(4, '0')}`;
+  /** 生成订单号：TF + YYYYMMDD + 配送类型码(D/P/I) + 店铺序号2位 + 当日流水4位 */
+  private buildOrderNo(deliveryCode: string, shopSeq: string, dateKey: string, seq: number): string {
+    return `TF${dateKey}${deliveryCode}${shopSeq}${String(seq).padStart(4, '0')}`;
   }
 
   /** 旧单无 order_no 时的兼容展示（基于 uuid 前 8 位） */
@@ -212,12 +252,14 @@ export class OrderService {
   }
 
   /**
-   * 生成业务订单号：TF + YYYYMMDD + 店铺短码4位 + 当日序号4位
-   * 例：TF20260726A0010007
+   * 生成业务订单号：TF + YYYYMMDD + 配送类型码(D/P/I) + 店铺序号2位 + 当日流水4位
+   * 例：TF20260726D010001（2026-07-26 外卖 第1家店 第1单）
    */
-  private async allocateOrderNo(shopId: string): Promise<string> {
+  private async allocateOrderNo(shopId: string, deliveryType: string): Promise<string> {
     const dateKey = this.formatOrderDateKey();
-    const seqKey = `${shopId}:${dateKey}`;
+    const deliveryCode = this.deliveryTypeCode(deliveryType);
+    const shopSeq = await this.shopSeqNo(shopId);
+    const seqKey = `${shopId}:${dateKey}:${deliveryType}`;
     let seq = 1;
 
     if (hasSupabase() && supabase) {
@@ -228,6 +270,7 @@ export class OrderService {
           .from('tf_orders')
           .select('id', { count: 'exact', head: true })
           .eq('shop_id', shopId)
+          .eq('delivery_type', deliveryType)
           .gte('created_at', start.toISOString());
         if (!error) {
           seq = (count || 0) + 1;
@@ -242,7 +285,7 @@ export class OrderService {
       start.setHours(0, 0, 0, 0);
       const startMs = start.getTime();
       const todayCount = Array.from(memoryOrders.values()).filter(
-        (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= startMs,
+        (o) => o.shopId === shopId && o.deliveryType === deliveryType && new Date(o.createdAt).getTime() >= startMs,
       ).length;
       seq = todayCount + 1;
     }
@@ -250,7 +293,7 @@ export class OrderService {
     const mem = memoryOrderSeq.get(seqKey) || 0;
     seq = Math.max(seq, mem + 1);
     memoryOrderSeq.set(seqKey, seq);
-    return this.buildOrderNo(shopId, dateKey, seq);
+    return this.buildOrderNo(deliveryCode, shopSeq, dateKey, seq);
   }
 
   private async persistOrderNo(orderId: string, orderNo: string): Promise<void> {
@@ -319,6 +362,34 @@ export class OrderService {
     return order;
   }
 
+
+  /** 外卖坐标快照：RPC 建单后尽力补写；缺列时静默忽略 */
+  private async patchOrderCoordinates(
+    orderId: string,
+    coords: {
+      shopLatitude?: number;
+      shopLongitude?: number;
+      deliveryLatitude?: number;
+      deliveryLongitude?: number;
+    },
+  ): Promise<void> {
+    if (!hasSupabase() || !supabase) return;
+    const payload: Record<string, unknown> = {};
+    if (coords.shopLatitude !== undefined) payload.shop_latitude = coords.shopLatitude;
+    if (coords.shopLongitude !== undefined) payload.shop_longitude = coords.shopLongitude;
+    if (coords.deliveryLatitude !== undefined) payload.delivery_latitude = coords.deliveryLatitude;
+    if (coords.deliveryLongitude !== undefined) payload.delivery_longitude = coords.deliveryLongitude;
+    if (Object.keys(payload).length === 0) return;
+    try {
+      const { error } = await supabase.from('tf_orders').update(payload).eq('id', orderId);
+      if (error) {
+        this.logger.warn(`[Order] 坐标快照写入跳过: ${error.message}`);
+      }
+    } catch (e) {
+      this.logger.warn(`[Order] 坐标快照写入异常: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
   private async createOrderLegacyFallback(params: {
     orderId: string;
     orderNo?: string;
@@ -327,11 +398,33 @@ export class OrderService {
     deliveryFee: number;
     items: OrderItemRecord[];
     now: string;
+    shopLatitude?: number;
+    shopLongitude?: number;
+    deliveryLatitude?: number;
+    deliveryLongitude?: number;
   }): Promise<void> {
     if (!supabase) {
       throw new BadRequestException('创建订单失败: Supabase 不可用');
     }
-    const { orderId, orderNo, dto, total, deliveryFee, items, now } = params;
+    const {
+      orderId,
+      orderNo,
+      dto,
+      total,
+      deliveryFee,
+      items,
+      now,
+      shopLatitude,
+      shopLongitude,
+      deliveryLatitude,
+      deliveryLongitude,
+    } = params;
+
+    const coordFields: Record<string, unknown> = {};
+    if (shopLatitude !== undefined) coordFields.shop_latitude = shopLatitude;
+    if (shopLongitude !== undefined) coordFields.shop_longitude = shopLongitude;
+    if (deliveryLatitude !== undefined) coordFields.delivery_latitude = deliveryLatitude;
+    if (deliveryLongitude !== undefined) coordFields.delivery_longitude = deliveryLongitude;
 
     const orderPayloadCandidates: Record<string, unknown>[] = [
       // 旧线上库优先：仅已确认存在的列
@@ -430,6 +523,15 @@ export class OrderService {
       );
     }
 
+    if (Object.keys(coordFields).length > 0) {
+      // 坐标列可能尚未迁移：优先尝试带坐标写入，缺列时自动回退
+      const withCoords = orderPayloadCandidates.map((payload) => ({
+        ...payload,
+        ...coordFields,
+      }));
+      orderPayloadCandidates.unshift(...withCoords);
+    }
+
     let inserted = false;
     let lastError: { message?: string } | null = null;
     for (const payload of orderPayloadCandidates) {
@@ -478,8 +580,14 @@ export class OrderService {
       deliveryFee: row.delivery_fee || 0,
       deliveryType: row.delivery_type as DeliveryType,
       address: row.address,
+      shopLatitude: normalizeGeoPoint(row.shop_latitude, row.shop_longitude)?.latitude,
+      shopLongitude: normalizeGeoPoint(row.shop_latitude, row.shop_longitude)?.longitude,
+      deliveryLatitude: normalizeGeoPoint(row.delivery_latitude, row.delivery_longitude)?.latitude,
+      deliveryLongitude: normalizeGeoPoint(row.delivery_latitude, row.delivery_longitude)?.longitude,
       tableNo: row.table_no,
       remark: row.remark,
+      cancelReason: row.cancel_reason || undefined,
+      rejectReason: row.reject_reason || undefined,
       contactName: row.contact_name,
       contactPhone: row.contact_phone,
       invoiceNeeded: !!row.invoice_needed,
@@ -602,7 +710,7 @@ export class OrderService {
 
     const now = new Date().toISOString();
     const orderId = uuidv4();
-    const orderNo = await this.allocateOrderNo(dto.shopId);
+    const orderNo = await this.allocateOrderNo(dto.shopId, dto.deliveryType);
 
     // 服务端校验菜品价格：base price + 规格加价（分），不信任客户端传入的 price
     const verifiedItems: { menuItemId: string; name: string; quantity: number; price: number; specDesc: string; imageUrl: string }[] = [];
@@ -700,6 +808,60 @@ export class OrderService {
       imageUrl: item.imageUrl,
     }));
 
+    // 外卖：快照店铺/配送坐标（腾讯地图 GCJ-02）；坐标缺失时尝试 geocode，仍失败则允许下单但地图降级
+    let shopLatitude: number | undefined;
+    let shopLongitude: number | undefined;
+    let deliveryLatitude: number | undefined;
+    let deliveryLongitude: number | undefined;
+    if (dto.deliveryType === DeliveryType.DELIVERY) {
+      const shopPoint = normalizeGeoPoint(
+        (shopForOrder as any).latitude,
+        (shopForOrder as any).longitude,
+      ) || await resolveGeoPoint({
+        address: (shopForOrder as any).address,
+        latitude: (shopForOrder as any).latitude,
+        longitude: (shopForOrder as any).longitude,
+      });
+      shopLatitude = shopPoint?.latitude;
+      shopLongitude = shopPoint?.longitude;
+
+      let incomingLat = dto.deliveryLatitude;
+      let incomingLng = dto.deliveryLongitude;
+
+      // 客户端未传坐标时，尝试从地址簿按 detail 匹配已选点坐标
+      if (
+        (incomingLat === undefined || incomingLng === undefined)
+        && dto.userId
+        && dto.address
+      ) {
+        try {
+          const book = await this.addressService.findByUserId(dto.userId, dto.shopId);
+          const normalized = dto.address.replace(/\s+/g, '');
+          const hit = book.find((a) => (a.detail || '').replace(/\s+/g, '') === normalized)
+            || book.find((a) => {
+              const d = (a.detail || '').replace(/\s+/g, '');
+              return !!d && (normalized.includes(d) || d.includes(normalized));
+            });
+          if (hit?.latitude !== undefined && hit?.longitude !== undefined) {
+            incomingLat = hit.latitude;
+            incomingLng = hit.longitude;
+          }
+        } catch (e) {
+          this.logger.warn(
+            `[Order] 地址簿坐标回退失败: ${e instanceof Error ? e.message : e}`,
+          );
+        }
+      }
+
+      const deliveryPoint = await resolveGeoPoint({
+        address: dto.address,
+        latitude: incomingLat,
+        longitude: incomingLng,
+      });
+      deliveryLatitude = deliveryPoint?.latitude;
+      deliveryLongitude = deliveryPoint?.longitude;
+    }
+
     const order: OrderRecord = {
       id: orderId,
       orderNo,
@@ -710,6 +872,10 @@ export class OrderService {
       deliveryFee,
       deliveryType: dto.deliveryType,
       address: dto.address,
+      shopLatitude,
+      shopLongitude,
+      deliveryLatitude,
+      deliveryLongitude,
       tableNo: dto.tableNo,
       remark: dto.remark,
       contactName: dto.contactName,
@@ -777,6 +943,10 @@ export class OrderService {
             deliveryFee,
             items,
             now,
+            shopLatitude,
+            shopLongitude,
+            deliveryLatitude,
+            deliveryLongitude,
           });
         } else {
           const { error: retryErr } = await supabase.rpc('atomic_create_order', {
@@ -804,6 +974,10 @@ export class OrderService {
               deliveryFee,
               items,
               now,
+              shopLatitude,
+              shopLongitude,
+              deliveryLatitude,
+              deliveryLongitude,
             });
           } else if (dto.invoiceNeeded) {
             const { error: invErr } = await supabase
@@ -831,6 +1005,16 @@ export class OrderService {
       await this.persistOrderNo(orderId, order.orderNo);
     }
 
+    // atomic_create_order 不含坐标参数：创建后补写快照坐标（缺列则忽略）
+    if (dto.deliveryType === DeliveryType.DELIVERY) {
+      await this.patchOrderCoordinates(orderId, {
+        shopLatitude,
+        shopLongitude,
+        deliveryLatitude,
+        deliveryLongitude,
+      });
+    }
+
     // Send WebSocket event
     try {
       this.orderGateway.emitOrderCreated(order);
@@ -851,12 +1035,102 @@ export class OrderService {
       if (error || !data) throw new NotFoundException(`订单 ${id} 不存在`);
       const order = this.toRecord(data);
       order.items = await this.fetchItems(id);
-      return order;
+      return this.ensureDeliveryCoordinates(order);
     }
 
     assertMemoryFallbackAllowed('OrderService');
     const order = memoryOrders.get(id);
     if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
+    return this.ensureDeliveryCoordinates(order);
+  }
+
+  /** 历史单/旧链路缺坐标时，读取时补齐并尽力回写 */
+  private async ensureDeliveryCoordinates(order: OrderRecord): Promise<OrderRecord> {
+    if (order.deliveryType !== DeliveryType.DELIVERY) return order;
+
+    let shopLatitude = order.shopLatitude;
+    let shopLongitude = order.shopLongitude;
+    let deliveryLatitude = order.deliveryLatitude;
+    let deliveryLongitude = order.deliveryLongitude;
+    let changed = false;
+
+    if (shopLatitude === undefined || shopLongitude === undefined) {
+      try {
+        const shop = await this.shopService.findById(order.shopId);
+        const shopPoint = normalizeGeoPoint(shop.latitude, shop.longitude)
+          || await resolveGeoPoint({
+            address: shop.address,
+            latitude: shop.latitude,
+            longitude: shop.longitude,
+          });
+        if (shopPoint) {
+          shopLatitude = shopPoint.latitude;
+          shopLongitude = shopPoint.longitude;
+          changed = true;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Order] 补齐店铺坐标失败: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    }
+
+    if (
+      (deliveryLatitude === undefined || deliveryLongitude === undefined)
+      && order.address
+    ) {
+      // 优先从地址簿匹配已选点坐标，避免 geocode 额度耗尽
+      try {
+        const book = await this.addressService.findByUserId(order.userId, order.shopId);
+        const normalized = order.address.replace(/\s+/g, '');
+        const hit = book.find((a) => (a.detail || '').replace(/\s+/g, '') === normalized)
+          || book.find((a) => {
+            const d = (a.detail || '').replace(/\s+/g, '');
+            return !!d && (normalized.includes(d) || d.includes(normalized));
+          });
+        if (hit?.latitude !== undefined && hit?.longitude !== undefined) {
+          deliveryLatitude = hit.latitude;
+          deliveryLongitude = hit.longitude;
+          changed = true;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Order] 地址簿坐标回退失败: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+
+      if (deliveryLatitude === undefined || deliveryLongitude === undefined) {
+        const deliveryPoint = await resolveGeoPoint({
+          address: order.address,
+          latitude: deliveryLatitude,
+          longitude: deliveryLongitude,
+        });
+        if (deliveryPoint) {
+          deliveryLatitude = deliveryPoint.latitude;
+          deliveryLongitude = deliveryPoint.longitude;
+          changed = true;
+        }
+      }
+    }
+
+    if (!changed) return order;
+
+    order.shopLatitude = shopLatitude;
+    order.shopLongitude = shopLongitude;
+    order.deliveryLatitude = deliveryLatitude;
+    order.deliveryLongitude = deliveryLongitude;
+
+    if (hasSupabase() && supabase) {
+      await this.patchOrderCoordinates(order.id, {
+        shopLatitude,
+        shopLongitude,
+        deliveryLatitude,
+        deliveryLongitude,
+      });
+    } else if (memoryOrders.has(order.id)) {
+      memoryOrders.set(order.id, order);
+    }
+
     return order;
   }
 
@@ -1225,6 +1499,17 @@ export class OrderService {
     id: string,
     dto: UpdateOrderDto,
   ): Promise<OrderRecord> {
+    const reason = dto.reason?.trim();
+    if (
+      dto.status &&
+      [OrderStatus.CANCELLED, OrderStatus.REJECTED].includes(dto.status) &&
+      !reason
+    ) {
+      throw new BadRequestException(
+        dto.status === OrderStatus.REJECTED ? '拒单原因不能为空' : '取消原因不能为空',
+      );
+    }
+
     if (hasSupabase() && supabase) {
       // Get current order
       const { data: rowData, error: fetchErr } = await supabase
@@ -1239,6 +1524,12 @@ export class OrderService {
       if (dto.status) {
         this.validateStatusTransition(order.status, dto.status);
         const previousStatus = order.status;
+        const reasonExtra =
+          dto.status === OrderStatus.REJECTED
+            ? { reject_reason: reason }
+            : dto.status === OrderStatus.CANCELLED
+              ? { cancel_reason: reason }
+              : {};
 
         // 优先使用原子 RPC；旧库缺失时降级直更 tf_orders
         const { error: rpcErr } = await supabase.rpc('atomic_update_order_status', {
@@ -1253,12 +1544,32 @@ export class OrderService {
           this.logger.warn(
             `[Order] atomic_update_order_status 不可用，降级直更 tf_orders: ${rpcErr.message}`,
           );
-          const updated = await this.updateOrderStatusDirect(id, previousStatus, dto.status);
+          const updated = await this.updateOrderStatusDirect(
+            id,
+            previousStatus,
+            dto.status,
+            reasonExtra,
+          );
           this.emitStatusEvents(updated, previousStatus);
           return updated;
         }
 
+        if (Object.keys(reasonExtra).length > 0) {
+          try {
+            await supabase
+              .from('tf_orders')
+              .update({ ...reasonExtra, updated_at: new Date().toISOString() })
+              .eq('id', id);
+          } catch (e) {
+            this.logger.warn(
+              `[Order] 写入取消/拒单原因失败: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          }
+        }
+
         order.status = dto.status;
+        if (dto.status === OrderStatus.REJECTED) order.rejectReason = reason;
+        if (dto.status === OrderStatus.CANCELLED) order.cancelReason = reason;
         order.updatedAt = new Date().toISOString();
         this.emitStatusEvents(order, previousStatus);
         return order;
@@ -1285,6 +1596,8 @@ export class OrderService {
       this.validateStatusTransition(order.status, dto.status);
       const previousStatus = order.status;
       order.status = dto.status;
+      if (dto.status === OrderStatus.REJECTED) order.rejectReason = reason;
+      if (dto.status === OrderStatus.CANCELLED) order.cancelReason = reason;
       order.updatedAt = new Date().toISOString();
       memoryOrders.set(id, order);
       this.emitStatusEvents(order, previousStatus);
@@ -1299,13 +1612,23 @@ export class OrderService {
     return order;
   }
 
-  async cancelOrder(id: string, userId?: string): Promise<OrderRecord> {
+  /**
+   * 取消订单（仅 pending_payment / paid）。
+   * - 传入 userId：按顾客本人订单校验（顾客自主取消）
+   * - 不传 userId：商家/管理员在控制器侧已做店铺访问校验后取消
+   * 商家接单后（accepted 及之后）不可直接取消，需走拒单/客服协商等流程。
+   */
+  async cancelOrder(id: string, userId?: string, reason?: string): Promise<OrderRecord> {
     const order = await this.findById(id);
     if (userId && order.userId !== userId) {
       throw new BadRequestException('不能取消他人的订单');
     }
     if (![OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status)) {
       throw new BadRequestException(`订单状态为 ${order.status}，不允许取消`);
+    }
+    const cancelReason = reason?.trim();
+    if (!cancelReason) {
+      throw new BadRequestException('取消原因不能为空');
     }
 
     const previousStatus = order.status;
@@ -1327,6 +1650,7 @@ export class OrderService {
           id,
           previousStatus,
           OrderStatus.CANCELLED,
+          { cancel_reason: cancelReason },
         );
         try {
           this.orderGateway.emitOrderUpdated(updated, previousStatus);
@@ -1336,7 +1660,19 @@ export class OrderService {
         return updated;
       }
 
+      try {
+        await supabase
+          .from('tf_orders')
+          .update({ cancel_reason: cancelReason, updated_at: new Date().toISOString() })
+          .eq('id', id);
+      } catch (e) {
+        this.logger.warn(
+          `[Order] 写入取消原因失败: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+
       order.status = OrderStatus.CANCELLED;
+      order.cancelReason = cancelReason;
       order.updatedAt = new Date().toISOString();
       try {
         this.orderGateway.emitOrderUpdated(order, previousStatus);
@@ -1348,10 +1684,10 @@ export class OrderService {
 
     assertMemoryFallbackAllowed('OrderService');
     // 内存模式：已支付订单无支付记录需退款，直接状态更新
-    return this.updateStatus(id, { status: OrderStatus.CANCELLED });
+    return this.updateStatus(id, { status: OrderStatus.CANCELLED, reason: cancelReason });
   }
 
-  async reorder(userId: string, dto: { shopId: string; items: CreateOrderDto['items']; deliveryType: DeliveryType; address?: string; tableNo?: string; remark?: string; contactName?: string; contactPhone?: string }): Promise<OrderRecord> {
+  async reorder(userId: string, dto: { shopId: string; items: CreateOrderDto['items']; deliveryType: DeliveryType; address?: string; tableNo?: string; remark?: string; contactName?: string; contactPhone?: string; deliveryLatitude?: number; deliveryLongitude?: number }): Promise<OrderRecord> {
     const newDto: CreateOrderDto = {
       shopId: dto.shopId,
       userId,
@@ -1365,6 +1701,8 @@ export class OrderService {
       })),
       deliveryType: dto.deliveryType,
       address: dto.address,
+      deliveryLatitude: (dto as any).deliveryLatitude,
+      deliveryLongitude: (dto as any).deliveryLongitude,
       tableNo: dto.tableNo,
       remark: dto.remark,
       // 从参数复制联系人信息，避免外送订单因无联系方式无法配送
@@ -1854,24 +2192,11 @@ export class OrderService {
    * 收入按 [completed, delivering, preparing] 状态计算（与 getTodayStats 口径一致）
    */
   async getDailyStats(shopId: string, days = 7): Promise<DailyStatsItem[]> {
+    // days <= 0 表示「全部」：以最早订单为起点，跨度上限 366 天，避免桶数量失控
+    const ALL_TIME_MAX_DAYS = 366;
+    const allTime = !days || days <= 0;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const start = new Date(today);
-    start.setDate(start.getDate() - (days - 1));
-    const startIso = start.toISOString();
-
-    // 初始化日期桶（保证连续日期，无订单的日期为 0）
-    const buckets: DailyStatsItem[] = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date(start);
-      d.setDate(d.getDate() + i);
-      buckets.push({
-        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-        orders: 0,
-        revenue: 0,
-      });
-    }
-    const bucketMap = new Map(buckets.map((b) => [b.date, b]));
 
     const revenueStatuses: OrderStatus[] = [
       OrderStatus.COMPLETED,
@@ -1879,20 +2204,56 @@ export class OrderService {
       OrderStatus.PREPARING,
     ];
 
+    const dateKey = (value: string | number | Date): string => {
+      const d = new Date(value);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    // 根据订单集合确定实际起点（全部模式），并统一生成连续日期桶
+    const buildBuckets = (spanDays: number): { buckets: DailyStatsItem[]; bucketMap: Map<string, DailyStatsItem>; start: Date } => {
+      const safeSpan = Math.max(1, Math.min(spanDays, ALL_TIME_MAX_DAYS));
+      const s = new Date(today);
+      s.setDate(s.getDate() - (safeSpan - 1));
+      const list: DailyStatsItem[] = [];
+      for (let i = 0; i < safeSpan; i++) {
+        const d = new Date(s);
+        d.setDate(d.getDate() + i);
+        list.push({ date: dateKey(d), orders: 0, revenue: 0 });
+      }
+      return { buckets: list, bucketMap: new Map(list.map((b) => [b.date, b])), start: s };
+    };
+
+    const spanFromEarliest = (earliestIso?: string): number => {
+      if (!earliestIso) return 1;
+      const earliest = new Date(earliestIso);
+      earliest.setHours(0, 0, 0, 0);
+      const diffDays = Math.floor((today.getTime() - earliest.getTime()) / 86400000);
+      return diffDays + 1;
+    };
+
     if (hasSupabase() && supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('tf_orders')
         .select('status, total, created_at')
-        .eq('shop_id', shopId)
-        .gte('created_at', startIso);
+        .eq('shop_id', shopId);
+      if (!allTime) {
+        const s = new Date(today);
+        s.setDate(s.getDate() - (days - 1));
+        query = query.gte('created_at', s.toISOString());
+      }
+      const { data, error } = await query;
       if (error) {
         this.logger.warn(`[OrderService] getDailyStats error: ${error.message}`);
+        const { buckets } = buildBuckets(allTime ? 1 : days);
         return buckets;
       }
-      for (const row of (data || []) as OrderRow[]) {
-        const d = new Date(row.created_at);
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const bucket = bucketMap.get(dateStr);
+      const rows = (data || []) as OrderRow[];
+      const spanDays = allTime
+        ? spanFromEarliest(rows.reduce<string | undefined>((min, r) => (!min || r.created_at < min ? r.created_at : min), undefined))
+        : days;
+      const { buckets, bucketMap } = buildBuckets(spanDays);
+      for (const row of rows) {
+        const bucket = bucketMap.get(dateKey(row.created_at));
         if (!bucket) continue; // 超出窗口的订单忽略
         bucket.orders += 1;
         if (revenueStatuses.includes(row.status as OrderStatus)) {
@@ -1903,13 +2264,26 @@ export class OrderService {
     }
 
     assertMemoryFallbackAllowed('OrderService');
+    const startForFilter = (() => {
+      if (allTime) return 0;
+      const s = new Date(today);
+      s.setDate(s.getDate() - (days - 1));
+      return s.getTime();
+    })();
     const filtered = Array.from(memoryOrders.values()).filter(
-      (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= start.getTime(),
+      (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= startForFilter,
     );
+    const spanDays = allTime
+      ? spanFromEarliest(
+          filtered.reduce<string | undefined>(
+            (min, o) => (!min || o.createdAt < min ? o.createdAt : min),
+            undefined,
+          ),
+        )
+      : days;
+    const { buckets, bucketMap } = buildBuckets(spanDays);
     for (const o of filtered) {
-      const d = new Date(o.createdAt);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const bucket = bucketMap.get(dateStr);
+      const bucket = bucketMap.get(dateKey(o.createdAt));
       if (!bucket) continue;
       bucket.orders += 1;
       if (revenueStatuses.includes(o.status)) {

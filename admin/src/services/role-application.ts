@@ -34,9 +34,27 @@ export interface ReviewRoleApplicationParams {
   rejectReason?: string;
 }
 
+export interface RoleApplicationEligibility {
+  eligible: boolean;
+  reason?: string;
+}
+
 /** 提交商家/骑手申请 */
 export const createRoleApplication = (params: CreateRoleApplicationParams) =>
   request.post('/api/role-applications', params) as Promise<RoleApplication>;
+
+/** 提交前资格校验 */
+export const checkRoleApplicationEligibility = (
+  applyRole: ApplyRole,
+  shopName?: string,
+) =>
+  request.get('/api/role-applications/check-eligibility', {
+    params: {
+      applyRole,
+      ...(shopName ? { shopName } : {}),
+    },
+    skipErrorMessage: true,
+  }) as Promise<RoleApplicationEligibility>;
 
 /** 我的申请列表 */
 export const listMyApplications = () =>

@@ -23,6 +23,11 @@ interface RoleApplication {
   reviewedAt?: string;
 }
 
+interface RoleApplicationEligibility {
+  eligible: boolean;
+  reason?: string;
+}
+
 const STATUS_LABEL: Record<AppStatus, string> = {
   pending: '审核中',
   approved: '已通过',
@@ -43,6 +48,7 @@ export default function RoleApplyPage() {
   const [contactName, setContactName] = useState(user?.nickName || '');
   const [contactPhone, setContactPhone] = useState(user?.phone || '');
   const [list, setList] = useState<RoleApplication[]>([]);
+  const [eligibility, setEligibility] = useState<RoleApplicationEligibility | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,11 +69,37 @@ export default function RoleApplyPage() {
     }
   }, []);
 
+  const checkEligibility = useCallback(async (role: ApplyRole, name?: string) => {
+    try {
+      const res = await get<RoleApplicationEligibility>(
+        '/role-applications/check-eligibility',
+        {
+          applyRole: role,
+          ...(role === 'merchant' && name?.trim() ? { shopName: name.trim() } : {}),
+        },
+        { showError: false, useCache: false },
+      );
+      setEligibility(res.data || null);
+      return res.data || null;
+    } catch {
+      setEligibility(null);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoggedIn) return;
     loadMine();
     fetchMe();
   }, [isLoggedIn, loadMine, fetchMe]);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const timer = setTimeout(() => {
+      checkEligibility(applyRole, shopName);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [isLoggedIn, applyRole, shopName, checkEligibility]);
 
   const latestForRole = useMemo(() => {
     const rows = list
@@ -83,6 +115,7 @@ export default function RoleApplyPage() {
 
   // 已有 pending 时禁止重复提交；approved 仍可展示但提示已通过
   const blockedByPending = latestForRole?.status === 'pending';
+  const blockedByEligibility = Boolean(eligibility && !eligibility.eligible);
 
   const handleSubmit = async () => {
     if (submitting || blockedByPending) return;
@@ -100,6 +133,11 @@ export default function RoleApplyPage() {
 
     setSubmitting(true);
     try {
+      const checked = await checkEligibility(applyRole, shopName);
+      if (checked && !checked.eligible) {
+        Taro.showToast({ title: checked.reason || '当前不可提交申请', icon: 'none' });
+        return;
+      }
       await post(
         '/role-applications',
         {
@@ -170,12 +208,24 @@ export default function RoleApplyPage() {
         </View>
       )}
 
+      {eligibility && !eligibility.eligible && (
+        <View className='role-apply-page__status role-apply-page__status--rejected'>
+          <Text className='role-apply-page__status-title'>暂不可申请</Text>
+          <Text className='role-apply-page__status-reason'>
+            {eligibility.reason || '当前不可提交申请'}
+          </Text>
+        </View>
+      )}
+
       {(!blockedByPending || latestForRole?.status === 'rejected') && (
         <View className='role-apply-page__form'>
           {applyRole === 'merchant' ? (
             <>
               <View className='role-apply-page__field'>
-                <Text className='role-apply-page__label'>店铺名称</Text>
+                <Text className='role-apply-page__label'>
+                  店铺名称
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='role-apply-page__input'
                   placeholder='例如：小买卖面馆'
@@ -184,7 +234,10 @@ export default function RoleApplyPage() {
                 />
               </View>
               <View className='role-apply-page__field'>
-                <Text className='role-apply-page__label'>店铺地址</Text>
+                <Text className='role-apply-page__label'>
+                  店铺地址
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='role-apply-page__input'
                   placeholder='详细地址'
@@ -193,7 +246,10 @@ export default function RoleApplyPage() {
                 />
               </View>
               <View className='role-apply-page__field'>
-                <Text className='role-apply-page__label'>店铺电话</Text>
+                <Text className='role-apply-page__label'>
+                  店铺电话
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='role-apply-page__input'
                   type='number'
@@ -206,7 +262,10 @@ export default function RoleApplyPage() {
           ) : (
             <>
               <View className='role-apply-page__field'>
-                <Text className='role-apply-page__label'>联系人</Text>
+                <Text className='role-apply-page__label'>
+                  联系人
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='role-apply-page__input'
                   placeholder='真实姓名'
@@ -215,7 +274,10 @@ export default function RoleApplyPage() {
                 />
               </View>
               <View className='role-apply-page__field'>
-                <Text className='role-apply-page__label'>联系电话</Text>
+                <Text className='role-apply-page__label'>
+                  联系电话
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='role-apply-page__input'
                   type='number'
@@ -228,8 +290,10 @@ export default function RoleApplyPage() {
           )}
 
           <View
-            className={`role-apply-page__btn${submitting || !canSubmit && blockedByPending ? ' is-disabled' : ''}`}
-            onClick={() => !submitting && !blockedByPending && handleSubmit()}
+            className={`role-apply-page__btn${
+              submitting || (!canSubmit && blockedByPending) || blockedByEligibility ? ' is-disabled' : ''
+            }`}
+            onClick={() => !submitting && !blockedByPending && !blockedByEligibility && handleSubmit()}
           >
             <Text>
               {submitting

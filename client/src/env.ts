@@ -3,9 +3,8 @@
  *
  * 真机调试注意：
  * - 微信小程序真机无法访问本机 127.0.0.1 / localhost
- * - 真机必须把 API_BASE_URL / WS_URL 设为电脑局域网 IP，例如：
- *   http://192.168.1.10:3010/api  /  ws://192.168.1.10:3010
- * - 模拟器可用 127.0.0.1（推荐）或局域网 IP
+ * - 当前开发默认使用局域网 IP：192.168.0.112
+ * - API_BASE_URL / WS_URL 由 config/dev.ts 编译期注入
  * - 小程序中 process.env.XXX 必须由 Taro DefinePlugin 在编译期替换为字面量
  *   （见 config/index.ts merge dev/prod + config/dev.ts env）
  * - 若未注入，运行时没有 Node process，会直接白屏

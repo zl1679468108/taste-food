@@ -3,7 +3,7 @@ export default definePageConfig({
   navigationBarBackgroundColor: '#FF6B35',
   navigationBarTextStyle: 'white',
   backgroundColor: '#f5f5f5',
-  disableScroll: false,
+  disableScroll: true,
   enablePullDownRefresh: true,
 });
 

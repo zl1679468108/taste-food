@@ -70,14 +70,14 @@ export function formatRelativeTime(time: string): string {
 export function shortOrderId(orderId: string, orderNo?: string): string {
   const preferred = (orderNo || '').trim();
   if (preferred) {
-    return preferred.startsWith('#') ? preferred : `#${preferred}`;
+    return preferred.replace(/^#/, '');
   }
   const raw = (orderId || '').trim();
   if (!raw) return '#';
   if (/^TF\d{8}/i.test(raw)) {
-    return raw.startsWith('#') ? raw : `#${raw}`;
+    return raw.replace(/^#/, '');
   }
-  return `#${raw.substring(0, 8).toUpperCase()}`;
+  return raw.substring(0, 8).toUpperCase();
 }
 
 /**

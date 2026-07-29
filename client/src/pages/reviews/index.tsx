@@ -14,6 +14,7 @@ import './index.scss';
 interface MyReviewItem {
   id: string;
   orderId: string;
+  orderNo?: string;
   shopId: string;
   userId: string;
   rating: number;
@@ -163,7 +164,7 @@ export default function MyReviewsPage() {
           key={item.id}
           className='my-review-card'
           onClick={() => goOrderDetail(item.orderId)}
-          aria-label={`评价订单 ${shortOrderId(item.orderId)}`}
+          aria-label={`评价订单 ${shortOrderId(item.orderId, item.orderNo)}`}
         >
           <View className='my-review-card__header'>
             <View className='my-review-card__stars'>
@@ -184,7 +185,7 @@ export default function MyReviewsPage() {
           <Text className='my-review-card__content'>
             {item.content?.trim() ? item.content : '（无文字评价）'}
           </Text>
-          <Text className='my-review-card__order'>订单号：{shortOrderId(item.orderId)}</Text>
+          <Text className='my-review-card__order'>订单号：{shortOrderId(item.orderId, item.orderNo)}</Text>
           {item.replyContent ? (
             <View className='my-review-card__reply'>
               <Text className='my-review-card__reply-label'>商家回复</Text>

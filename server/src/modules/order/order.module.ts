@@ -5,9 +5,10 @@ import { OrderGateway } from './order.gateway';
 import { PromotionModule } from '../promotion/promotion.module';
 import { ShopModule } from '../shop/shop.module';
 import { MenuModule } from '../menu/menu.module';
+import { AddressModule } from '../address/address.module';
 
 @Module({
-  imports: [PromotionModule, ShopModule, forwardRef(() => MenuModule)],
+  imports: [PromotionModule, ShopModule, AddressModule, forwardRef(() => MenuModule)],
   controllers: [OrderController],
   providers: [OrderService, OrderGateway],
   exports: [OrderService, OrderGateway],

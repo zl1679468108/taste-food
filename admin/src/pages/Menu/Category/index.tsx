@@ -1,16 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
 import { Button, Popconfirm, Space, Table, message } from 'antd';
 import { EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons';
-import {
-  getCategories,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-  getMenuItems,
-  Category,
-} from '@/services/menu';
+import { getMenuItems, Category } from '@/services/menu';
 import { useShopContext } from '@/hooks/useShopContext';
+import {
+  useCategories,
+  useCreateCategory,
+  useUpdateCategory,
+  useDeleteCategory,
+} from '@/hooks/queries';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -27,29 +26,16 @@ const CATEGORY_ICON_OPTIONS = [
 const CategoryPage: React.FC = () => {
   const { shopId, ready, currentShop } = useShopContext();
   const [searchText, setSearchText] = useState('');
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
 
-  const loadData = useCallback(async () => {
-    if (!shopId) return;
-    setLoading(true);
-    try {
-      const list = (await getCategories(shopId)) || [];
-      setCategories(list);
-    } catch (error) {
-      console.error('加载分类失败:', error);
-      setCategories([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [shopId]);
+  const categoriesQuery = useCategories(ready && shopId ? shopId : '');
+  const categories = categoriesQuery.data ?? [];
+  const loading = categoriesQuery.isPending;
 
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    loadData();
-  }, [loadData, ready, shopId]);
+  const createCategoryMutation = useCreateCategory();
+  const updateCategoryMutation = useUpdateCategory();
+  const deleteCategoryMutation = useDeleteCategory();
 
   const handleDelete = async (id: string) => {
     try {
@@ -58,9 +44,8 @@ const CategoryPage: React.FC = () => {
         message.warning(`该分类下还有 ${items.length} 个菜品，请先迁移或删除菜品后再删除分类`);
         return;
       }
-      await deleteCategory(id);
+      await deleteCategoryMutation.mutateAsync({ id, shopId });
       message.success('删除成功');
-      loadData();
     } catch (error) {
       console.error('删除分类失败:', error);
     }
@@ -135,7 +120,7 @@ const CategoryPage: React.FC = () => {
       <PageHeaderActions
         icon={<AppstoreOutlined style={{ marginRight: 8 }} />}
         title={currentShop?.name ? `分类管理 · ${currentShop.name}` : '分类管理'}
-        onRefresh={loadData}
+        onRefresh={() => categoriesQuery.refetch()}
         addText="新增分类"
         onAdd={() => {
           setEditing(null);
@@ -180,14 +165,16 @@ const CategoryPage: React.FC = () => {
         onFinish={async (values) => {
           try {
             if (editing) {
-              await updateCategory(editing.id, values as any);
+              await updateCategoryMutation.mutateAsync({
+                id: editing.id,
+                data: { ...values, shopId } as any,
+              });
               message.success('更新成功');
             } else {
-              await createCategory({ ...values, shopId } as any);
+              await createCategoryMutation.mutateAsync({ ...values, shopId } as any);
               message.success('创建成功');
             }
             setModalOpen(false);
-            loadData();
             return true;
           } catch (error) {
             console.error('保存分类失败:', error);

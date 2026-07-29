@@ -142,6 +142,12 @@ export interface Order {
   deliveryFee: number; // 单位：分
   deliveryType: DeliveryType;
   address?: string;
+  /** 下单时店铺坐标快照（GCJ-02，腾讯地图） */
+  shopLatitude?: number;
+  shopLongitude?: number;
+  /** 下单时配送地址坐标快照（GCJ-02，腾讯地图） */
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
   tableNo?: string;
   remark?: string;
   contactName?: string;

@@ -5,6 +5,8 @@
   flex-direction: column;
   height: 100vh;
   background: $bg-page;
+  @include tab-bar-spacer;
+  box-sizing: border-box;
 
   &__mine-entry {
     margin: $space-3 $space-3 0;

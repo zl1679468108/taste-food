@@ -21,7 +21,7 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async getUsers(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -44,7 +44,7 @@ export class UserController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async getUserDetail(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
@@ -59,7 +59,7 @@ export class UserController {
   }
 
   @Post()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   @HttpCode(HttpStatus.CREATED)
   async createUser(
     @Body() dto: CreateUserDto,
@@ -84,7 +84,7 @@ export class UserController {
   }
 
   @Patch(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async updateUser(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,

@@ -3,7 +3,6 @@ import { Button, Card, Form, Input, Typography, Space, Divider, message } from '
 import {
   UserOutlined,
   LockOutlined,
-  CoffeeOutlined,
   SafetyOutlined,
   ShopOutlined,
 } from '@ant-design/icons';
@@ -16,6 +15,7 @@ import {
   homePathForRole,
 } from '@/services/auth';
 import { brand } from '@/theme';
+import brandLogo from '@/assets/images/brand-logo.png';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -45,7 +45,9 @@ const LoginPage: React.FC = () => {
         },
       });
       message.success('登录成功');
-      history.push(homePathForRole(result.role));
+      // 登录态刚写入后直接走 Umi history 可能复用登录前的权限路由标记，
+      // 导致首次进入 /dashboard 被渲染成 403。整页导航让初始权限从持久化会话重新计算。
+      window.location.href = homePathForRole(result.role);
     } catch {
       // 全局拦截器已 toast
     } finally {
@@ -90,16 +92,20 @@ const LoginPage: React.FC = () => {
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div>
-            <div
+            <img
+              src={brandLogo}
+              alt="小买卖"
               style={{
-                fontSize: 56,
-                lineHeight: '56px',
+                width: 64,
+                height: 64,
+                borderRadius: 14,
                 marginBottom: 16,
-                color: brand.primary,
+                display: 'block',
+                marginLeft: 'auto',
+                marginRight: 'auto',
+                boxShadow: '0 8px 20px rgba(255, 107, 53, 0.28)',
               }}
-            >
-              <CoffeeOutlined />
-            </div>
+            />
             <Title level={2} style={{ marginBottom: 8 }}>
               小买卖管理后台
             </Title>

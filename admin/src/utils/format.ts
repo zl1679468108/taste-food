@@ -10,14 +10,21 @@
  * 保持 admin 现有 UI 显示行为不变。
  */
 export {
-  formatTime,
   formatRelativeTime,
   truncateText,
 } from '@taste-food/shared/format';
-import { shortOrderId as sharedShortOrderId } from '@taste-food/shared/format';
+import {
+  formatTime as sharedFormatTime,
+  shortOrderId as sharedShortOrderId,
+} from '@taste-food/shared/format';
 
 // admin 历史 formatPrice 返回带 ¥ 符号，映射为 shared 的 formatPriceWithSymbol
 export { formatPriceWithSymbol as formatPrice } from '@taste-food/shared/format';
+
+/** PC 端统一展示到秒：YYYY-MM-DD HH:mm:ss */
+export function formatTime(time: string, template = 'YYYY-MM-DD HH:mm:ss'): string {
+  return sharedFormatTime(time, template);
+}
 
 /** 短订单号（去 # 前缀），用于表格紧凑展示 */
 export function shortOrderId(id: string): string {

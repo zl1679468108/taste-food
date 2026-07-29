@@ -1,7 +1,7 @@
 import Icon, { type IconName } from '../../components/Icon';
 import FoodThumb from '../../components/FoodThumb';
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, Input, Switch } from '@tarojs/components';
+import { View, Text, Input } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
@@ -13,7 +13,7 @@ import { loadDineContext } from '../../utils/dine-context';
 import { Promotion } from '../../types/promotion';
 import SectionCard from '../../components/SectionCard';
 import FooterBar from '../../components/FooterBar';
-import { isValidPhone, isNonEmpty } from '../../utils/validators';
+import { isNonEmpty } from '../../utils/validators';
 import { estimateDiscount } from '../../utils/promotion';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import type { AddressItem } from '../address/index';
@@ -31,9 +31,6 @@ const OrderConfirmPage = () => {
 
   // 本地状态
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(DeliveryType.PICKUP);
-  const [address, setAddress] = useState('');
-  const [contactName, setContactName] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
   const [tableNo, setTableNo] = useState('');
   const { pending: submitting, run: runSubmit } = useAsyncAction();
   const [shopName, setShopName] = useState('');
@@ -46,9 +43,6 @@ const OrderConfirmPage = () => {
   const [promotionsLoading, setPromotionsLoading] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<AddressItem | null>(null);
   const [addressLoading, setAddressLoading] = useState(false);
-  const [invoiceNeeded, setInvoiceNeeded] = useState(false);
-  const [invoiceTitle, setInvoiceTitle] = useState('');
-  const [invoiceTaxNo, setInvoiceTaxNo] = useState('');
 
   const deliveryFee = deliveryType === DeliveryType.DELIVERY ? shopDeliveryFee : 0;
 
@@ -94,10 +88,6 @@ const OrderConfirmPage = () => {
 
   const applyAddress = useCallback((addr: AddressItem | null) => {
     setSelectedAddress(addr);
-    if (!addr) return;
-    setAddress(addr.detail || '');
-    setContactName(addr.contactName || '');
-    setContactPhone(addr.contactPhone || '');
   }, []);
 
   const loadDefaultAddress = useCallback(async () => {
@@ -109,6 +99,8 @@ const OrderConfirmPage = () => {
       const preferred = list.find((a) => a.isDefault) || list[0] || null;
       if (preferred) {
         applyAddress(preferred);
+      } else {
+        setSelectedAddress(null);
       }
     } catch (e) {
       console.error('加载默认地址失败:', e);
@@ -202,18 +194,22 @@ const OrderConfirmPage = () => {
       return;
     }
 
-    // 配送方式为外送时必填地址与联系人
+    // 配送方式为外送时必须从地址簿选择
     if (deliveryType === DeliveryType.DELIVERY) {
-      if (!isNonEmpty(address)) {
-        Taro.showToast({ title: '请填写配送地址', icon: 'none' });
+      if (!selectedAddress) {
+        Taro.showToast({ title: '请选择收货地址', icon: 'none' });
         return;
       }
-      if (!isNonEmpty(contactName)) {
-        Taro.showToast({ title: '请填写联系人', icon: 'none' });
+      if (!isNonEmpty(selectedAddress.detail)) {
+        Taro.showToast({ title: '收货地址不完整，请重新选择', icon: 'none' });
         return;
       }
-      if (!isValidPhone(contactPhone)) {
-        Taro.showToast({ title: '请填写正确的手机号', icon: 'none' });
+      if (!isNonEmpty(selectedAddress.contactName)) {
+        Taro.showToast({ title: '收货联系人不完整，请重新选择', icon: 'none' });
+        return;
+      }
+      if (!isNonEmpty(selectedAddress.contactPhone)) {
+        Taro.showToast({ title: '收货电话不完整，请重新选择', icon: 'none' });
         return;
       }
     }
@@ -221,17 +217,6 @@ const OrderConfirmPage = () => {
     // 堂食桌号必填
     if (deliveryType === DeliveryType.DINE_IN && !isNonEmpty(tableNo)) {
       Taro.showToast({ title: '请填写桌号', icon: 'none' });
-      return;
-    }
-
-    // 外送/自取若填写了手机号则校验格式
-    if (isNonEmpty(contactPhone) && !isValidPhone(contactPhone)) {
-      Taro.showToast({ title: '请填写正确的手机号', icon: 'none' });
-      return;
-    }
-
-    if (invoiceNeeded && !isNonEmpty(invoiceTitle)) {
-      Taro.showToast({ title: '请填写发票抬头', icon: 'none' });
       return;
     }
 
@@ -251,18 +236,25 @@ const OrderConfirmPage = () => {
         })),
         deliveryType,
         // deliveryFee 由服务端从店铺配置获取，不信任客户端传值
-        address: deliveryType === DeliveryType.DELIVERY ? address : '',
         tableNo: (deliveryType === DeliveryType.DINE_IN || deliveryType === DeliveryType.PICKUP) ? tableNo : '',
         remark: cartRemarks || '',
         // 空值不传，避免后端把空串当有效手机号/联系人校验失败
-        ...(isNonEmpty(contactName) ? { contactName: contactName.trim() } : {}),
-        ...(isNonEmpty(contactPhone) ? { contactPhone: contactPhone.trim() } : {}),
-        invoiceNeeded,
-        ...(invoiceNeeded
+        address: deliveryType === DeliveryType.DELIVERY
+          ? (selectedAddress?.detail || '').trim()
+          : '',
+        ...(deliveryType === DeliveryType.DELIVERY
+          && typeof selectedAddress?.latitude === 'number'
+          && typeof selectedAddress?.longitude === 'number'
           ? {
-              invoiceTitle: invoiceTitle.trim(),
-              ...(isNonEmpty(invoiceTaxNo) ? { invoiceTaxNo: invoiceTaxNo.trim() } : {}),
+              deliveryLatitude: selectedAddress.latitude,
+              deliveryLongitude: selectedAddress.longitude,
             }
+          : {}),
+        ...(selectedAddress?.contactName?.trim()
+          ? { contactName: selectedAddress.contactName.trim() }
+          : {}),
+        ...(selectedAddress?.contactPhone?.trim()
+          ? { contactPhone: selectedAddress.contactPhone.trim() }
           : {}),
       };
 
@@ -332,6 +324,10 @@ const OrderConfirmPage = () => {
           <View className='delivery-info-form'>
             {deliveryType === DeliveryType.DELIVERY ? (
               <View className='address-book-block'>
+                <Text className='form-field-label'>
+                  收货地址
+                  <Text className='form-required'>*</Text>
+                </Text>
                 {addressLoading ? (
                   <Text className='address-book-block__hint'>地址加载中...</Text>
                 ) : selectedAddress ? (
@@ -350,46 +346,28 @@ const OrderConfirmPage = () => {
                     <Text className='address-book-card__switch'>切换地址 ›</Text>
                   </View>
                 ) : (
-                  <>
-                    <View className='address-book-empty'>
-                      <Text className='address-book-empty__text'>还没有收货地址，可新增或手动填写</Text>
-                      <View className='address-book-empty__actions'>
-                        <Text className='address-book-empty__btn' onClick={goAddAddress}>去新增</Text>
-                        <Text className='address-book-empty__btn ghost' onClick={openAddressBook}>地址簿</Text>
-                      </View>
+                  <View className='address-book-empty'>
+                    <Text className='address-book-empty__text'>还没有收货地址，请先新增</Text>
+                    <View className='address-book-empty__actions'>
+                      <Text className='address-book-empty__btn' onClick={goAddAddress}>去新增</Text>
+                      <Text className='address-book-empty__btn ghost' onClick={openAddressBook}>地址簿</Text>
                     </View>
-                    <Input
-                      className='form-input'
-                      placeholder='请输入配送地址'
-                      value={address}
-                      onInput={(e) => setAddress(e.detail.value)}
-                    />
-                    <View className='form-row'>
-                      <Input
-                        className='form-input form-input--flex-1'
-                        placeholder='姓名'
-                        value={contactName}
-                        onInput={(e) => setContactName(e.detail.value)}
-                        aria-label='联系人姓名'
-                      />
-                      <Input
-                        className='form-input form-input--flex-2'
-                        placeholder='电话'
-                        value={contactPhone}
-                        onInput={(e) => setContactPhone(e.detail.value)}
-                        aria-label='联系人电话'
-                      />
-                    </View>
-                  </>
+                  </View>
                 )}
               </View>
             ) : deliveryType === DeliveryType.DINE_IN ? (
-              <Input
-                className='form-input'
-                placeholder='请输入桌号（如 A06）'
-                value={tableNo}
-                onInput={(e) => setTableNo(e.detail.value)}
-              />
+              <View className='delivery-info-form'>
+                <Text className='form-field-label'>
+                  桌号
+                  <Text className='form-required'>*</Text>
+                </Text>
+                <Input
+                  className='form-input'
+                  placeholder='请输入桌号（如 A06）'
+                  value={tableNo}
+                  onInput={(e) => setTableNo(e.detail.value)}
+                />
+              </View>
             ) : (
               <View className='address-book-card address-book-card--shop'>
                 <View className='address-book-card__row'>
@@ -459,7 +437,7 @@ const OrderConfirmPage = () => {
           <View className='remark-input-wrap'>
             <Input
               className='remark-input'
-              placeholder=''
+              placeholder='请填写备注'
               value={cartRemarks}
               onInput={(e) => setRemarks(e.detail.value)}
             />
@@ -475,34 +453,6 @@ const OrderConfirmPage = () => {
               </View>
             ))}
           </View>
-        </SectionCard>
-
-        {/* 发票信息 */}
-        <SectionCard className='invoice-section' icon='invoice' title='发票信息'>
-          <View className='invoice-switch-row'>
-            <Text className='invoice-switch-row__label'>需要发票</Text>
-            <Switch
-              checked={invoiceNeeded}
-              color='#FF6B35'
-              onChange={(e) => setInvoiceNeeded(!!e.detail.value)}
-            />
-          </View>
-          {invoiceNeeded && (
-            <View className='invoice-fields'>
-              <Input
-                className='form-input'
-                placeholder='发票抬头（必填）'
-                value={invoiceTitle}
-                onInput={(e) => setInvoiceTitle(e.detail.value)}
-              />
-              <Input
-                className='form-input'
-                placeholder='税号（选填）'
-                value={invoiceTaxNo}
-                onInput={(e) => setInvoiceTaxNo(e.detail.value)}
-              />
-            </View>
-          )}
         </SectionCard>
 
         {/* 价格统计 */}

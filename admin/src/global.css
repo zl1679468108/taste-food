@@ -331,6 +331,15 @@ body {
   padding-block-start: 0 !important;
 }
 
+/* 业务页已用 .tf-page 控制左右/底部间距；清掉 PageContainer 默认 padding，
+   避免与 .tf-page 叠加导致左侧“多出一截”空白。 */
 .ant-pro-page-container-children-container {
-  padding-block-start: 0 !important;
+  padding-block: 0 !important;
+  padding-inline: 0 !important;
+}
+
+/* 顶栏店铺选择器：Pro Layout 会给 actionsRender 每一项的直接子元素加 hover 灰底，
+   而选择器内部的 Select 已自带底色，两层灰会叠在一起。这里去掉外层那道灰。 */
+.ant-pro-global-header-header-actions-item > .tf-shop-selector:hover {
+  background-color: transparent !important;
 }

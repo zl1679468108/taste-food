@@ -1,7 +1,7 @@
 # 小买卖点餐系统 — 产品需求文档
 
 > **版本**: 1.0.3<br>
-> **更新日期**: 2026-07-26<br>
+> **更新日期**: 2026-07-28<br>
 > **仓库**: `/Users/zhaolong/前端/vibe-coding-project/taste-food`  
 > **任务看板**: `docs/tasks.md`  
 > **开发状态**: ✅ 个人主体约 90% 可演示上线；✅ 多店铺运营与 PC 统一体验改造已落地（§3.18 / T200）
@@ -61,14 +61,14 @@
 |------|--------|------|------|
 | ✅ 微信登录 | P0 | T01 | done |
 | ✅ 我的页 / 退出登录 | P1 | T188 | done 2026-07-26 |
-| ❌ 角色切换（已移除） | — | T189 | 一账号一身份，不提供端内切换 |
-| ✅ 菜单浏览 | P0 | T02, T03, T26 | done |
-| ✅ 搜索菜品 | P1 | T15 | done |
+| ✅ 多角色切换 | P0 | T201.7 | 顾客/商家/骑手可在端内切换，小程序禁用管理员视角 |
+| ✅ 菜单浏览 | P0 | T02, T03, T26, T210.3 | done | 店铺头像支持自定义 Logo，失败回退默认图 |
+| ✅ 搜索菜品 | P1 | T15 / T212 | done | 小程序端本地过滤（单店菜单量小，不走后端 search） |
 | ✅ 购物车 | P0 | T04, T24 | done |
 | ✅ 确认订单 | P0 | T05 | done |
 | ✅ 促销活动 | P1 | T19 | done |
 | ✅ 模拟/沙箱支付 | P0 | T06, T150 | done |
-| ✅ 订单管理 | P0 | T07, T21, T23 | done |
+| ✅ 订单管理 | P0 | T07, T21, T23 / T214 / T219 | done | 待支付/已支付顾客可自主取消；商家接单后不可自行取消（T214）；取消/拒单原因必填（T219） |
 
 ### 3.2 商家端（小程序）✅ 全部完成
 
@@ -93,7 +93,7 @@
 |------|--------|------|------|
 | ✅ 项目初始化 | P3 | T42 | done |
 | ✅ 数据看板 | P3 | T49 | done |
-| ✅ 店铺管理 | P3 | T50 / T203.2 | done | 一级菜单；信息/营业时段/桌台整合进编辑（见 §3.18） |
+| ✅ 店铺管理 | P3 | T50 / T203.2 / T210 | done | 一级菜单；信息/营业时段/桌台整合进编辑；Logo 支持图库上传，未上传/失效回退默认图（见 §3.18） |
 | ✅ 分类管理 | P3 | T51 | done | 搜索栏统一见 §3.18 / T200.1 |
 | ✅ 菜品管理 | P3 | T52 | done |
 | ✅ 订单管理 | P3 | T53 | done |
@@ -232,6 +232,7 @@
 | ✅ 配送轨迹持久化 | P2 | T164.1 | ✅ 2026-07-24 | 记录骑手经纬度、速度、精度与上报时间 |
 | ✅ 顾客订单详情地图 | P2 | T164.2 | ✅ 2026-07-24 | 外卖订单展示地图、路线、骑手当前位置与更新时间 |
 | ✅ 骑手位置上报 | P2 | T164.3 | ✅ 2026-07-24 | 骑手配送中可上报位置；开发环境支持演示坐标兜底 |
+| ✅ 腾讯地图坐标对齐 | P1 | T211 | ✅ 2026-07-28 | 店铺/地址/订单存 GCJ-02；选点+服务端 geocode；详情地图用真实坐标，无坐标降级 |
 
 ### 3.18 多店铺运营与 PC 统一体验 ✅ 2026-07-26 进行中
 
@@ -247,6 +248,7 @@
 | ✅ 骑手跨店取餐 | P1 | T200.6 | done 2026-07-26 | 骑手可从多店抢单/取餐，不强制绑定单一 `shop_id` |
 | ✅ 顾客切换门店下单 | P1 | T200.7 | done 2026-07-26 | 顾客可切换门店；购物车/下单/菜单上下文跟随当前门店 |
 | ✅ 店铺菜单整合 | P1 | T203.2 | done 2026-07-26 | 「店铺管理」一级菜单；店铺信息/营业时段并入编辑；桌台与扫码在编辑侧抽屉 |
+| ✅ 店铺 Logo 上传与默认回退 | P1 | T210 | done 2026-07-28 | 后台图库/上传自定义 Logo；空值或 URL 失效时前后台使用默认店铺图标 |
 | ✅ 看板统计口径 | P1 | T203.1 | done 2026-07-26 | 近 N 天订单/营收/已完成/状态分布同一时间窗；待处理为当前实时 |
 | ✅ 用户账号由管理员创建 | P1 | T203.4 | done 2026-07-26 | 全部账号（含商家）统一 `tf_users`；平台管理员创建；本人可改昵称/头像 |
 
@@ -265,20 +267,20 @@
 
 ---
 
-### 3.19 账号注册登录与角色审批 🔄 2026-07-26
+### 3.19 账号注册登录与角色审批 ✅ 2026-07-27
 
 > 关联任务：`T201` 系列。目标：可演示的账号体系 + 商家/骑手审批闭环 + 站内消息。
 
 | 功能 | 优先级 | 任务 | 状态 | 说明 |
 |------|--------|------|------|------|
-| 🔄 角色模型 merchant + 多角色表 | P0 | T201.1 | todo | DB CHECK 增 merchant；tf_user_roles；种子测试商家绑定默认店 |
-| 🔄 密码注册登录 API（双 Token） | P0 | T201.2 | todo | username/phone + password；对齐 family-bookkeeping 会话 |
-| 🔄 商家/骑手申请与审批 API | P0 | T201.3 | todo | 申请表、一店一商家、驳回重提、审批写角色 |
-| 🔄 站内消息通知 | P0 | T201.4 | todo | tf_notifications；列表/已读；审批结果推送 |
-| 🔄 PC 登录注册与按角色分流 | P0 | T201.5 | todo | 登录/注册页；admin/merchant 运营菜单；顾客/骑手轻量中心 |
-| 🔄 PC 审批中心与消息中心 | P0 | T201.6 | todo | 管理员审批列表；全角色消息入口 |
-| 🔄 小程序登录注册（禁 admin） | P0 | T201.7 | todo | 微信登录 + 资料；身份申请；角色切换；无管理员入口 |
-| 🔄 权限守卫 merchant 化 | P0 | T201.8 | todo | 原商家写接口允许 merchant；平台能力仅 admin |
+| ✅ 角色模型 merchant + 多角色表 | P0 | T201.1 | done 2026-07-27 | DB CHECK 增 merchant；tf_user_roles；种子测试商家绑定默认店 |
+| ✅ 密码注册登录 API（双 Token） | P0 | T201.2 | done 2026-07-27 | username/phone + password；对齐 family-bookkeeping 会话 |
+| ✅ 商家/骑手申请与审批 API | P0 | T201.3 | done 2026-07-27 | 申请表、一店一商家、申请前校验店铺占用、驳回重提、审批写角色 |
+| ✅ 站内消息通知 | P0 | T201.4 | done 2026-07-27 | tf_notifications；列表/已读；审批结果推送 |
+| ✅ PC 登录注册与按角色分流 | P0 | T201.5 | done 2026-07-27 | 登录/注册页；admin/merchant 运营菜单；顾客/骑手轻量中心 |
+| ✅ PC 审批中心与消息中心 | P0 | T201.6 | done 2026-07-27 | 管理员审批列表；全角色消息入口 |
+| ✅ 小程序登录注册（禁 admin） | P0 | T201.7 | done 2026-07-27 | 微信登录 + 资料；身份申请；角色切换；按角色切 tab；无管理员入口 |
+| ✅ 权限守卫 merchant 化 | P0 | T201.8 | done 2026-07-27 | 原商家写接口允许 merchant；平台能力仅 admin |
 
 **要什么（验收）**：
 1. Supabase 存在测试商家：`role=merchant`，绑定 `小买卖烧烤`。
@@ -294,13 +296,15 @@
 | 方法 | 路径 | 说明 | 鉴权 |
 |------|------|------|------|
 | POST | `/api/auth/wechat-login` | 微信登录，返回 access(`token`)+refresh | 否 |
-| POST | `/api/auth/register` | 账号密码注册（默认顾客；可选提交申请意向） | 否 |
+| POST | `/api/auth/register` | 账号密码注册（默认顾客） | 否 |
 | POST | `/api/auth/login` | 账号密码登录，返回双 Token + 角色列表 | 否 |
 | POST | `/api/auth/refresh` | 用 refresh 换发新 access（refresh 默认不轮换） | 否 |
 | GET | `/api/auth/me` | 当前用户资料与角色列表 | 是 |
 | POST | `/api/auth/switch-role` | 切换激活角色（小程序禁 admin） | 是 |
-| GET/POST | `/api/role-applications` | 提交/查看我的商家或骑手申请 | 是 |
-| GET/PATCH | `/api/role-applications/:id` | 管理员审批（通过/驳回） | 是（Admin） |
+| GET | `/api/role-applications/check-eligibility` | 申请前校验角色资格与商家店铺占用 | 是 |
+| GET | `/api/role-applications/mine` | 我的商家/骑手申请记录 | 是 |
+| GET/POST | `/api/role-applications` | 管理员查看申请 / 用户提交申请 | 是 |
+| PATCH | `/api/role-applications/:id/review` | 管理员审批（通过/驳回） | 是（Admin） |
 | GET/PATCH | `/api/notifications` | 站内消息列表/标记已读 | 是 |
 
 **Token 方案（对齐 family-bookkeeping）**：
@@ -333,7 +337,7 @@
 | 方法 | 路径 | 说明 | 鉴权 |
 |------|------|------|------|
 | GET | `/api/categories` | 分类列表（支持 `shop_id`） | 否 |
-| GET | `/api/menu-items` | 菜品列表（支持 `shop_id` + `category_id` + `search`） | 否 |
+| GET | `/api/menu-items` | 菜品列表（支持 `shop_id` + `category_id`；`search` 可选兼容，小程序端改为本地过滤） | 否 |
 | GET | `/api/menu-items/popular` | 热门菜品排行 | 否 |
 | GET | `/api/menu-items/:id` | 单品详情 | 否 |
 | GET | `/api/menu-items/:id/specs` | 菜品规格 | 否 |
@@ -351,8 +355,8 @@
 | GET | `/api/orders/stats/:shopId` | 今日营收统计（商家仅本店；平台可指定店） | 是（Admin） |
 | GET | `/api/orders/:id` | 订单详情 | 是 |
 | POST | `/api/orders` | 创建订单 | 是 |
-| POST | `/api/orders/:id/status` | 更新订单状态 | 是（Admin） |
-| POST | `/api/orders/:id/cancel` | 取消订单 | 是 |
+| POST | `/api/orders/:id/status` | 更新订单状态（`rejected` 时 `reason` 必填） | 是（Admin） |
+| POST | `/api/orders/:id/cancel` | 取消订单（顾客本人：pending_payment/paid；商家/管理员：本店同状态；`reason` 必填） | 是 |
 | POST | `/api/orders/:id/reorder` | 再来一单 | 是 |
 | POST | `/api/orders/:id/reviews` | 提交订单评价（仅 completed 且本人一次） | 是 |
 | GET | `/api/orders/:id/reviews` | 查询订单评价 | 是 |
@@ -438,12 +442,12 @@
 
 | 表名 | 说明 | 关键字段 |
 |------|------|---------|
-| `tf_shops` | 店铺 | id, name, status, description, address, phone, logo_url, delivery_fee, min_order_amount, delivery_range, business_hours |
+| `tf_shops` | 店铺 | id, name, status, description, address, latitude, longitude, phone, logo_url, delivery_fee, min_order_amount, delivery_range, business_hours |
 | `tf_categories` | 分类 | id, shop_id, name, sort_order, icon_key |
 | `tf_menu_items` | 菜品 | id, shop_id, category_id, name, price, monthly_sales, spec_group_ids, status, image_url, description |
 | `tf_spec_groups` | 规格组 | id, shop_id, name, is_required, max_select |
 | `tf_spec_options` | 规格选项 | id, spec_group_id, name, price_adjust |
-| `tf_orders` | 订单 | id, order_no, shop_id, user_id, rider_id, status, total, delivery_fee, delivery_type, address, table_no, contact_name, contact_phone, remark, invoice_needed, invoice_title, invoice_tax_no |
+| `tf_orders` | 订单 | id, order_no, shop_id, user_id, rider_id, status, total, delivery_fee, delivery_type, address, shop_latitude, shop_longitude, delivery_latitude, delivery_longitude, table_no, contact_name, contact_phone, remark, invoice_needed, invoice_title, invoice_tax_no |
 | `tf_order_items` | 订单项 | id, order_id, shop_id, menu_item_id, name, quantity, price, spec_desc, image_url |
 | `tf_delivery_info` | 配送信息 | id, order_id, shop_id, courier_name, courier_phone, estimated_delivery_at, delivered_at |
 | `tf_delivery_tracks` | 配送轨迹点 | id, order_id, shop_id, rider_id, latitude, longitude, speed, accuracy, source, recorded_at |
@@ -455,7 +459,7 @@
 | `tf_favorites` | 菜品收藏 | id, user_id, menu_item_id, shop_id, created_at（UNIQUE(user_id, menu_item_id)） |
 | `tf_daily_stats` | 每日销售统计 | id, shop_id, stat_date, total_orders, total_revenue, completed_orders, cancelled_orders（UNIQUE(shop_id, stat_date)） |
 | `tf_item_sales` | 菜品销售明细 | id, menu_item_id, shop_id, order_id, order_date, quantity, revenue |
-| `tf_addresses` | 顾客地址簿 | id, user_id, shop_id, contact_name, contact_phone, detail, tag, is_default, created_at |
+| `tf_addresses` | 顾客地址簿 | id, user_id, shop_id, contact_name, contact_phone, detail, latitude, longitude, tag, is_default, created_at |
 | `tf_audit_logs` | 操作审计日志 | id, shop_id, user_id, role, method, path, action, resource, resource_id, summary, status_code, ip, created_at（展示：动作/摘要/资源/角色中文；时间 `YYYY-MM-DD HH:mm:ss`） |
 | `tf_shop_tables` | 店铺桌台 | id, shop_id, table_no, label, sort_order, active, created_at（UNIQUE(shop_id,table_no)） |
 | `tf_reviews` | 订单评价 | id, order_id, shop_id, user_id, rating, content, reply_content, reply_at, created_at（UNIQUE(order_id)） |
@@ -463,7 +467,7 @@
 
 > `business_hours` 建议结构：`{ mon:[{start,end}], ..., sun:[...] }`，空数组表示当日休息。<br>
 > 多租户规范：所有业务表均含 `shop_id` 字段用于店铺隔离。<br>
-> 角色与店铺：平台管理员 `role=admin` 且 `shop_id` 为空可跨店查询；商家 `role=admin` 且绑定单一 `shop_id` 强制单店隔离；骑手跨店取餐不强制 `shop_id`；顾客下单使用当前选中门店写入订单 `shop_id`。<br>
+> 角色与店铺：平台管理员 `role=admin` 且 `shop_id` 为空可跨店查询；商家 `role=merchant` 且绑定单一 `shop_id` 强制单店隔离；骑手跨店取餐不强制 `shop_id`；顾客下单使用当前选中门店写入订单 `shop_id`。<br>
 > 可选演进：未来可新增 `super_admin` 枚举，本轮不迁移 DB CHECK。<br>
 > `order_no` 规则：`TF + YYYYMMDD + 店铺短码4位 + 当日序号4位`（例 `TF2026072600AB0001`）；旧单可空，展示回退短码。<br>
 > 认证会话：Access 默认 2h / Refresh 默认 14d，hash 存 `tf_user_sessions`（对齐 family-bookkeeping，非 JWT）。
@@ -479,7 +483,7 @@ pending_payment → paid → accepted → preparing → delivering → completed
 
 - `delivering` — 外卖配送（delivery 类型订单）
 - `ready_for_pickup` — 待取餐（pickup/dine_in 类型订单，备餐完成）
-- `cancelled` — 仅 `pending_payment`/`paid` 状态可取消（已支付触发退款）
+- `cancelled` — 仅 `pending_payment`/`paid` 状态可取消（已支付触发退款）；顾客可自主取消，商家接单（`accepted`）后需商家/管理员处理，顾客不可再直接取消
 
 ### 5.3 配送类型
 

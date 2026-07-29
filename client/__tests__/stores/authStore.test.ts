@@ -78,11 +78,24 @@ describe('authStore', () => {
 
     await refreshSession();
 
-    expect(mockPost).toHaveBeenCalledWith('/auth/refresh', { refreshToken: 'old-refresh' }, { showError: false });
+    expect(mockPost).toHaveBeenCalledWith('/auth/refresh', { refreshToken: 'old-refresh' }, { showError: false, skipAuthRedirect: true });
     expect(useAuthStore.getState()).toMatchObject({
       token: 'new-token',
       refreshToken: 'new-refresh',
     });
+  });
+
+
+  test('refreshSession should logout on unauthorized biz code 1004', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    setToken('old-token', 'old-refresh', { userId: 'u1', openid: 'o1', role: 'customer' });
+    mockPost.mockRejectedValueOnce(Object.assign(new Error('无效的 token 或已过期'), { code: 1004 }));
+
+    await refreshSession();
+
+    expect(taro.reLaunch).toHaveBeenCalledWith({ url: '/pages/auth/login' });
+    expect(useAuthStore.getState().isLoggedIn).toBe(false);
+    warnSpy.mockRestore();
   });
 
   test('logout should clear storage and navigate to login', () => {

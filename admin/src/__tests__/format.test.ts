@@ -17,14 +17,14 @@ describe('format 工具函数', () => {
   describe('formatTime', () => {
     it('格式化时间戳', () => {
       const time = '2026-06-25T10:30:00Z';
-      const result = formatTime(time, 'YYYY-MM-DD HH:mm');
-      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+      const result = formatTime(time, 'YYYY-MM-DD HH:mm:ss');
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     });
 
     it('使用默认格式', () => {
       const time = '2026-06-25T10:30:00Z';
       const result = formatTime(time);
-      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+      expect(result).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     });
   });
 

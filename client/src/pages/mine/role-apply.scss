@@ -1,3 +1,4 @@
+@use 'sass:color';
 @use '../../styles/design-tokens' as *;
 
 .role-apply-page {
@@ -43,13 +44,13 @@
   }
 
   &--approved {
-    background: mix($success, $bg-card, 12%);
-    border-color: mix($success, $border-color, 30%);
+    background: color.mix($success, $bg-card, 12%);
+    border-color: color.mix($success, $border-color, 30%);
   }
 
   &--rejected {
-    background: mix($danger, $bg-card, 10%);
-    border-color: mix($danger, $border-color, 30%);
+    background: color.mix($danger, $bg-card, 10%);
+    border-color: color.mix($danger, $border-color, 30%);
   }
 }
 
@@ -165,12 +166,12 @@
   }
 
   &--approved {
-    background: mix($success, $bg-card, 15%);
+    background: color.mix($success, $bg-card, 15%);
     color: $success;
   }
 
   &--rejected {
-    background: mix($danger, $bg-card, 12%);
+    background: color.mix($danger, $bg-card, 12%);
     color: $danger;
   }
 }

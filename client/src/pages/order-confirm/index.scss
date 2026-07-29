@@ -100,62 +100,85 @@
 }
 
 /* 商品列表 */
+.goods-list {
+  padding: $space-1 0;
+}
+
 .goods-item {
   display: flex;
-  align-items: center;
-  padding: $space-2 0;
+  align-items: flex-start;
+  padding: $space-3 0;
   border-bottom: 1px solid $border-light;
+
+  &:first-child {
+    padding-top: 0;
+  }
 
   &:last-child {
     border-bottom: none;
+    padding-bottom: 0;
   }
 
   &__image {
-    width: 45px;
-    height: 45px;
-    background: $primary-light;
-    border-radius: $radius-sm;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 10px;
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+    border-radius: $radius-md;
+    overflow: hidden;
+    margin-right: $space-3;
   }
 
   &__info {
     flex: 1;
+    min-width: 0;
+    padding-top: 4px;
   }
 
   &__name {
-    font-size: $font-md;
+    font-size: $font-base;
     color: $text-primary;
     font-weight: $weight-semibold;
     display: block;
     line-height: $leading-snug;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   &__spec {
     font-size: $font-xs;
     line-height: $leading-normal;
     color: $text-tertiary;
-    margin-top: 3px;
+    margin-top: $space-1;
+    display: block;
   }
 
   &__right {
     text-align: right;
+    flex-shrink: 0;
+    padding-top: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: $space-1;
+    margin-left: $space-2;
   }
 
   &__price {
     font-size: $font-base;
-    line-height: $leading-normal;
     font-weight: $weight-semibold;
-    color: $text-primary;
+    color: $text-price;
     display: block;
+    line-height: $leading-snug;
   }
 
   &__qty {
     font-size: $font-xs;
-    line-height: $leading-normal;
     color: $text-tertiary;
+    background: $bg-muted;
+    border-radius: $radius-pill;
+    padding: 1px 8px;
+    line-height: $leading-normal;
   }
 }
 
@@ -427,22 +450,3 @@
   }
 }
 
-/* 发票 */
-.invoice-switch-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-
-  &__label {
-    font-size: $font-sm;
-    line-height: $leading-normal;
-    color: $text-primary;
-  }
-}
-
-.invoice-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}

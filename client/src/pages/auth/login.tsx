@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { View, Text, Input } from '@tarojs/components';
+import { View, Text, Input, Image } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useAuthStore, navigateByRole } from '../../stores/authStore';
 import Icon from '../../components/Icon';
+import brandLogo from '../../assets/images/brand-logo.png';
 import './login.scss';
 
 const LoginPage = () => {
@@ -69,7 +70,7 @@ const LoginPage = () => {
   return (
     <View className='login-page'>
       <View className='login-page__logo'>
-        <Icon name='food' size={40} color='#FFFFFF' />
+        <Image className='login-page__logo-img' src={brandLogo} mode='aspectFill' />
       </View>
 
       <Text className='login-page__title'>小买卖点餐</Text>
@@ -121,7 +122,10 @@ const LoginPage = () => {
       ) : (
         <View className='login-page__form'>
           <View className='login-page__field'>
-            <Text className='login-page__label'>账号</Text>
+            <Text className='login-page__label'>
+              账号
+              <Text className='form-required'>*</Text>
+            </Text>
             <Input
               className='login-page__input'
               placeholder='用户名 / 手机号'
@@ -130,7 +134,10 @@ const LoginPage = () => {
             />
           </View>
           <View className='login-page__field'>
-            <Text className='login-page__label'>密码</Text>
+            <Text className='login-page__label'>
+              密码
+              <Text className='form-required'>*</Text>
+            </Text>
             <Input
               className='login-page__input'
               password

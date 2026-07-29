@@ -491,7 +491,10 @@ const MenuManagePage = () => {
             </View>
             <View className='form-modal__body'>
               <View className='form-field'>
-                <Text className='form-field__label'>菜品名称 *</Text>
+                <Text className='form-field__label'>
+                  菜品名称
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='form-field__input'
                   placeholder='请输入菜品名称'
@@ -528,7 +531,10 @@ const MenuManagePage = () => {
 
 
               <View className='form-field'>
-                <Text className='form-field__label'>价格（元）*</Text>
+                <Text className='form-field__label'>
+                  价格（元）
+                  <Text className='form-required'>*</Text>
+                </Text>
                 <Input
                   className='form-field__input'
                   placeholder='请输入价格（如 29.9）'
@@ -592,7 +598,10 @@ const MenuManagePage = () => {
             </Text>
 
             <View className='form-field'>
-              <Text className='form-field__label'>分类名称</Text>
+              <Text className='form-field__label'>
+                分类名称
+                <Text className='form-required'>*</Text>
+              </Text>
               <Input
                 className='form-field__input'
                 value={editCategoryName}
@@ -680,7 +689,10 @@ const MenuManagePage = () => {
             <Text className='edit-category-modal__title'>添加分类</Text>
 
             <View className='form-field'>
-              <Text className='form-field__label'>分类名称</Text>
+              <Text className='form-field__label'>
+                分类名称
+                <Text className='form-required'>*</Text>
+              </Text>
               <Input
                 className='form-field__input'
                 placeholder='请输入分类名称'

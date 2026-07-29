@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Select, Space, message, Typography } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
-import { useModel, history } from '@umijs/max';
+import { useModel } from '@umijs/max';
 import {
   switchRole,
   persistAuthSession,
@@ -31,6 +31,21 @@ function roleKey(r: UserRoleItem): string {
   return `${r.role}::${r.shopId || ''}`;
 }
 
+function buildRoleOptions(user?: API.CurrentUser): UserRoleItem[] {
+  const options = [...((user?.roles || []) as UserRoleItem[])];
+  const addOption = (role?: string, shopId?: string | null) => {
+    if (!role) return;
+    const key = roleKey({ role, shopId, status: 'active' });
+    if (!options.some((item) => roleKey(item) === key)) {
+      options.push({ role, shopId: shopId || null, status: 'active' });
+    }
+  };
+
+  addOption(user?.role, user?.shopId);
+  addOption('customer', null);
+  return options;
+}
+
 export interface RoleSwitcherProps {
   /** 紧凑模式：顶栏下拉 */
   compact?: boolean;
@@ -42,7 +57,7 @@ export interface RoleSwitcherProps {
 const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ compact = false }) => {
   const { initialState, setInitialState } = useModel('@@initialState');
   const user = initialState?.currentUser;
-  const roles = (user?.roles || []) as UserRoleItem[];
+  const roles = buildRoleOptions(user);
   const [value, setValue] = useState<string>(() =>
     roleKey({ role: user?.role || 'customer', shopId: user?.shopId, status: 'active' }),
   );
@@ -80,11 +95,8 @@ const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ compact = false }) => {
       }));
       setValue(nextKey);
       message.success(`已切换为${roleLabel[result.role] || result.role}`);
-      history.push(homePathForRole(result.role));
-      // 强制刷新布局菜单
-      setTimeout(() => {
-        window.location.reload();
-      }, 200);
+      // 角色变化会同时改变菜单权限和店铺上下文，整页导航确保两者从新会话一致初始化。
+      window.location.href = homePathForRole(result.role);
     } catch {
       // interceptor
     } finally {
@@ -110,9 +122,9 @@ const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ compact = false }) => {
   }
 
   return (
-    <Space wrap>
+    <Space direction="vertical" size={12} style={{ width: "100%" }}>
       <Select
-        style={{ minWidth: 220 }}
+        style={{ width: "100%" }}
         loading={loading}
         value={value}
         options={roles.map((r) => ({
@@ -121,7 +133,7 @@ const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ compact = false }) => {
         }))}
         onChange={setValue}
       />
-      <Button type="primary" loading={loading} icon={<SwapOutlined />} onClick={() => void applyRole(value)}>
+      <Button type="primary" loading={loading} icon={<SwapOutlined />} onClick={() => void applyRole(value)} style={{ width: "100%" }}>
         切换角色
       </Button>
     </Space>

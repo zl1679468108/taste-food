@@ -17,6 +17,9 @@ export interface AddressItem {
   contactName: string;
   contactPhone: string;
   detail: string;
+  /** 腾讯地图 GCJ-02 */
+  latitude?: number;
+  longitude?: number;
   tag?: string;
   isDefault: boolean;
   createdAt: string;

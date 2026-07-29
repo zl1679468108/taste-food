@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
   Form,
@@ -14,15 +14,14 @@ import {
   message,
 } from 'antd';
 import { QrcodeOutlined } from '@ant-design/icons';
+import { ShopTable, buildTableQrImageUrl } from '@/services/table';
 import {
-  ShopTable,
-  buildTableQrImageUrl,
-  createTable,
-  deleteTable,
-  listTables,
-  seedTables,
-  updateTable,
-} from '@/services/table';
+  useTables,
+  useCreateTable,
+  useUpdateTable,
+  useDeleteTable,
+  useSeedTables,
+} from '@/hooks/queries';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import EmptyState from '@/components/EmptyState';
 import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
@@ -38,32 +37,22 @@ interface ShopTablesPanelProps {
  * 店铺桌台与扫码管理面板（嵌入店铺编辑抽屉复用）
  */
 const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) => {
-  const [tables, setTables] = useState<ShopTable[]>([]);
-  const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [activeFilter, setActiveFilter] = useState<string | undefined>();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ShopTable | null>(null);
   const [qrTable, setQrTable] = useState<ShopTable | null>(null);
-  const [seeding, setSeeding] = useState(false);
   const [form] = Form.useForm();
 
-  const load = useCallback(async () => {
-    if (!shopId) return;
-    setLoading(true);
-    try {
-      const list = await listTables(shopId);
-      setTables(Array.isArray(list) ? list : []);
-    } catch (e) {
-      console.error('加载桌台失败:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [shopId]);
+  const tablesQuery = useTables(shopId);
+  const tables = tablesQuery.data ?? [];
+  const loading = tablesQuery.isPending;
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const createMutation = useCreateTable();
+  const updateMutation = useUpdateTable();
+  const deleteMutation = useDeleteTable();
+  const seedMutation = useSeedTables();
+  const seeding = seedMutation.isPending;
 
   const filteredTables = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -83,31 +72,26 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
     const values = await form.validateFields();
     try {
       if (editing) {
-        await updateTable(shopId, editing.id, values);
+        await updateMutation.mutateAsync({ shopId, tableId: editing.id, data: values });
         message.success('桌台已更新');
       } else {
-        await createTable(shopId, values);
+        await createMutation.mutateAsync({ shopId, data: values });
         message.success('桌台已创建');
       }
       setOpen(false);
       setEditing(null);
       form.resetFields();
-      load();
     } catch (e) {
       console.error('保存桌台失败:', e);
     }
   };
 
   const handleSeed = async () => {
-    setSeeding(true);
     try {
-      await seedTables(shopId);
+      await seedMutation.mutateAsync(shopId);
       message.success('已初始化 A01-A10');
-      load();
     } catch (e) {
       console.error('初始化桌台失败:', e);
-    } finally {
-      setSeeding(false);
     }
   };
 
@@ -181,9 +165,8 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
               title="确认删除该桌台？"
               onConfirm={async () => {
                 try {
-                  await deleteTable(shopId, row.id);
+                  await deleteMutation.mutateAsync({ shopId, tableId: row.id });
                   message.success('已删除');
-                  load();
                 } catch (e) {
                   console.error('删除桌台失败:', e);
                 }
@@ -197,7 +180,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
         ),
       },
     ],
-    [form, load, shopId],
+    [form, deleteMutation, shopId],
   );
 
   return (
@@ -217,7 +200,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
         <Button onClick={handleSeed} loading={seeding}>
           初始化 A01-A10
         </Button>
-        <Button onClick={load}>刷新</Button>
+        <Button onClick={() => tablesQuery.refetch()}>刷新</Button>
       </Space>
 
       {!compact ? (

@@ -104,3 +104,51 @@
   line-height: $leading-normal;
   color: $text-tertiary;
 }
+
+
+/* 品牌顶部 Hero：菜单页 / 我的页共用视觉语言 */
+@mixin brand-hero-surface {
+  position: relative;
+  overflow: hidden;
+  background: $gradient-brand-hero;
+  color: $text-inverse;
+}
+
+@mixin brand-hero-avatar($size: 52px) {
+  width: $size;
+  height: $size;
+  border-radius: $radius-xl;
+  background: $white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 6px 16px rgba($black, 0.12);
+}
+
+@mixin brand-hero-chip {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: $radius-pill;
+  background: $bg-overlay-soft;
+  border: 1px solid rgba($white, 0.28);
+  font-size: $font-xs;
+  line-height: $leading-normal;
+  color: $text-inverse;
+}
+
+@mixin brand-hero-action-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: $radius-xl;
+  background: $bg-overlay-soft;
+  border: 1px solid rgba($white, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:active {
+    opacity: 0.86;
+    background: $bg-mask-light;
+  }
+}

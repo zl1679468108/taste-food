@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNumber, IsObject, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ShopStatus } from '../../../common/constants/enums';
 import { BusinessHours } from '../business-hours.util';
 
@@ -13,6 +14,22 @@ export class CreateShopDto {
   @IsString()
   @IsOptional()
   address?: string;
+
+  /** 腾讯地图 GCJ-02 纬度 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  /** 腾讯地图 GCJ-02 经度 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
 
   @IsString()
   @IsOptional()
@@ -56,6 +73,22 @@ export class UpdateShopDto {
   @IsOptional()
   address?: string;
 
+  /** 腾讯地图 GCJ-02 纬度 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  /** 腾讯地图 GCJ-02 经度 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
   @IsString()
   @IsOptional()
   phone?: string;
@@ -86,6 +119,8 @@ export class ShopResponseDto {
   name!: string;
   description?: string;
   address?: string;
+  latitude?: number;
+  longitude?: number;
   phone?: string;
   logoUrl?: string;
   status!: ShopStatus;

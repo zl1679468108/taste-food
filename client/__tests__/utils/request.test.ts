@@ -6,6 +6,7 @@ jest.mock('@tarojs/taro', () => ({
   default: {
     request: jest.fn(),
     getStorageSync: jest.fn(),
+    setStorageSync: jest.fn(),
     removeStorageSync: jest.fn(),
     showToast: jest.fn(),
     reLaunch: jest.fn(),
@@ -14,12 +15,15 @@ jest.mock('@tarojs/taro', () => ({
   },
 }));
 
+const authStoreMocks = {
+  logout: jest.fn(),
+  stopAutoRefresh: jest.fn(),
+  refreshSession: jest.fn(async () => undefined),
+};
+
 jest.mock('../../src/stores/authStore', () => ({
   useAuthStore: {
-    getState: () => ({
-      logout: jest.fn(),
-      stopAutoRefresh: jest.fn(),
-    }),
+    getState: () => authStoreMocks,
   },
 }));
 
@@ -39,6 +43,13 @@ describe('request utils', () => {
     jest.clearAllMocks();
     mockTaro.request.mockResolvedValue(mockResponse);
     mockTaro.getNetworkType.mockResolvedValue({ networkType: 'wifi' });
+    mockTaro.getStorageSync.mockReturnValue(null);
+    authStoreMocks.refreshSession.mockImplementation(async () => {
+      mockTaro.getStorageSync.mockImplementation((key: string) => {
+        if (key === 'token') return 'refreshed-token';
+        return null;
+      });
+    });
   });
 
   test('get should call Taro.request with correct parameters', async () => {
@@ -120,19 +131,58 @@ describe('request utils', () => {
     });
   });
 
-  test('get should not retry 401', async () => {
-    const errorResponse = {
+  test('get should refresh on biz code 1004 then retry original request', async () => {
+    mockTaro.getStorageSync.mockReturnValue('old-token');
+    mockTaro.request
+      .mockResolvedValueOnce({
+        ...mockResponse,
+        data: { code: 1004, data: null, message: '无效的 token 或已过期' },
+      })
+      .mockResolvedValueOnce(mockResponse);
+
+    const result = await get('/favorites');
+    expect(result.code).toBe(0);
+    expect(authStoreMocks.refreshSession).toHaveBeenCalledTimes(1);
+    expect(mockTaro.request).toHaveBeenCalledTimes(2);
+    expect(mockTaro.request.mock.calls[1][0].header.Authorization).toBe('Bearer refreshed-token');
+    expect(mockTaro.showToast).not.toHaveBeenCalledWith({
+      title: '无效的 token 或已过期',
+      icon: 'none',
+    });
+  });
+
+  test('get should logout when refresh cannot recover unauthorized', async () => {
+    mockTaro.getStorageSync.mockReturnValue('old-token');
+    authStoreMocks.refreshSession.mockImplementation(async () => {
+      // refresh 后 token 仍在，但业务仍 1004
+      mockTaro.getStorageSync.mockReturnValue('old-token');
+    });
+    mockTaro.request.mockResolvedValue({
       ...mockResponse,
-      data: { code: 401, message: 'Unauthorized' },
-    };
-    mockTaro.request.mockResolvedValue(errorResponse);
-    await expect(get('/test')).rejects.toThrow('Unauthorized');
-    expect(mockTaro.request).toHaveBeenCalledTimes(1);
-    expect(mockTaro.removeStorageSync).toHaveBeenCalledWith('token');
+      data: { code: 1004, data: null, message: '无效的 token 或已过期' },
+    });
+
+    await expect(get('/favorites')).rejects.toThrow('无效的 token 或已过期');
+    expect(authStoreMocks.refreshSession).toHaveBeenCalledTimes(1);
     expect(mockTaro.showToast).toHaveBeenCalledWith({
       title: '登录已过期，请重新登录',
       icon: 'none',
     });
+  });
+
+  test('get should still treat legacy code 401 as unauthorized', async () => {
+    mockTaro.getStorageSync.mockReturnValue('old-token');
+    mockTaro.request
+      .mockResolvedValueOnce({
+        ...mockResponse,
+        data: { code: 401, data: null, message: 'Unauthorized' },
+      })
+      .mockResolvedValueOnce(mockResponse);
+
+    const result = await get('/test');
+    expect(result.code).toBe(0);
+    expect(authStoreMocks.refreshSession).toHaveBeenCalledTimes(1);
+    expect(mockTaro.request).toHaveBeenCalledTimes(2);
   });
 
   test('isRetryableError detects network errors', () => {

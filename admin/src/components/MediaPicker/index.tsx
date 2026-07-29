@@ -341,6 +341,12 @@ export interface MediaPickerProps {
   shopId?: string;
   /** 是否展示次要「单张上传」入口，默认 true */
   allowSingleUpload?: boolean;
+  /** 预览区文案：已选择图片 */
+  selectedHint?: string;
+  /** 空态文案 */
+  emptyHint?: string;
+  /** 图库按钮文案 */
+  libraryButtonText?: string;
 }
 
 /**
@@ -352,6 +358,9 @@ const MediaPicker: React.FC<MediaPickerProps> = ({
   onChange,
   shopId = DEFAULT_SHOP_ID,
   allowSingleUpload = true,
+  selectedHint = '已选择菜品图片',
+  emptyHint = '尚未选择图片，推荐从图库批量维护后挑选',
+  libraryButtonText = '从图库选择',
 }) => {
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -389,21 +398,22 @@ const MediaPicker: React.FC<MediaPickerProps> = ({
             height={96}
             className="tf-media-picker__preview-img"
             style={{ objectFit: 'cover', borderRadius: 8 }}
+            fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Crect width='100%25' height='100%25' fill='%23f5f5f5'/%3E%3C/svg%3E"
           />
           <Space direction="vertical" size={4}>
             <Button danger size="small" icon={<DeleteOutlined />} onClick={() => onChange?.('')}>
               移除
             </Button>
-            <span className="tf-media-picker__hint">已选择菜品图片</span>
+            <span className="tf-media-picker__hint">{selectedHint}</span>
           </Space>
         </div>
       ) : (
-        <div className="tf-media-picker__hint">尚未选择图片，推荐从图库批量维护后挑选</div>
+        <div className="tf-media-picker__hint">{emptyHint}</div>
       )}
 
       <div className="tf-media-picker__actions">
         <Button type="primary" icon={<PictureOutlined />} onClick={() => setOpen(true)}>
-          从图库选择
+          {libraryButtonText}
         </Button>
         {allowSingleUpload ? (
           <Upload accept={ACCEPT} showUploadList={false} beforeUpload={handleSingleUpload} maxCount={1}>

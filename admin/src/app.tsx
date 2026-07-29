@@ -1,10 +1,12 @@
+import React from 'react';
 import type { RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
 import { message, Dropdown, Space } from 'antd';
-import { LogoutOutlined, CoffeeOutlined } from '@ant-design/icons';
+import { LogoutOutlined } from '@ant-design/icons';
 import { getCurrentUser } from './services/auth';
-import { brand } from './theme';
 import ShopSelector from './components/ShopSelector';
+import { brand } from './theme';
+import brandLogo from './assets/images/brand-logo.png';
 
 const loginPath = '/login';
 
@@ -87,17 +89,11 @@ export async function getInitialState(): Promise<{
 export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) => {
   return {
     logo: (
-      <div style={{
-        width: 28,
-        height: 28,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: brand.primary,
-        fontSize: 22,
-      }}>
-        <CoffeeOutlined />
-      </div>
+      <img
+        src={brandLogo}
+        alt="小买卖"
+        style={{ width: 28, height: 28, borderRadius: 6, display: 'block' }}
+      />
     ),
     title: '小买卖管理后台',
     avatarProps: {
@@ -161,10 +157,20 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     splitMenus: false,
     navTheme: 'light',
     colorWeak: false,
-    contentStyle: { margin: 0, padding: '0 0 24px' },
+    contentStyle: { margin: 0, padding: 0 },
     // 全局去掉面包屑，页面只保留标题+刷新组件
     breadcrumbRender: false,
     pageTitleRender: false,
   };
 };
 
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './lib/queryClient';
+
+export function rootContainer(container: React.ReactNode) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      {container}
+    </QueryClientProvider>
+  );
+}

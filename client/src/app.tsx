@@ -1,4 +1,4 @@
-import { useEffect, PropsWithChildren } from 'react';
+import { useEffect, useRef, PropsWithChildren } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { useAuthStore } from './stores/authStore';
 import { connectSocket, disconnectSocket } from './services/socket';
@@ -18,6 +18,9 @@ function connectWebSocket() {
 }
 
 function App({ children }: PropsWithChildren) {
+  // 用于区分"小程序冷启动"和"从后台唤起"，避免每次 tab 切换都触发 refreshSession
+  const isFirstShow = useRef(true);
+
   useEffect(() => {
     const authStore = useAuthStore.getState();
     const restored = authStore.restoreToken();
@@ -44,7 +47,12 @@ function App({ children }: PropsWithChildren) {
   }, []);
 
   useDidShow(() => {
-    // 每次小程序唤起时尝试静默续期
+    // 冷启动时跳过（token 恢复已在 useEffect 里处理）
+    // 只在小程序从后台切回前台时刷新
+    if (isFirstShow.current) {
+      isFirstShow.current = false;
+      return;
+    }
     useAuthStore.getState().refreshSession();
   });
 

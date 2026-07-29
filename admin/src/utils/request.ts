@@ -210,7 +210,7 @@ async function doRefresh(): Promise<string> {
 }
 
 request.interceptors.response.use(
-  (response) => {
+  async (response) => {
     const { data, config } = response;
 
     // 命中缓存时直接返回缓存数据
@@ -224,6 +224,39 @@ request.interceptors.response.use(
     }
 
     if (data.code !== 0) {
+      // 后端 UNAUTHORIZED 业务码 1004 可能伴随 HTTP 200；按 401 走 refresh 重试
+      const originalRequest = config as AxiosRequestConfig & {
+        _isRefreshRetry?: boolean;
+        skipErrorMessage?: boolean;
+      };
+      const isAuthEndpoint =
+        originalRequest?.url?.includes('/api/auth/refresh') ||
+        originalRequest?.url?.includes('/api/auth/wechat-login') ||
+        originalRequest?.url?.includes('/api/auth/password-login');
+      if (
+        (data.code === 1004 || data.code === 401) &&
+        originalRequest &&
+        !originalRequest._isRefreshRetry &&
+        !isAuthEndpoint
+      ) {
+        try {
+          const newToken = await doRefresh();
+          originalRequest._isRefreshRetry = true;
+          originalRequest.headers = originalRequest.headers || {};
+          (originalRequest.headers as Record<string, string>).Authorization = `Bearer ${newToken}`;
+          return request(originalRequest);
+        } catch (e) {
+          clearAuthAndRedirect();
+          toastErrorOnce(originalRequest, '登录已过期，请重新登录');
+          return Promise.reject(createHandledError('登录已过期，请重新登录', e));
+        }
+      }
+
+      if ((data.code === 1004 || data.code === 401) && (originalRequest?._isRefreshRetry || isAuthEndpoint)) {
+        clearAuthAndRedirect();
+        return Promise.reject(createHandledError('登录已过期，请重新登录', data));
+      }
+
       const msg = extractResponseMessage(data, '请求失败');
       // 业务失败：全局 toast 一次，页面 catch 不要再 toast
       toastErrorOnce(config, msg);

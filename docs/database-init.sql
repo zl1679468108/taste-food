@@ -1,11 +1,13 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: 1.0.2 (与代码实现同步)
--- 更新日期: 2026-07-26
+-- 版本: 1.0.3 (与代码实现同步)
+-- 更新日期: 2026-07-28
 -- 版本策略: 语义化小版本迭代（MAJOR.MINOR.PATCH），避免虚高主版本号
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
 --
+-- 1.0.3
+--   1. 店铺/地址/订单补充腾讯地图坐标（latitude/longitude）用于配送轨迹对齐
 -- 1.0.2
 --   1. tf_media_assets 门店图库素材元数据（按 shop_id 隔离，对齐 storage 模块）
 -- 1.0.1
@@ -24,12 +26,15 @@ CREATE TABLE IF NOT EXISTS "tf_shops" (
   "avatar_url" text,
   "logo_url" text,
   "address" text,
+  "latitude" numeric(10, 7), -- 腾讯地图 GCJ-02 纬度
+  "longitude" numeric(10, 7), -- 腾讯地图 GCJ-02 经度
   "phone" text,
   "status" text DEFAULT 'open' CHECK (status IN ('open', 'closed')),
   "delivery_range" integer DEFAULT 3000, -- 配送范围（米），默认3km
   "delivery_fee" integer DEFAULT 500, -- 配送费（分），默认5元
   "min_order_amount" integer DEFAULT 0, -- 起送价（分）
   "business_hours" jsonb DEFAULT NULL, -- 营业时段 {mon:[{start,end}],...}；null 表示仅看 status
+  "shop_no" text UNIQUE, -- 业务店铺号：SH + YY + MM + 5位顺序号，例 SH260600001
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
@@ -42,6 +47,9 @@ ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "avatar_url" text; -- 兼容旧�
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_range" integer DEFAULT 3000;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_fee" integer DEFAULT 500;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "min_order_amount" integer DEFAULT 0;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "shop_no" text UNIQUE; -- 业务店铺号：SH + YY + MM + 5位顺序号
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "latitude" numeric(10, 7);
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "longitude" numeric(10, 7);
 
 -- 兼容旧线上库：补齐主路径缺失列
 ALTER TABLE "tf_menu_items" ADD COLUMN IF NOT EXISTS "monthly_sales" integer DEFAULT 0;
@@ -51,6 +59,8 @@ ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "rider_id" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_needed" boolean DEFAULT false;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_title" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_tax_no" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "cancel_reason" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "reject_reason" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "order_no" text;
 ALTER TABLE "tf_order_items" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
 ALTER TABLE "tf_payments" ADD COLUMN IF NOT EXISTS "shop_id" uuid;
@@ -121,7 +131,7 @@ ALTER TABLE "tf_spec_options" DISABLE ROW LEVEL SECURITY;
 -- shop_id 使用 ON DELETE RESTRICT 防止误删有订单的店铺（订单为财务记录）
 CREATE TABLE IF NOT EXISTS "tf_orders" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "order_no" text, -- 业务订单号：TF + YYYYMMDD + 店铺短码4位 + 当日序号4位
+  "order_no" text, -- 业务订单号：TF + YYYYMMDD + 类型码(D/P/I) + 店铺序号2位 + 当日流水4位，例 TF20260726D010001
   "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "user_id" text NOT NULL, -- 存储微信 OpenID 或 Auth UID
   "rider_id" text, -- 骑手 ID（外送订单使用）
@@ -129,8 +139,14 @@ CREATE TABLE IF NOT EXISTS "tf_orders" (
   "total" integer NOT NULL,
   "delivery_type" text NOT NULL CHECK (delivery_type IN ('delivery', 'pickup', 'dine_in')),
   "address" text,
+  "shop_latitude" numeric(10, 7), -- 下单时店铺坐标快照（GCJ-02）
+  "shop_longitude" numeric(10, 7),
+  "delivery_latitude" numeric(10, 7), -- 下单时配送地址坐标快照（GCJ-02）
+  "delivery_longitude" numeric(10, 7),
   "table_no" text,
   "remark" text,
+  "cancel_reason" text, -- 取消原因（顾客/商家取消时必填）
+  "reject_reason" text, -- 拒单原因（商家拒单时必填）
   "contact_name" text,
   "contact_phone" text,
   "invoice_needed" boolean DEFAULT false, -- 是否需要发票
@@ -147,6 +163,10 @@ ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_needed" boolean DEFAUL
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_title" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "invoice_tax_no" text;
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "order_no" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "shop_latitude" numeric(10, 7);
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "shop_longitude" numeric(10, 7);
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_latitude" numeric(10, 7);
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_longitude" numeric(10, 7);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_no_unique ON tf_orders(order_no) WHERE order_no IS NOT NULL;
 
 -- 7. 订单明细表
@@ -334,6 +354,8 @@ CREATE TABLE IF NOT EXISTS "tf_addresses" (
   "contact_name" text NOT NULL,
   "contact_phone" text NOT NULL,
   "detail" text NOT NULL,
+  "latitude" numeric(10, 7), -- 腾讯地图 GCJ-02 纬度
+  "longitude" numeric(10, 7), -- 腾讯地图 GCJ-02 经度
   "tag" text, -- 家/公司/学校 等标签
   "is_default" boolean DEFAULT false,
   "created_at" timestamptz DEFAULT now(),
@@ -344,6 +366,9 @@ ALTER TABLE "tf_addresses" DISABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_addresses_user_id ON tf_addresses(user_id);
 CREATE INDEX IF NOT EXISTS idx_addresses_shop_id ON tf_addresses(shop_id);
 CREATE INDEX IF NOT EXISTS idx_addresses_user_default ON tf_addresses(user_id, is_default);
+
+ALTER TABLE "tf_addresses" ADD COLUMN IF NOT EXISTS "latitude" numeric(10, 7);
+ALTER TABLE "tf_addresses" ADD COLUMN IF NOT EXISTS "longitude" numeric(10, 7);
 
 -- ============================================================
 -- 以下为索引优化（提升查询性能）
@@ -963,6 +988,30 @@ CREATE TABLE IF NOT EXISTS "tf_notifications" (
 ALTER TABLE "tf_notifications" DISABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON tf_notifications(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON tf_notifications(user_id, is_read);
+
+-- 种子：平台管理员（不绑定店铺，可跨店治理）
+-- 密码明文 admin123（仅开发）；SEED_PENDING 由服务端首次登录以 scrypt 写入
+INSERT INTO tf_users (id, openid, username, password_hash, role, shop_id, nick_name, phone)
+VALUES (
+  'a0000000-0000-0000-0000-000000000001',
+  'mock_platform_admin_openid_001',
+  'admin',
+  'SEED_PENDING',
+  'admin',
+  NULL,
+  '平台管理员',
+  '13800000000'
+) ON CONFLICT (id) DO UPDATE SET
+  role = EXCLUDED.role,
+  shop_id = EXCLUDED.shop_id,
+  nick_name = EXCLUDED.nick_name,
+  username = COALESCE(tf_users.username, EXCLUDED.username);
+
+INSERT INTO tf_user_roles (user_id, role, shop_id, status)
+VALUES
+  ('a0000000-0000-0000-0000-000000000001', 'admin', NULL, 'active'),
+  ('a0000000-0000-0000-0000-000000000001', 'customer', NULL, 'active')
+ON CONFLICT DO NOTHING;
 
 -- 种子：测试商家（绑定默认店 小买卖烧烤）
 -- 密码明文 merchant123（仅开发）；hash 由服务端 seed 接口或下方占位，实际以服务端 scrypt 写入为准

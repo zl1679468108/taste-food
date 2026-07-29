@@ -10,6 +10,10 @@ import { supabase, hasSupabase } from '../../database/supabase.client';
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
+import {
+  normalizeGeoPoint,
+  resolveGeoPoint,
+} from '../../common/utils/tencent-map';
 
 export interface AddressRecord {
   id: string;
@@ -18,6 +22,9 @@ export interface AddressRecord {
   contactName: string;
   contactPhone: string;
   detail: string;
+  /** 腾讯地图 GCJ-02 */
+  latitude?: number;
+  longitude?: number;
   tag?: string;
   isDefault: boolean;
   createdAt: string;
@@ -31,6 +38,7 @@ export class AddressService {
   private readonly logger = new Logger(AddressService.name);
 
   private toRecord(row: any): AddressRecord {
+    const point = normalizeGeoPoint(row.latitude, row.longitude);
     return {
       id: row.id,
       userId: row.user_id,
@@ -38,6 +46,8 @@ export class AddressService {
       contactName: row.contact_name,
       contactPhone: row.contact_phone,
       detail: row.detail,
+      latitude: point?.latitude,
+      longitude: point?.longitude,
       tag: row.tag || undefined,
       isDefault: !!row.is_default,
       createdAt: row.created_at,
@@ -126,6 +136,12 @@ export class AddressService {
     const existing = await this.findByUserId(userId);
     const isDefault = shouldDefault || existing.length === 0;
 
+    const resolved = await resolveGeoPoint({
+      address: dto.detail,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+
     const record: AddressRecord = {
       id,
       userId,
@@ -133,6 +149,8 @@ export class AddressService {
       contactName: dto.contactName.trim(),
       contactPhone: dto.contactPhone.trim(),
       detail: dto.detail.trim(),
+      latitude: resolved?.latitude,
+      longitude: resolved?.longitude,
       tag: dto.tag?.trim() || undefined,
       isDefault,
       createdAt: now,
@@ -150,6 +168,8 @@ export class AddressService {
             contact_name: record.contactName,
             contact_phone: record.contactPhone,
             detail: record.detail,
+            latitude: record.latitude ?? null,
+            longitude: record.longitude ?? null,
             tag: record.tag || null,
             is_default: isDefault,
             created_at: now,
@@ -188,12 +208,28 @@ export class AddressService {
       await this.clearDefault(userId, id);
     }
 
+    const nextDetail = dto.detail !== undefined ? dto.detail.trim() : existing.detail;
+    const detailChanged = dto.detail !== undefined && nextDetail !== existing.detail;
+    const hasIncomingPoint =
+      dto.latitude !== undefined || dto.longitude !== undefined;
+    let nextPoint = hasIncomingPoint
+      ? (await resolveGeoPoint({
+          address: nextDetail,
+          latitude: dto.latitude !== undefined ? dto.latitude : existing.latitude,
+          longitude: dto.longitude !== undefined ? dto.longitude : existing.longitude,
+        }))
+      : (detailChanged
+          ? await resolveGeoPoint({ address: nextDetail })
+          : normalizeGeoPoint(existing.latitude, existing.longitude));
+
     const next: AddressRecord = {
       ...existing,
       shopId: dto.shopId !== undefined ? dto.shopId : existing.shopId,
       contactName: dto.contactName !== undefined ? dto.contactName.trim() : existing.contactName,
       contactPhone: dto.contactPhone !== undefined ? dto.contactPhone.trim() : existing.contactPhone,
-      detail: dto.detail !== undefined ? dto.detail.trim() : existing.detail,
+      detail: nextDetail,
+      latitude: nextPoint?.latitude,
+      longitude: nextPoint?.longitude,
       tag: dto.tag !== undefined ? (dto.tag.trim() || undefined) : existing.tag,
       isDefault: dto.isDefault !== undefined ? !!dto.isDefault : existing.isDefault,
       updatedAt: now,
@@ -212,6 +248,8 @@ export class AddressService {
             contact_name: next.contactName,
             contact_phone: next.contactPhone,
             detail: next.detail,
+            latitude: next.latitude ?? null,
+            longitude: next.longitude ?? null,
             tag: next.tag || null,
             is_default: next.isDefault,
             updated_at: now,

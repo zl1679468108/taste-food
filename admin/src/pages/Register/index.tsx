@@ -3,7 +3,6 @@ import { Button, Card, Form, Input, Typography, Space, Divider, message } from '
 import {
   UserOutlined,
   LockOutlined,
-  CoffeeOutlined,
   MobileOutlined,
   IdcardOutlined,
 } from '@ant-design/icons';
@@ -15,6 +14,7 @@ import {
   homePathForRole,
 } from '@/services/auth';
 import { brand } from '@/theme';
+import brandLogo from '@/assets/images/brand-logo.png';
 
 const { Title, Text } = Typography;
 
@@ -51,7 +51,8 @@ const RegisterPage: React.FC = () => {
         },
       });
       message.success('注册成功');
-      history.push(homePathForRole(result.role));
+      // 与登录保持一致：重新初始化 Umi 权限路由，避免首次进入受保护页面出现 403。
+      window.location.href = homePathForRole(result.role);
     } catch {
       // interceptor toast
     } finally {
@@ -80,16 +81,20 @@ const RegisterPage: React.FC = () => {
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div>
-            <div
+            <img
+              src={brandLogo}
+              alt="小买卖"
               style={{
-                fontSize: 48,
-                lineHeight: '48px',
+                width: 56,
+                height: 56,
+                borderRadius: 12,
                 marginBottom: 12,
-                color: brand.primary,
+                display: 'block',
+                marginLeft: 'auto',
+                marginRight: 'auto',
+                boxShadow: '0 8px 20px rgba(255, 107, 53, 0.28)',
               }}
-            >
-              <CoffeeOutlined />
-            </div>
+            />
             <Title level={3} style={{ marginBottom: 8 }}>
               注册账号
             </Title>

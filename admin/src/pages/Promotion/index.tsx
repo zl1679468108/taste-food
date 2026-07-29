@@ -1,8 +1,14 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker } from 'antd';
 import { EditOutlined, DeleteOutlined, GiftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { getPromotions, createPromotion, updatePromotion, deletePromotion, Promotion } from '@/services/promotion';
+import { Promotion } from '@/services/promotion';
+import {
+  usePromotions,
+  useCreatePromotion,
+  useUpdatePromotion,
+  useDeletePromotion,
+} from '@/hooks/queries';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import { formatTime } from '@/utils/format';
@@ -41,21 +47,13 @@ const PromotionPage: React.FC = () => {
   const { shopId, ready, currentShop } = useShopContext();
   const [searchText, setSearchText] = useState('');
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
-  const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [loading, setLoading] = useState(true);
+  const promotionsQuery = usePromotions(ready && shopId ? shopId : undefined);
+  const promotions = promotionsQuery.data ?? [];
+  const loading = promotionsQuery.isPending;
 
-  const loadPromotions = useCallback(async () => {
-    if (!shopId) return;
-    setLoading(true);
-    try {
-      const res = await getPromotions(shopId);
-      setPromotions(res || []);
-    } catch (error) {
-      console.error('加载促销失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [shopId]);
+  const createPromotionMutation = useCreatePromotion();
+  const updatePromotionMutation = useUpdatePromotion();
+  const deletePromotionMutation = useDeletePromotion();
 
   const {
     form,
@@ -67,7 +65,6 @@ const PromotionPage: React.FC = () => {
     close: closeModal,
     submit: submitModal,
   } = useCrudModal<Promotion>({
-    onSuccess: loadPromotions,
     mapRecordToForm: (record) => {
       const ruleFields: Record<string, number> = {};
       const rule = (record.rule || {}) as Record<string, number>;
@@ -88,16 +85,10 @@ const PromotionPage: React.FC = () => {
 
   const selectedType = Form.useWatch('type', form);
 
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    loadPromotions();
-  }, [loadPromotions, ready, shopId]);
-
   const handleDelete = async (id: string) => {
     try {
-      await deletePromotion(id, shopId);
+      await deletePromotionMutation.mutateAsync({ id, shopId });
       message.success('删除成功');
-      loadPromotions();
     } catch (error) {
       console.error('删除促销失败:', error);
     }
@@ -124,8 +115,9 @@ const PromotionPage: React.FC = () => {
         }
         return data;
       },
-      create: (values) => createPromotion(values as any),
-      update: (id, values) => updatePromotion(id, values as any, shopId),
+      create: (values) => createPromotionMutation.mutateAsync(values as any),
+      update: (id, values) =>
+        updatePromotionMutation.mutateAsync({ id, data: values as any, shopId }),
     });
 
   const renderRuleSummary = (record: Promotion): string => {
@@ -185,7 +177,7 @@ const PromotionPage: React.FC = () => {
       width: 160,
       render: (_: Promotion, record: Promotion) => {
         if (record.startDate && record.endDate) {
-          return `${formatTime(record.startDate, 'MM-DD')} ~ ${formatTime(record.endDate, 'MM-DD')}`;
+          return `${formatTime(record.startDate)} ~ ${formatTime(record.endDate)}`;
         }
         return '永久';
       },
@@ -228,7 +220,7 @@ const PromotionPage: React.FC = () => {
         title={currentShop?.name ? `促销管理 · ${currentShop.name}` : '促销管理'}
         addText="新增促销"
         onAdd={handleAdd}
-        onRefresh={loadPromotions}
+        onRefresh={() => promotionsQuery.refetch()}
       />
 
       <TableCard>

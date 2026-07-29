@@ -125,11 +125,11 @@ function persistSession(token: string, refreshToken: string, user: User) {
 /** 按角色跳转首页（无 admin 入口） */
 export function navigateByRole(role?: string) {
   if (role === 'merchant') {
-    Taro.reLaunch({ url: '/pages/admin/index' });
+    Taro.switchTab({ url: '/pages/admin/index' });
     return;
   }
   if (role === 'rider') {
-    Taro.reLaunch({ url: '/pages/rider/index' });
+    Taro.switchTab({ url: '/pages/rider/index' });
     return;
   }
   if (role === 'admin') {
@@ -303,7 +303,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
         const res: ApiResponse<{ token: string; refreshToken: string }> = await post(
           '/auth/refresh',
           { refreshToken },
-          { showError: false },
+          { showError: false, skipAuthRedirect: true },
         );
 
         if (res.code === 0 && res.data.token) {
@@ -319,10 +319,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       } catch (e) {
         console.warn('[Auth] Token 刷新失败:', e instanceof Error ? e.message : e);
         const err = e as { code?: number };
-        if (err.code === -1) {
-          console.warn('[Auth] 网络错误，保留登录状态等待重试');
-        } else {
+        // 仅在明确的未认证（refreshToken 真正过期：业务码 1004 / 兼容 401）时才登出
+        // 网络错误、500、接口不存在等情况保留登录状态，避免误登出
+        if (err.code === 401 || err.code === 1004) {
+          console.warn('[Auth] refreshToken 已过期，需重新登录');
           get().logout();
+        } else {
+          console.warn('[Auth] 刷新失败但保留登录状态，code:', err.code);
         }
       }
     },
@@ -402,7 +405,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
     getSwitchableRoles: () => {
       const roles = get().user?.roles || [];
-      return roles.filter((r) => r.status === 'active' && r.role !== 'admin');
+      const activeRoles = roles.filter((r) => r.status === 'active' && r.role !== 'admin');
+      if (!activeRoles.some((r) => r.role === 'customer')) {
+        return [{ role: 'customer', shopId: null, status: 'active' }, ...activeRoles];
+      }
+      return activeRoles;
     },
   };
 });

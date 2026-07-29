@@ -19,6 +19,8 @@ const AddressEditPage = () => {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
   const [detail, setDetail] = useState('');
+  const [latitude, setLatitude] = useState<number | undefined>(undefined);
+  const [longitude, setLongitude] = useState<number | undefined>(undefined);
   const [tag, setTag] = useState('');
   const [isDefault, setIsDefault] = useState(false);
   const [loading, setLoading] = useState(isEdit);
@@ -39,6 +41,8 @@ const AddressEditPage = () => {
         setContactName(found.contactName || '');
         setContactPhone(found.contactPhone || '');
         setDetail(found.detail || '');
+        setLatitude(found.latitude);
+        setLongitude(found.longitude);
         setTag(found.tag || '');
         setIsDefault(!!found.isDefault);
       } catch (e) {
@@ -49,6 +53,29 @@ const AddressEditPage = () => {
       }
     })();
   }, [id, isEdit]);
+
+  const handleChooseLocation = async () => {
+    try {
+      const loc = await Taro.chooseLocation({});
+      const name = (loc.name || '').trim();
+      const address = (loc.address || '').trim();
+      const merged = [address, name].filter(Boolean).join(' ');
+      if (merged) setDetail(merged);
+      if (typeof loc.latitude === 'number' && typeof loc.longitude === 'number') {
+        setLatitude(loc.latitude);
+        setLongitude(loc.longitude);
+      }
+    } catch (e: any) {
+      // 用户取消不提示；权限/未配置则提示
+      const msg = String(e?.errMsg || e?.message || '');
+      if (/cancel|取消/i.test(msg)) return;
+      console.error('选择位置失败', e);
+      Taro.showToast({
+        title: '选点失败，请检查定位权限或地图配置',
+        icon: 'none',
+      });
+    }
+  };
 
   const handleSave = async () => {
     if (!isNonEmpty(contactName)) {
@@ -70,6 +97,9 @@ const AddressEditPage = () => {
         contactName: contactName.trim(),
         contactPhone: contactPhone.trim(),
         detail: detail.trim(),
+        ...(typeof latitude === 'number' && typeof longitude === 'number'
+          ? { latitude, longitude }
+          : {}),
         tag: tag.trim() || undefined,
         isDefault,
       };
@@ -97,7 +127,10 @@ const AddressEditPage = () => {
     <View className='address-edit'>
       <View className='address-edit__card'>
         <View className='form-item'>
-          <Text className='form-item__label'>联系人</Text>
+          <Text className='form-item__label'>
+            联系人
+            <Text className='form-required'>*</Text>
+          </Text>
           <Input
             className='form-item__input'
             placeholder='姓名'
@@ -106,7 +139,10 @@ const AddressEditPage = () => {
           />
         </View>
         <View className='form-item'>
-          <Text className='form-item__label'>手机号</Text>
+          <Text className='form-item__label'>
+            手机号
+            <Text className='form-required'>*</Text>
+          </Text>
           <Input
             className='form-item__input'
             type='number'
@@ -117,13 +153,31 @@ const AddressEditPage = () => {
           />
         </View>
         <View className='form-item form-item--block'>
-          <Text className='form-item__label'>详细地址</Text>
+          <Text className='form-item__label'>
+            详细地址
+            <Text className='form-required'>*</Text>
+          </Text>
           <Input
             className='form-item__input'
             placeholder='小区 / 门牌号等'
             value={detail}
-            onInput={(e) => setDetail(e.detail.value)}
+            onInput={(e) => {
+              setDetail(e.detail.value);
+              // 手动改文案后清空旧坐标，交由服务端腾讯地图 geocode
+              setLatitude(undefined);
+              setLongitude(undefined);
+            }}
           />
+          <View className='address-edit__loc-row'>
+            <Text className='address-edit__loc-btn' onClick={handleChooseLocation}>
+              地图选点
+            </Text>
+            <Text className='address-edit__loc-hint'>
+              {typeof latitude === 'number' && typeof longitude === 'number'
+                ? `已定位 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+                : '未选点时将尝试按地址解析坐标'}
+            </Text>
+          </View>
         </View>
         <View className='form-item form-item--block'>
           <Text className='form-item__label'>标签</Text>

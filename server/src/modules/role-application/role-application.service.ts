@@ -45,10 +45,9 @@ export class RoleApplicationService {
       }
     }
 
-    // 仅允许一条 pending
-    const existing = await this.findPending(userId, dto.applyRole);
-    if (existing) {
-      throw new BadRequestException('已有待审批申请，请等待处理或撤回后重提');
+    const eligibility = await this.checkEligibility(userId, dto.applyRole, dto.shopName);
+    if (!eligibility.eligible) {
+      throw new BadRequestException(eligibility.reason || '当前不可提交申请');
     }
 
     const now = new Date().toISOString();
@@ -230,7 +229,104 @@ export class RoleApplicationService {
     return next;
   }
 
-  /** 被拒后允许用同一接口重提：若有 rejected 记录，新建 pending */
+  /** 提交前资格预校验：已是该角色或已有 pending 则不可申请 */
+  async checkEligibility(
+    userId: string,
+    applyRole: 'merchant' | 'rider',
+    shopName?: string,
+  ): Promise<{ eligible: boolean; reason?: string }> {
+    if (applyRole !== 'merchant' && applyRole !== 'rider') {
+      throw new BadRequestException('申请角色不正确');
+    }
+
+    if (await this.isActiveRole(userId, applyRole)) {
+      return {
+        eligible: false,
+        reason: applyRole === 'merchant' ? '您已是商家，无需重复申请' : '您已是骑手，无需重复申请',
+      };
+    }
+    const existing = await this.findPending(userId, applyRole);
+    if (existing) {
+      return { eligible: false, reason: '已有待审批申请，请等待处理或撤回后重提' };
+    }
+    if (applyRole === 'merchant' && shopName?.trim()) {
+      const occupied = await this.isShopNameOccupied(userId, shopName.trim());
+      if (occupied) {
+        return { eligible: false, reason: '该店铺已有商家绑定，请更换店铺或联系管理员' };
+      }
+    }
+    return { eligible: true };
+  }
+
+  private async isShopNameOccupied(userId: string, shopName: string): Promise<boolean> {
+    const normalized = shopName.trim();
+    if (!normalized) return false;
+
+    if (hasSupabase() && supabase) {
+      const { data: shops, error: shopError } = await supabase
+        .from('tf_shops')
+        .select('id')
+        .ilike('name', normalized);
+      if (shopError) {
+        this.logger.warn(`[RoleApp] check shop occupied failed: ${shopError.message}`);
+        return false;
+      }
+
+      const shopIds = (shops || []).map((s) => s.id).filter(Boolean);
+      if (shopIds.length === 0) return false;
+
+      const { data: roleRows } = await supabase
+        .from('tf_user_roles')
+        .select('user_id')
+        .eq('role', UserRole.MERCHANT)
+        .eq('status', 'active')
+        .in('shop_id', shopIds);
+      if ((roleRows || []).some((row) => row.user_id !== userId)) return true;
+
+      const { data: userRows } = await supabase
+        .from('tf_users')
+        .select('id')
+        .eq('role', UserRole.MERCHANT)
+        .in('shop_id', shopIds);
+      return (userRows || []).some((row) => row.id !== userId);
+    }
+
+    assertMemoryFallbackAllowed('RoleApplicationService');
+    return Array.from(memoryApps.values()).some(
+      (app) =>
+        app.userId !== userId &&
+        app.applyRole === 'merchant' &&
+        app.status === 'approved' &&
+        app.shopName?.trim().toLowerCase() === normalized.toLowerCase(),
+    );
+  }
+
+  private async isActiveRole(userId: string, role: 'merchant' | 'rider'): Promise<boolean> {
+    if (hasSupabase() && supabase) {
+      const { data: roleRow } = await supabase
+        .from('tf_user_roles')
+        .select('user_id')
+        .eq('user_id', userId)
+        .eq('role', role)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (roleRow) return true;
+
+      const { data: userRow } = await supabase
+        .from('tf_users')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+      if (userRow?.role === role) return true;
+      return false;
+    }
+    assertMemoryFallbackAllowed('RoleApplicationService');
+    // 内存回退：以已通过的申请作为激活角色的近似判断
+    return Array.from(memoryApps.values()).some(
+      (a) => a.userId === userId && a.applyRole === role && a.status === 'approved',
+    );
+  }
+
   private async findPending(userId: string, role: string): Promise<RoleApplication | null> {
     if (hasSupabase() && supabase) {
       const { data } = await supabase

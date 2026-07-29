@@ -1,11 +1,14 @@
 import {
-  IsBoolean,
-  IsOptional,
   IsString,
-  Matches,
-  MaxLength,
+  IsOptional,
+  IsBoolean,
+  IsNumber,
+  Min,
+  Max,
   MinLength,
+  MaxLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateAddressDto {
   @IsString()
@@ -13,22 +16,39 @@ export class CreateAddressDto {
   shopId?: string;
 
   @IsString()
-  @MinLength(1, { message: '联系人不能为空' })
+  @MinLength(1)
   @MaxLength(32)
   contactName!: string;
 
   @IsString()
-  @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
+  @MinLength(1)
+  @MaxLength(20)
   contactPhone!: string;
 
   @IsString()
-  @MinLength(1, { message: '详细地址不能为空' })
+  @MinLength(1)
   @MaxLength(200)
   detail!: string;
 
+  /** 腾讯地图 GCJ-02 纬度（选点/定位优先；缺省可由服务端 geocode） */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  /** 腾讯地图 GCJ-02 经度 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
   @IsString()
   @IsOptional()
-  @MaxLength(16)
+  @MaxLength(20)
   tag?: string;
 
   @IsBoolean()

@@ -159,7 +159,9 @@ export class OrderController {
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<DailyStatsItem[]>> {
     const shopId = this.resolveAdminShopId(user, queryShopId);
-    const daysNum = Math.min(Math.max(parseInt(days || '7', 10) || 7, 1), 90);
+    // days=0 表示「全部」；否则限制在 1~90 天
+    const parsedDays = parseInt(days || '7', 10);
+    const daysNum = parsedDays === 0 ? 0 : Math.min(Math.max(parsedDays || 7, 1), 90);
     const daily = await this.orderService.getDailyStats(shopId, daysNum);
     return success(daily);
   }
@@ -239,13 +241,17 @@ export class OrderController {
   @Roles(UserRole.ADMIN, UserRole.MERCHANT, UserRole.CUSTOMER)
   async cancelOrder(
     @Param('id') id: string,
+    @Body() dto: UpdateOrderDto,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<OrderRecord>> {
     // 多租户隔离：校验访问权限（admin 仅本店铺，customer 仅本人订单）
     // 骑手无权取消订单（如需取消应通过 admin 处理）
+    // 规则：顾客可在 pending_payment/paid 自主取消；商家接单后需商家/管理员处理
     const order = await this.orderService.findById(id);
     this.assertCanAccessOrder(order, user);
-    const cancelled = await this.orderService.cancelOrder(id, user.userId);
+    // 仅顾客需要把 userId 传入做「本人订单」校验；商家/管理员取消本店单不校验下单人
+    const actorUserId = user.role === UserRole.CUSTOMER ? user.userId : undefined;
+    const cancelled = await this.orderService.cancelOrder(id, actorUserId, dto.reason);
     return success(cancelled, '订单已取消');
   }
 
@@ -269,6 +275,8 @@ export class OrderController {
       })),
       deliveryType: order.deliveryType,
       address: order.address,
+      deliveryLatitude: order.deliveryLatitude,
+      deliveryLongitude: order.deliveryLongitude,
       tableNo: order.tableNo,
       remark: order.remark,
       // 从原订单复制联系方式，避免外送订单因无联系方式无法配送

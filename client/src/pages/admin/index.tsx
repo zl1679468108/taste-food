@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, ScrollView } from '@tarojs/components';
+import { View, Text, ScrollView, Textarea } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
@@ -18,6 +18,7 @@ import type { OrderNewEvent } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
 import Icon from '../../components/Icon';
 import ListEndTip from '../../components/ListEndTip';
+import BottomSheet from '../../components/BottomSheet';
 import './index.scss';
 
 /** 商家新订单横幅数据（优先用 WS 摘要字段） */
@@ -71,6 +72,11 @@ const AdminPage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [reasonSheetVisible, setReasonSheetVisible] = useState(false);
+  const [reasonMode, setReasonMode] = useState<'reject' | 'cancel'>('reject');
+  const [reasonText, setReasonText] = useState('');
+  const [reasonSubmitting, setReasonSubmitting] = useState(false);
+  const [pendingActionOrderId, setPendingActionOrderId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const shopId = DEFAULT_SHOP_ID;
   const [newOrderBanner, setNewOrderBanner] = useState<NewOrderBannerData | null>(null);
@@ -305,12 +311,18 @@ const AdminPage = () => {
   };
 
   /** 更新订单状态 */
-  const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
+  const updateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
     try {
-      await post(`/orders/${orderId}/status`, { status });
-      Taro.showToast({ title: '操作成功', icon: 'success' });
+      await post(`/orders/${orderId}/status`, { status, reason });
+      Taro.showToast({
+        title: status === OrderStatus.REJECTED ? '已拒单' : '操作成功',
+        icon: 'success',
+      });
 
       // 关闭弹窗并刷新
+      setReasonSheetVisible(false);
+      setReasonText('');
+      setPendingActionOrderId(null);
       setModalVisible(false);
       setSelectedOrder(null);
       loadOrders(1);
@@ -318,6 +330,50 @@ const AdminPage = () => {
       pullPaidPendingOrders();
     } catch (error: any) {
       console.error('操作失败:', error);
+    }
+  };
+
+  /** 打开拒单/取消原因弹层 */
+  const openReasonSheet = (orderId: string, mode: 'reject' | 'cancel') => {
+    setPendingActionOrderId(orderId);
+    setReasonMode(mode);
+    setReasonText('');
+    setReasonSheetVisible(true);
+  };
+
+  /** 提交拒单/取消原因 */
+  const submitReasonAction = async () => {
+    if (!pendingActionOrderId) return;
+    const reason = reasonText.trim();
+    if (!reason) {
+      Taro.showToast({ title: reasonMode === 'reject' ? '请填写拒单原因' : '请填写取消原因', icon: 'none' });
+      return;
+    }
+    if (reason.length < 2) {
+      Taro.showToast({ title: '原因至少 2 个字', icon: 'none' });
+      return;
+    }
+
+    setReasonSubmitting(true);
+    try {
+      if (reasonMode === 'reject') {
+        await updateOrderStatus(pendingActionOrderId, OrderStatus.REJECTED, reason);
+      } else {
+        await post(`/orders/${pendingActionOrderId}/cancel`, { reason });
+        Taro.showToast({ title: '订单已取消', icon: 'success' });
+        setReasonSheetVisible(false);
+        setReasonText('');
+        setPendingActionOrderId(null);
+        setModalVisible(false);
+        setSelectedOrder(null);
+        loadOrders(1);
+        loadStats();
+        pullPaidPendingOrders();
+      }
+    } catch (error: any) {
+      console.error('提交原因失败:', error);
+    } finally {
+      setReasonSubmitting(false);
     }
   };
 
@@ -332,9 +388,13 @@ const AdminPage = () => {
     const actions: { label: string; nextStatus: OrderStatus; type: string }[] = [];
 
     switch (order.status) {
+      case OrderStatus.PENDING_PAYMENT:
+        actions.push({ label: '取消订单', nextStatus: OrderStatus.CANCELLED, type: 'danger' });
+        break;
       case OrderStatus.PAID:
         actions.push({ label: '确认接单', nextStatus: OrderStatus.ACCEPTED, type: 'primary' });
-        actions.push({ label: '拒绝订单', nextStatus: OrderStatus.REJECTED, type: 'danger' });
+        actions.push({ label: '拒单', nextStatus: OrderStatus.REJECTED, type: 'danger' });
+        actions.push({ label: '取消订单', nextStatus: OrderStatus.CANCELLED, type: 'danger' });
         break;
       case OrderStatus.ACCEPTED:
         actions.push({ label: '开始制作', nextStatus: OrderStatus.PREPARING, type: 'primary' });
@@ -442,14 +502,6 @@ const AdminPage = () => {
         </View>
       </View>
 
-      <View className='admin-page__mine-entry' onClick={() => Taro.switchTab({ url: '/pages/mine/index' })}>
-        <View className='admin-page__mine-entry-left'>
-          <Text className='admin-page__mine-entry-title'>我的账号</Text>
-          <Text className='admin-page__mine-entry-desc'>账号信息 · 退出登录</Text>
-        </View>
-        <Text className='admin-page__mine-entry-text'>进入</Text>
-      </View>
-
       <View className='admin-actions'>
         <View className='action-btn' onClick={() => Taro.navigateTo({ url: '/pages/admin/menu-manage' })}>
           <View className='action-btn__icon'><Icon name='menu' size={16} color='#FF6B35' /></View>
@@ -509,7 +561,7 @@ const AdminPage = () => {
                 >
                   <View className='order-card__header'>
                     <Text className='order-card__id'>
-                      {shortOrderId(order.id)}
+                      {shortOrderId(order.id, order.orderNo)}
                     </Text>
                     <Text
                       className='order-card__status-tag'
@@ -569,7 +621,7 @@ const AdminPage = () => {
           >
             <View className='action-modal__header'>
               <Text className='action-modal__title'>
-                订单 {shortOrderId(selectedOrder.id)}
+                订单 {shortOrderId(selectedOrder.id, selectedOrder.orderNo)}
               </Text>
               <View
                 className='action-modal__close'
@@ -638,14 +690,34 @@ const AdminPage = () => {
               </View>
 
               {/* 操作按钮 */}
+              {(selectedOrder.cancelReason || selectedOrder.rejectReason) && (
+                <View className='action-modal__info-row'>
+                  <Text className='action-modal__info-label'>
+                    {selectedOrder.rejectReason ? '拒单原因' : '取消原因'}
+                  </Text>
+                  <Text className='action-modal__info-value action-modal__info-value--danger'>
+                    {selectedOrder.rejectReason || selectedOrder.cancelReason}
+                  </Text>
+                </View>
+              )}
+
+              {/* 操作按钮 */}
               <View className='action-modal__actions'>
                 {getAvailableActions(selectedOrder).map((action) => (
                   <View
                     key={action.nextStatus}
                     className={`action-modal__btn action-modal__btn--${action.type}`}
-                    onClick={() =>
-                      updateOrderStatus(selectedOrder.id, action.nextStatus as OrderStatus)
-                    }
+                    onClick={() => {
+                      if (action.nextStatus === OrderStatus.REJECTED) {
+                        openReasonSheet(selectedOrder.id, 'reject');
+                        return;
+                      }
+                      if (action.nextStatus === OrderStatus.CANCELLED) {
+                        openReasonSheet(selectedOrder.id, 'cancel');
+                        return;
+                      }
+                      updateOrderStatus(selectedOrder.id, action.nextStatus as OrderStatus);
+                    }}
                   >
                     {action.label}
                   </View>
@@ -661,6 +733,47 @@ const AdminPage = () => {
           </View>
         </View>
       )}
+
+      <BottomSheet
+        visible={reasonSheetVisible}
+        onClose={() => !reasonSubmitting && setReasonSheetVisible(false)}
+        title={reasonMode === 'reject' ? '拒单原因' : '取消原因'}
+        showClose
+      >
+        <View className='reason-sheet'>
+          <Text className='reason-sheet__hint'>
+            {reasonMode === 'reject'
+              ? '请填写拒单原因（必填，至少 2 个字）'
+              : '请填写取消原因（必填，至少 2 个字）'}
+          </Text>
+          <Textarea
+            className='reason-sheet__textarea'
+            value={reasonText}
+            maxlength={200}
+            placeholder={reasonMode === 'reject' ? '请填写拒单原因...' : '请填写取消原因...'}
+            onInput={(e) => setReasonText(e.detail.value)}
+            disabled={reasonSubmitting}
+          />
+          <View className='reason-sheet__btns'>
+            <View
+              className={`reason-sheet__btn reason-sheet__btn--cancel ${reasonSubmitting ? 'disabled' : ''}`}
+              onClick={() => !reasonSubmitting && setReasonSheetVisible(false)}
+            >
+              再想想
+            </View>
+            <View
+              className={`reason-sheet__btn reason-sheet__btn--danger ${reasonSubmitting || !reasonText.trim() ? 'disabled' : ''}`}
+              onClick={() => !reasonSubmitting && submitReasonAction()}
+            >
+              {reasonSubmitting
+                ? '提交中...'
+                : reasonMode === 'reject'
+                  ? '确认拒单'
+                  : '确认取消'}
+            </View>
+          </View>
+        </View>
+      </BottomSheet>
     </View>
   );
 };

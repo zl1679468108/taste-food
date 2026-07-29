@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Table,
   Tag,
@@ -14,14 +14,14 @@ import {
 } from 'antd';
 import { UserOutlined, TeamOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
+import { User } from '@/services/user';
 import {
-  getUsers,
-  createUser,
-  updateUser,
-  updateMe,
-  User,
-} from '@/services/user';
-import { getShops, Shop } from '@/services/shop';
+  useUsers,
+  useShops,
+  useCreateUser,
+  useUpdateUser,
+  useUpdateMe,
+} from '@/hooks/queries';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { formatTime, shortOrderId } from '@/utils/format';
 import PageHeaderActions from '@/components/PageHeaderActions';
@@ -61,48 +61,32 @@ const UserPage: React.FC = () => {
 
   const [searchText, setSearchText] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | undefined>();
-  const [users, setUsers] = useState<User[]>([]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
   const watchRole = Form.useWatch('role', form);
-  const watchAccountType = Form.useWatch('accountType', form);
 
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getUsers({ page: 1, pageSize: 200 });
-      setUsers(
-        (res?.items || []).map((u: any) => ({
-          ...u,
-          createdAt: u.createdAt || u.registerDate || '',
-          shopId: u.shopId,
-        })),
-      );
-    } catch (error) {
-      console.error('加载用户失败:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const usersQuery = useUsers({ page: 1, pageSize: 200 });
+  const loading = usersQuery.isPending;
+  const users = useMemo<User[]>(
+    () =>
+      (usersQuery.data?.items || []).map((u: any) => ({
+        ...u,
+        createdAt: u.createdAt || u.registerDate || '',
+        shopId: u.shopId,
+      })),
+    [usersQuery.data],
+  );
 
-  const loadShops = useCallback(async () => {
-    if (!isPlatformAdmin) return;
-    try {
-      const list = await getShops();
-      setShops(list || []);
-    } catch (e) {
-      console.error('加载店铺失败:', e);
-    }
-  }, [isPlatformAdmin]);
+  // 店铺列表只用于平台管理员的绑定选择
+  const shopsQuery = useShops({ enabled: isPlatformAdmin });
+  const shops = shopsQuery.data ?? [];
 
-  useEffect(() => {
-    loadUsers();
-    loadShops();
-  }, [loadUsers, loadShops]);
+  const createUserMutation = useCreateUser();
+  const updateUserMutation = useUpdateUser();
+  const updateMeMutation = useUpdateMe();
+  const submitting =
+    createUserMutation.isPending || updateUserMutation.isPending || updateMeMutation.isPending;
 
   const shopNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -147,13 +131,12 @@ const UserPage: React.FC = () => {
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      setSubmitting(true);
 
       if (editing) {
         const isSelf = editing.id === currentUser?.id;
         if (isSelf && !isPlatformAdmin) {
           // 本人非平台管理员：只能改昵称头像
-          await updateMe({
+          await updateMeMutation.mutateAsync({
             nickName: values.nickName,
             avatarUrl: values.avatarUrl,
           });
@@ -165,11 +148,14 @@ const UserPage: React.FC = () => {
               : s?.currentUser,
           }));
         } else if (isPlatformAdmin) {
-          await updateUser(editing.id, {
-            nickName: values.nickName,
-            avatarUrl: values.avatarUrl,
-            role: values.role,
-            shopId: values.role === 'admin' ? values.shopId || null : values.shopId || null,
+          await updateUserMutation.mutateAsync({
+            id: editing.id,
+            data: {
+              nickName: values.nickName,
+              avatarUrl: values.avatarUrl,
+              role: values.role,
+              shopId: values.shopId || null,
+            },
           });
         } else {
           message.warning('无权修改该用户');
@@ -185,7 +171,7 @@ const UserPage: React.FC = () => {
           message.warning('商家账号必须绑定店铺');
           return;
         }
-        await createUser({
+        await createUserMutation.mutateAsync({
           nickName: values.nickName,
           role: values.role,
           shopId: values.shopId || undefined,
@@ -195,12 +181,9 @@ const UserPage: React.FC = () => {
         message.success('用户创建成功');
       }
       setModalOpen(false);
-      loadUsers();
     } catch (error) {
       if ((error as { errorFields?: unknown })?.errorFields) return;
       console.error('保存用户失败:', error);
-    } finally {
-      setSubmitting(false);
     }
   };
 
@@ -280,7 +263,7 @@ const UserPage: React.FC = () => {
       dataIndex: 'createdAt',
       key: 'createdAt',
       width: 160,
-      render: (time: string) => formatTime(time, 'YYYY-MM-DD HH:mm'),
+      render: (time: string) => formatTime(time),
     },
     {
       title: '操作',
@@ -306,7 +289,7 @@ const UserPage: React.FC = () => {
         title="用户管理"
         addText={isPlatformAdmin ? '新建用户' : undefined}
         onAdd={isPlatformAdmin ? openCreate : undefined}
-        onRefresh={loadUsers}
+        onRefresh={() => usersQuery.refetch()}
         extra={
           !isPlatformAdmin ? (
             <Button icon={<EditOutlined />} onClick={() => {

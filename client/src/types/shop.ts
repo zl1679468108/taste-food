@@ -14,6 +14,9 @@ export interface Shop {
   name: string;
   description?: string;
   address?: string;
+  /** 腾讯地图 GCJ-02 */
+  latitude?: number;
+  longitude?: number;
   phone?: string;
   logoUrl?: string;
   status: 'open' | 'closed';

@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
 import { EditOutlined, DeleteOutlined, CoffeeOutlined, PictureOutlined } from '@ant-design/icons';
-import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem, getCategories, MenuItem, Category } from '@/services/menu';
+import { MenuItem } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
@@ -10,6 +10,13 @@ import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PriceDisplay from '@/components/PriceDisplay';
 import MediaPicker from '@/components/MediaPicker';
 import { useShopContext } from '@/hooks/useShopContext';
+import {
+  useCategories,
+  useMenuItems,
+  useCreateMenuItem,
+  useUpdateMenuItem,
+  useDeleteMenuItem,
+} from '@/hooks/queries';
 
 const { TextArea } = Input;
 
@@ -17,28 +24,23 @@ const MenuItemPage: React.FC = () => {
   const { shopId, ready, currentShop } = useShopContext();
   const [searchText, setSearchText] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState<string | undefined>();
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  const loadData = useCallback(async () => {
-    if (!shopId) return;
-    setLoading(true);
-    try {
-      const [itemsRes, categoriesRes] = await Promise.all([
-        getMenuItems({ shop_id: shopId }),
-        getCategories(shopId),
-      ]);
-      setItems(itemsRes || []);
-      setCategories(categoriesRes || []);
-    } catch (error) {
-      console.error('加载数据失败:', error);
-      setItems([]);
-      setCategories([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [shopId]);
+  const enabled = ready && !!shopId;
+  const itemsQuery = useMenuItems({ shopId: enabled ? shopId : '' });
+  const categoriesQuery = useCategories(enabled ? shopId : '');
+
+  const items = itemsQuery.data ?? [];
+  const categories = categoriesQuery.data ?? [];
+  const loading = itemsQuery.isPending || categoriesQuery.isPending;
+
+  const createItem = useCreateMenuItem();
+  const updateItem = useUpdateMenuItem();
+  const deleteItem = useDeleteMenuItem();
+
+  const refresh = useCallback(() => {
+    itemsQuery.refetch();
+    categoriesQuery.refetch();
+  }, [itemsQuery, categoriesQuery]);
 
   const {
     form,
@@ -50,7 +52,6 @@ const MenuItemPage: React.FC = () => {
     close: closeModal,
     submit: submitModal,
   } = useCrudModal<MenuItem>({
-    onSuccess: loadData,
     mapRecordToForm: (record) => ({
       ...record,
       // 后端按分存储，表单按元展示
@@ -58,16 +59,10 @@ const MenuItemPage: React.FC = () => {
     }),
   });
 
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    loadData();
-  }, [loadData, ready, shopId]);
-
   const handleDelete = async (id: string) => {
     try {
-      await deleteMenuItem(id);
+      await deleteItem.mutateAsync(id);
       message.success('删除成功');
-      loadData();
     } catch (error) {
       console.error('删除菜品失败:', error);
     }
@@ -76,17 +71,20 @@ const MenuItemPage: React.FC = () => {
   const handleSubmit = () =>
     submitModal({
       create: (values) =>
-        createMenuItem({
+        createItem.mutateAsync({
           ...values,
           price: Math.round(Number(values.price) * 100),
           shopId,
         } as any),
       update: (id, values) =>
-        updateMenuItem(id, {
-          ...values,
-          price: Math.round(Number(values.price) * 100),
-          shopId,
-        } as any),
+        updateItem.mutateAsync({
+          id,
+          data: {
+            ...values,
+            price: Math.round(Number(values.price) * 100),
+            shopId,
+          } as any,
+        }),
     });
 
   const columns = [
@@ -172,7 +170,7 @@ const MenuItemPage: React.FC = () => {
         title={currentShop?.name ? `菜品管理 · ${currentShop.name}` : '菜品管理'}
         addText="新增菜品"
         onAdd={handleAdd}
-        onRefresh={loadData}
+        onRefresh={refresh}
       />
 
       <TableCard className="tf-table-card">

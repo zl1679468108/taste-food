@@ -15,10 +15,15 @@ import {
   normalizeBusinessHours,
   nextOpenHint,
 } from './business-hours.util';
+import {
+  normalizeGeoPoint,
+  resolveGeoPoint,
+} from '../../common/utils/tencent-map';
 
 const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
 const SHOP_SELECT_CANDIDATES = [
+  'id, name, description, logo_url, address, latitude, longitude, phone, status, delivery_range, delivery_fee, min_order_amount, business_hours, created_at, updated_at',
   'id, name, description, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, business_hours, created_at, updated_at',
   'id, name, description, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, created_at, updated_at',
   'id, name, description, logo_url, address, phone, status, delivery_fee, min_order_amount, created_at, updated_at',
@@ -173,10 +178,17 @@ export class ShopService {
       : defaultBusinessHours();
 
     if (hasSupabase() && supabase) {
+      const resolved = await resolveGeoPoint({
+        address: dto.address,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      });
       const insertData: Record<string, unknown> = {
         name: dto.name,
         description: dto.description || '',
         address: dto.address || '',
+        latitude: resolved?.latitude ?? null,
+        longitude: resolved?.longitude ?? null,
         phone: dto.phone || '',
         logo_url: dto.logoUrl || '',
         status: dto.status || ShopStatus.OPEN,
@@ -203,15 +215,15 @@ export class ShopService {
               delete insertData.logo_url;
               const retry2 = await supabase.from('tf_shops').insert(insertData).select().single();
               if (retry2.error) {
-                throw new BadRequestException(`创建店铺失败: ${retry2.error.message}`);
+                throw new BadRequestException(this.formatShopWriteError('创建', retry2.error.message));
               }
               return this.toResponse(retry2.data);
             }
-            throw new BadRequestException(`创建店铺失败: ${retry.error.message}`);
+            throw new BadRequestException(this.formatShopWriteError('创建', retry.error.message));
           }
           return this.toResponse(retry.data);
         }
-        throw new BadRequestException(`创建店铺失败: ${error.message}`);
+        throw new BadRequestException(this.formatShopWriteError('创建', error.message));
       }
       return this.toResponse(data);
     }
@@ -219,11 +231,18 @@ export class ShopService {
     assertMemoryFallbackAllowed('ShopService');
     const { v4: uuidv4 } = await import('uuid');
     const id = uuidv4();
+    const resolvedMem = await resolveGeoPoint({
+      address: dto.address,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
     const shop: ShopResponseDto = {
       id,
       name: dto.name,
       description: dto.description || '',
       address: dto.address || '',
+      latitude: resolvedMem?.latitude,
+      longitude: resolvedMem?.longitude,
       phone: dto.phone || '',
       logoUrl: dto.logoUrl || '',
       status: dto.status || ShopStatus.OPEN,
@@ -249,6 +268,35 @@ export class ShopService {
       if (dto.name !== undefined) updateData.name = dto.name;
       if (dto.description !== undefined) updateData.description = dto.description;
       if (dto.address !== undefined) updateData.address = dto.address;
+      if (
+        dto.address !== undefined
+        || dto.latitude !== undefined
+        || dto.longitude !== undefined
+      ) {
+        // 读取现有坐标，避免仅改文案/geocode 失败时把已有点清空
+        let existingLat: number | undefined;
+        let existingLng: number | undefined;
+        try {
+          const current = await this.findById(id);
+          existingLat = current.latitude;
+          existingLng = current.longitude;
+        } catch {
+          /* ignore */
+        }
+        const resolved = await resolveGeoPoint({
+          address: dto.address,
+          latitude: dto.latitude !== undefined ? dto.latitude : existingLat,
+          longitude: dto.longitude !== undefined ? dto.longitude : existingLng,
+        });
+        if (resolved) {
+          updateData.latitude = resolved.latitude;
+          updateData.longitude = resolved.longitude;
+        } else if (dto.latitude !== undefined || dto.longitude !== undefined) {
+          // 显式传空/非法时才清空
+          updateData.latitude = null;
+          updateData.longitude = null;
+        }
+      }
       if (dto.phone !== undefined) updateData.phone = dto.phone;
       if (dto.logoUrl !== undefined) updateData.logo_url = dto.logoUrl;
       if (dto.deliveryRange !== undefined) updateData.delivery_range = dto.deliveryRange;
@@ -274,14 +322,14 @@ export class ShopService {
             .single();
           if (retry.error || !retry.data) {
             throw new BadRequestException(
-              `更新店铺失败: 请先执行 business_hours 字段迁移。${retry.error?.message || ''}`,
+              this.formatShopWriteError('更新', retry.error?.message || error?.message),
             );
           }
           const response = this.toResponse(retry.data);
           response.businessHours = normalizedHours;
           return this.withOpenFlag(response);
         }
-        throw new BadRequestException(`更新店铺失败: ${error?.message || '未知错误'}`);
+        throw new BadRequestException(this.formatShopWriteError('更新', error?.message));
       }
       return this.toResponse(data);
     }
@@ -293,6 +341,24 @@ export class ShopService {
     if (dto.name !== undefined) shop.name = dto.name;
     if (dto.description !== undefined) shop.description = dto.description;
     if (dto.address !== undefined) shop.address = dto.address;
+    if (
+      dto.address !== undefined
+      || dto.latitude !== undefined
+      || dto.longitude !== undefined
+    ) {
+      const resolved = await resolveGeoPoint({
+        address: dto.address !== undefined ? dto.address : shop.address,
+        latitude: dto.latitude !== undefined ? dto.latitude : shop.latitude,
+        longitude: dto.longitude !== undefined ? dto.longitude : shop.longitude,
+      });
+      if (resolved) {
+        shop.latitude = resolved.latitude;
+        shop.longitude = resolved.longitude;
+      } else if (dto.latitude !== undefined || dto.longitude !== undefined) {
+        shop.latitude = undefined;
+        shop.longitude = undefined;
+      }
+    }
     if (dto.phone !== undefined) shop.phone = dto.phone;
     if (dto.logoUrl !== undefined) shop.logoUrl = dto.logoUrl;
     if (dto.deliveryRange !== undefined) shop.deliveryRange = dto.deliveryRange;
@@ -330,6 +396,26 @@ export class ShopService {
     };
   }
 
+
+  private formatShopWriteError(action: '创建' | '更新', message?: string): string {
+    const raw = message || '未知错误';
+    if (
+      raw.includes("Could not find the 'latitude' column")
+      || raw.includes("Could not find the 'longitude' column")
+      || raw.includes('column tf_shops.latitude does not exist')
+      || raw.includes('column tf_shops.longitude does not exist')
+    ) {
+      return (
+        `${action}店铺失败: 坐标字段未生效。请确认已执行 docs/migrations/v16-tencent-map-coords.sql，` +
+        `并在 Supabase 执行 NOTIFY pgrst, 'reload schema'; 刷新 schema cache。原始错误: ${raw}`
+      );
+    }
+    if (raw.includes('business_hours')) {
+      return `${action}店铺失败: 请先执行 business_hours 字段迁移。${raw}`;
+    }
+    return `${action}店铺失败: ${raw}`;
+  }
+
   private toResponse(record: any): ShopResponseDto {
     let businessHours: BusinessHours | undefined;
     if (record.business_hours != null || record.businessHours != null) {
@@ -342,11 +428,14 @@ export class ShopService {
       }
     }
 
+    const point = normalizeGeoPoint(record.latitude, record.longitude);
     const base: ShopResponseDto = {
       id: record.id,
       name: record.name,
       description: record.description,
       address: record.address,
+      latitude: point?.latitude,
+      longitude: point?.longitude,
       phone: record.phone,
       logoUrl: record.logo_url || record.logoUrl || '',
       status: record.status,

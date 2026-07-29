@@ -1,12 +1,14 @@
 import {
-  IsBoolean,
-  IsOptional,
   IsString,
-  Matches,
-  MaxLength,
+  IsOptional,
+  IsBoolean,
+  IsNumber,
+  Min,
+  Max,
   MinLength,
-  ValidateIf,
+  MaxLength,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class UpdateAddressDto {
   @IsString()
@@ -15,24 +17,39 @@ export class UpdateAddressDto {
 
   @IsString()
   @IsOptional()
-  @MinLength(1, { message: '联系人不能为空' })
+  @MinLength(1)
   @MaxLength(32)
   contactName?: string;
 
-  @ValidateIf((_o, v) => v !== undefined && v !== null && String(v).trim() !== '')
   @IsString()
-  @Matches(/^1[3-9]\d{9}$/, { message: '手机号格式不正确' })
+  @IsOptional()
+  @MinLength(1)
+  @MaxLength(20)
   contactPhone?: string;
 
   @IsString()
   @IsOptional()
-  @MinLength(1, { message: '详细地址不能为空' })
+  @MinLength(1)
   @MaxLength(200)
   detail?: string;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
+
   @IsString()
   @IsOptional()
-  @MaxLength(16)
+  @MaxLength(20)
   tag?: string;
 
   @IsBoolean()

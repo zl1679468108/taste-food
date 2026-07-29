@@ -15,7 +15,7 @@ import VirtualList from '../../components/VirtualList';
 import ListEndTip from '../../components/ListEndTip';
 import './index.scss';
 
-const ORDER_CARD_HEIGHT = 156;
+const ORDER_CARD_HEIGHT = 180;
 
 const FILTER_TABS = [
   { key: '', label: '全部' },
@@ -251,7 +251,6 @@ const OrderListPage = () => {
                 loading={loadingMore}
                 hasMore={hasMore}
                 show={orders.length > 0}
-                variant='tab'
               />
             }
           />

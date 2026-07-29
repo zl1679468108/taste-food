@@ -3,11 +3,14 @@
 /* ========== 订单列表页样式 ========== */
 
 .order-list-page {
+  /* 100vh 含底部安全区；box-sizing 把 tabBar 留白算进高度，列表视口不再被底栏压住 */
   height: 100vh;
+  box-sizing: border-box;
   background: $bg-page;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  @include tab-bar-spacer(0);
 
   &__body {
     flex: 1;
@@ -25,5 +28,7 @@
     flex: 1;
     min-height: 0;
     height: 0;
+    padding-top: $section-gap;
+    box-sizing: border-box;
   }
 }

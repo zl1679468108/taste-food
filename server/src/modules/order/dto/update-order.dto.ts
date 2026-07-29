@@ -9,6 +9,10 @@ export class UpdateOrderDto {
   @IsString()
   @IsOptional()
   remark?: string;
+
+  @IsString()
+  @IsOptional()
+  reason?: string;
 }
 
 export class OrderQueryDto {

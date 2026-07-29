@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { flushSync } from 'react-dom';
 import { View, Text, ScrollView, Input } from '@tarojs/components';
 import Taro, { createSelectorQuery } from '@tarojs/taro';
 import { get, post, isRetryableError } from '../../utils/request';
@@ -27,7 +28,9 @@ import './index.scss';
 import FlyInAnimation from '../../components/FlyInAnimation';
 import MenuItemCard from '../../components/MenuItemCard';
 import FoodThumb from '../../components/FoodThumb';
+import ShopLogo from '../../components/ShopLogo';
 import CartItemRow from '../../components/CartItemRow';
+import { getCache, setCache } from '../../utils/cache';
 
 interface CategoryItemData {
   id: string;
@@ -44,7 +47,167 @@ interface SpecGroupWithSelection extends SpecGroup {
   selectedOptions: SpecOptionWithPrice[];
 }
 
+function itemHasSpecs(item: MenuItem): boolean {
+  return Array.isArray(item.specGroupIds) && item.specGroupIds.length > 0;
+}
+
+function getSpecsCacheKey(itemId: string): string {
+  return `GET:/menu-items/${itemId}/specs:`;
+}
+
+function buildSpecsSelection(specs: SpecGroup[]): {
+  specsData: SpecGroupWithSelection[];
+  defaultSpecs: Record<string, string>;
+  defaultOptionIds: Record<string, string>;
+  extraPrice: number;
+} {
+  const defaultSpecs: Record<string, string> = {};
+  const defaultOptionIds: Record<string, string> = {};
+  let extraPrice = 0;
+
+  const specsData: SpecGroupWithSelection[] = (specs || []).map((sg) => {
+    const selectedOptions = (sg.options || []).map((opt) => ({
+      ...opt,
+      isSelected: !!opt.isDefault,
+    }));
+    const defOpt = selectedOptions.find((o) => o.isDefault);
+    if (defOpt) {
+      defaultSpecs[sg.id] = defOpt.name;
+      defaultOptionIds[sg.id] = defOpt.id;
+      extraPrice += defOpt.priceAdjust || 0;
+    }
+    return {
+      ...sg,
+      selectedOptions,
+    };
+  });
+
+  return { specsData, defaultSpecs, defaultOptionIds, extraPrice };
+}
+
+function readCachedSpecs(itemId: string): SpecGroup[] | null {
+  const cached = getCache<SpecGroup[]>(getSpecsCacheKey(itemId));
+  return Array.isArray(cached) ? cached : null;
+}
+
+function writeCachedSpecs(itemId: string, specs: SpecGroup[]): void {
+  setCache(getSpecsCacheKey(itemId), specs || []);
+}
+
+
+function filterCategoriesByKeyword(
+  source: CategoryItemData[],
+  keyword: string,
+): CategoryItemData[] {
+  const normalized = keyword.trim().toLowerCase();
+  if (!normalized) return source;
+  return source
+    .map((cat) => ({
+      ...cat,
+      items: cat.items.filter((item) => {
+        const name = (item.name || '').toLowerCase();
+        const desc = (item.description || '').toLowerCase();
+        return name.includes(normalized) || desc.includes(normalized);
+      }),
+    }))
+    .filter((cat) => cat.items.length > 0);
+}
+
+
+interface MenuItemsPanelProps {
+  categories: CategoryItemData[];
+  searchKeyword: string;
+  listBottomSpacer: number;
+  menuScrollIntoView?: string;
+  /** 受控恢复位置；与 cartQty 同次更新，抵消微信 scroll-view 子节点 patch 回顶 */
+  restoreScrollTop?: number;
+  cartQtyByMenuItemId: Record<string, number>;
+  onScroll: (e: any) => void;
+  onItemClick: (item: MenuItem) => void;
+  onAddClick: (item: MenuItem, event?: any) => void;
+  onFavorite: (item: MenuItem) => void;
+  getItemBgColor: (index: number) => string;
+}
+
+/**
+ * 独立 memo：弹层开关等无关 props 变化时跳过重渲染。
+ * 加购时父层会同时下发 restoreScrollTop + cartQty，保证同一次渲染锁定位置。
+ */
+const MenuItemsPanel = memo(function MenuItemsPanel({
+  categories,
+  searchKeyword,
+  listBottomSpacer,
+  menuScrollIntoView,
+  restoreScrollTop,
+  cartQtyByMenuItemId,
+  onScroll,
+  onItemClick,
+  onAddClick,
+  onFavorite,
+  getItemBgColor,
+}: MenuItemsPanelProps) {
+  return (
+    <ScrollView
+      id='menu-items-scroll'
+      className='menu-items'
+      scrollY
+      scrollAnchoring
+      enhanced
+      bounces={false}
+      showScrollbar={false}
+      enableBackToTop={false}
+      scrollWithAnimation={false}
+      {...(menuScrollIntoView
+        ? { scrollIntoView: menuScrollIntoView, scrollWithAnimation: true }
+        : {})}
+      {...(typeof restoreScrollTop === 'number' ? { scrollTop: restoreScrollTop } : {})}
+      onScroll={onScroll}
+    >
+      <View className='menu-items__content'>
+        {categories.map((cat, index) => (
+          <View
+            key={cat.id}
+            id={`cat-${cat.id}`}
+            className={`menu-category-section${index === categories.length - 1 ? ' menu-category-section--last' : ''}`}
+          >
+            <Text className='category-title'>{cat.name}</Text>
+            {cat.items.length === 0 ? (
+              <View className='menu-page__empty-item' aria-label='该分类暂无菜品'>
+                {searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
+              </View>
+            ) : (
+              cat.items.map((item) => (
+                <View key={item.id} id={`menu-item-${item.id}`} className='menu-item-anchor'>
+                  <MenuItemCard
+                    item={item}
+                    categoryIndex={index}
+                    onItemClick={onItemClick}
+                    onAddClick={onAddClick}
+                    onFavorite={onFavorite}
+                    getItemBgColor={getItemBgColor}
+                    cartQuantity={cartQtyByMenuItemId[item.id] || 0}
+                  />
+                </View>
+              ))
+            )}
+          </View>
+        ))}
+        <ListEndTip
+          show={categories.some((cat) => cat.items.length > 0)}
+          hasMore={false}
+          variant='footer'
+          className='menu-items__end-tip'
+        />
+        {listBottomSpacer > 0 ? (
+          <View className='menu-items__bottom-spacer' style={{ height: `${listBottomSpacer}px` }} />
+        ) : null}
+      </View>
+    </ScrollView>
+  );
+});
+
 export default function MenuPage() {
+
   const cartStore = useCartStore();
 
   const [shop, setShop] = useState<Shop | null>(null);
@@ -62,15 +225,16 @@ export default function MenuPage() {
   const [quantity, setQuantity] = useState(1);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  // 全量菜单快照：搜索只在前端过滤，不清空/不覆盖源数据
+  const [allCategories, setAllCategories] = useState<CategoryItemData[]>([]);
   const [flyInVisible, setFlyInVisible] = useState(false);
   const [flyInPosition, setFlyInPosition] = useState({ x: 0, y: 0 });
+  const [cartBarPulse, setCartBarPulse] = useState(false);
   const [itemSpecs, setItemSpecs] = useState<SpecGroupWithSelection[]>([]);
   const [loadingSpecs, setLoadingSpecs] = useState(false);
-  const [scrollIntoView, setScrollIntoView] = useState('');
   const [specExtraPrice, setSpecExtraPrice] = useState(0);
   const [addingToCart, setAddingToCart] = useState(false);
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const searchRequestRef = useRef(0); // 搜索请求序号，防止慢响应覆盖新结果
   const categoryOffsetsRef = useRef<number[]>([]);
   const scrollLockRef = useRef(false); // 点击分类滚动时锁定 scroll-spy，避免抖动
   const [sidebarScrollIntoView, setSidebarScrollIntoView] = useState('');
@@ -82,11 +246,28 @@ export default function MenuPage() {
   const [shopPickerVisible, setShopPickerVisible] = useState(false);
   const menuViewHeightRef = useRef(0);
   const menuContentHeightRef = useRef(0);
+  const scrollLockRefTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const categoryJumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinMenuItemTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const measureCategoryOffsetsRef = useRef<() => void>(() => {});
+  const specsRequestSeqRef = useRef(0);
+  // 右侧列表仅在点击分类时使用 scrollIntoView；加购和弹层状态不控制滚动位置
+  const [menuScrollIntoView, setMenuScrollIntoView] = useState<string | undefined>(undefined);
+  const [restoreScrollTop, setRestoreScrollTop] = useState<number | undefined>(undefined);
+  const restoreScrollTopRef = useRef<number | undefined>(undefined);
+  restoreScrollTopRef.current = restoreScrollTop;
+  const menuScrollTopRef = useRef(0);
+  // 微信 scroll-top 仅在值变化时生效，用 0/1 抖动保证每次恢复都能写回
+  const scrollRestoreNonceRef = useRef(0);
 
   // Refs to avoid stale closures in callbacks
   const categoriesRef = useRef(categories);
   categoriesRef.current = categories;
+  const allCategoriesRef = useRef(allCategories);
+  allCategoriesRef.current = allCategories;
+  const searchKeywordRef = useRef(searchKeyword);
+  searchKeywordRef.current = searchKeyword;
   const selectedItemRef = useRef(selectedItem);
   selectedItemRef.current = selectedItem;
   const selectedSpecsRef = useRef(selectedSpecs);
@@ -108,6 +289,26 @@ export default function MenuPage() {
     } catch {
       setDineContext(loadDineContext());
     }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+      if (scrollLockRefTimer.current) {
+        clearTimeout(scrollLockRefTimer.current);
+      }
+      if (categoryJumpTimerRef.current) {
+        clearTimeout(categoryJumpTimerRef.current);
+      }
+      if (pinMenuItemTimerRef.current) {
+        clearTimeout(pinMenuItemTimerRef.current);
+      }
+      if (scrollRestoreTimerRef.current) {
+        clearTimeout(scrollRestoreTimerRef.current);
+      }
+    };
   }, []);
 
   const applyMenuPayload = useCallback((
@@ -133,7 +334,9 @@ export default function MenuPage() {
     }
 
     if (shopData) setShop(shopData);
-    setCategories(categoryItems);
+    setAllCategories(categoryItems);
+    // 网络刷新后仍按当前关键词本地过滤，不额外请求 search
+    setCategories(filterCategoriesByKeyword(categoryItems, searchKeywordRef.current));
     setListBottomSpacer(0);
     categoryOffsetsRef.current = [];
   }, []);
@@ -141,28 +344,32 @@ export default function MenuPage() {
   /** 仅有缓存 items 时的临时展示（冷启动先出图，网络回来后整表替换） */
   const applyCachedItems = useCallback((items: MenuItem[]) => {
     if (!items.length) return;
-    const prev = categoriesRef.current;
+    const prev = allCategoriesRef.current.length > 0
+      ? allCategoriesRef.current
+      : categoriesRef.current;
     if (prev.length > 0) {
       const byId = new Map(items.map((item) => [item.id, item]));
-      setCategories(
-        prev.map((cat) => ({
-          ...cat,
-          items: cat.items.map((item) => {
-            const cached = byId.get(item.id);
-            return cached ? { ...item, ...cached } : item;
-          }),
-        })),
-      );
+      const next = prev.map((cat) => ({
+        ...cat,
+        items: cat.items.map((item) => {
+          const cached = byId.get(item.id);
+          return cached ? { ...item, ...cached } : item;
+        }),
+      }));
+      setAllCategories(next);
+      setCategories(filterCategoriesByKeyword(next, searchKeywordRef.current));
       return;
     }
-    setCategories([
+    const fallback = [
       {
         id: 'cached',
         name: '全部菜品',
         iconKey: 'food',
         items,
       },
-    ]);
+    ];
+    setAllCategories(fallback);
+    setCategories(filterCategoriesByKeyword(fallback, searchKeywordRef.current));
   }, []);
 
   const loadData = useCallback(async (options?: { forceNetwork?: boolean; shopId?: string }) => {
@@ -219,6 +426,7 @@ export default function MenuPage() {
         return;
       }
       setCategories([]);
+      setAllCategories([]);
       setLoadError(true);
       setCanRetry(isRetryableError(error));
       console.error('加载菜单失败:', error);
@@ -253,16 +461,33 @@ export default function MenuPage() {
     if (index < 0 || index >= cats.length) return;
     const catId = cats[index].id;
     setActiveCategoryIndex(index);
-    // 微信 scroll-into-view 需先清空再设置才能重复触发
-    setScrollIntoView('');
     scrollLockRef.current = true;
-    setTimeout(() => {
-      setScrollIntoView(`cat-${catId}`);
-      setTimeout(() => {
+
+    if (categoryJumpTimerRef.current) {
+      clearTimeout(categoryJumpTimerRef.current);
+      categoryJumpTimerRef.current = null;
+    }
+    if (scrollLockRefTimer.current) {
+      clearTimeout(scrollLockRefTimer.current);
+      scrollLockRefTimer.current = null;
+    }
+    if (scrollRestoreTimerRef.current) {
+      clearTimeout(scrollRestoreTimerRef.current);
+      scrollRestoreTimerRef.current = null;
+    }
+
+    // 微信 scroll-into-view：先卸掉再设置才能重复触发；到位后必须卸掉，避免后续 re-render 再跳
+    setRestoreScrollTop(undefined);
+    setMenuScrollIntoView(undefined);
+    categoryJumpTimerRef.current = setTimeout(() => {
+      setMenuScrollIntoView(`cat-${catId}`);
+      scrollLockRefTimer.current = setTimeout(() => {
+        setMenuScrollIntoView(undefined);
         scrollLockRef.current = false;
-        // 点击跳转后重测，避免图片加载导致 offset 漂移
+        scrollLockRefTimer.current = null;
+        categoryJumpTimerRef.current = null;
         measureCategoryOffsetsRef.current();
-      }, 420);
+      }, 360);
     }, 16);
   }
 
@@ -304,7 +529,16 @@ export default function MenuPage() {
       if (lastRect && listHeight > 0) {
         const lastHeight = lastRect.height || 0;
         const needed = Math.max(0, Math.ceil(listHeight - lastHeight - 8));
-        setListBottomSpacer((prev) => (prev === needed ? prev : needed));
+        setListBottomSpacer((prev) => {
+          if (prev === needed) return prev;
+          // spacer 变化会改列表高度，同步带上当前位置避免回顶
+          const top = menuScrollTopRef.current;
+          if (Number.isFinite(top) && top > 0) {
+            scrollRestoreNonceRef.current = 1 - scrollRestoreNonceRef.current;
+            setRestoreScrollTop(top + scrollRestoreNonceRef.current * 0.01);
+          }
+          return needed;
+        });
       }
     });
   }, []);
@@ -334,25 +568,36 @@ export default function MenuPage() {
   }, []);
 
   const handleMenuScroll = useCallback((e: any) => {
-    if (scrollLockRef.current) return;
     const detail = e?.detail || {};
-    const scrollTop = detail.scrollTop || 0;
+    // H5 / 小程序字段兼容
+    const raw = detail.scrollTop;
+    const scrollTop = typeof raw === 'number'
+      ? raw
+      : Number(e?.target?.scrollTop || e?.currentTarget?.scrollTop || 0) || 0;
+
+    // 始终记住原生列表位置，供加购 / 弹层前锁定
+    menuScrollTopRef.current = scrollTop;
+    if (typeof restoreScrollTopRef.current === 'number') {
+      restoreScrollTopRef.current = scrollTop;
+    }
+
+    if (scrollLockRef.current) return;
+
     const scrollHeight = detail.scrollHeight || menuContentHeightRef.current || 0;
     const viewHeight = menuViewHeightRef.current || 0;
     const offsets = categoryOffsetsRef.current;
     if (!offsets.length) {
+      // 避免滚动中频繁 measure；仅空 offsets 时补一次
       measureCategoryOffsets();
       return;
     }
 
     const lastIndex = offsets.length - 1;
-    // 滚到底部时强制高亮最后一个主菜单（内容不足一屏也能对应）
     if (viewHeight > 0 && scrollHeight > 0 && scrollTop + viewHeight >= scrollHeight - 48) {
       syncActiveCategory(lastIndex);
       return;
     }
 
-    // 找到最后一个标题已进入视口顶部缓冲区的分类
     let nextIndex = 0;
     const threshold = scrollTop + 48;
     for (let i = 0; i < offsets.length; i += 1) {
@@ -362,47 +607,360 @@ export default function MenuPage() {
     syncActiveCategory(nextIndex);
   }, [measureCategoryOffsets, syncActiveCategory]);
 
-  async function handleItemClick(item: MenuItem) {
-    // 重置规格加价，避免新商品残留上一商品的加价
+  /** 读取原生列表当前位置，写入 ref（touch 结束 / 点击前兜底） */
+  function snapshotMenuScrollTop() {
+    try {
+      const query = createSelectorQuery();
+      query.select('#menu-items-scroll').scrollOffset((res: any) => {
+        const top = res?.scrollTop;
+        if (typeof top === 'number' && top >= 0) {
+          menuScrollTopRef.current = top;
+        }
+      }).exec();
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * 锁定右侧列表滚动位置（必须在会触发列表 patch 的更新之前同步调用）。
+   * 微信 scroll-view 子节点更新时常回顶：
+   * 1) 先同步下发变化过的 scrollTop（与角标同批）
+   * 2) 再在短延迟后重写一次，防止 Taro 拆成多次 setData 时第二次把位置冲掉
+   * 恢复后不要清成 undefined。
+   */
+  function lockMenuScrollPosition() {
+    const top = menuScrollTopRef.current;
+    if (!Number.isFinite(top) || top <= 0) {
+      // ref 可能滞后，异步快照后补锁一次
+      snapshotMenuScrollTop();
+      if (scrollRestoreTimerRef.current) {
+        clearTimeout(scrollRestoreTimerRef.current);
+      }
+      scrollRestoreTimerRef.current = setTimeout(() => {
+        const latest = menuScrollTopRef.current;
+        if (Number.isFinite(latest) && latest > 0) {
+          scrollRestoreNonceRef.current = 1 - scrollRestoreNonceRef.current;
+          const next = latest + scrollRestoreNonceRef.current * 0.01;
+          restoreScrollTopRef.current = next;
+          try {
+            flushSync(() => setRestoreScrollTop(next));
+          } catch {
+            setRestoreScrollTop(next);
+          }
+        }
+        scrollRestoreTimerRef.current = null;
+      }, 32);
+      return;
+    }
+
+    if (scrollRestoreTimerRef.current) {
+      clearTimeout(scrollRestoreTimerRef.current);
+      scrollRestoreTimerRef.current = null;
+    }
+
+    scrollRestoreNonceRef.current = 1 - scrollRestoreNonceRef.current;
+    const next = top + scrollRestoreNonceRef.current * 0.01;
+    restoreScrollTopRef.current = next;
+    // 关键：zustand 的 useSyncExternalStore 会同步重渲染，
+    // 若 scrollTop 还在普通 useState 队列里，会先以「无 scrollTop + 新角标」提交并回顶。
+    // flushSync 确保锁定位先提交，再让后续 addItem 进入同树已带 scrollTop 的状态。
+    try {
+      flushSync(() => {
+        setRestoreScrollTop(next);
+      });
+    } catch {
+      setRestoreScrollTop(next);
+    }
+
+    // 二次回写：覆盖 Taro 拆 setData / 子节点后置 patch 仍回顶的情况
+    const lockedTop = top;
+    scrollRestoreTimerRef.current = setTimeout(() => {
+      const latest = menuScrollTopRef.current > 0 ? menuScrollTopRef.current : lockedTop;
+      scrollRestoreNonceRef.current = 1 - scrollRestoreNonceRef.current;
+      const retry = latest + scrollRestoreNonceRef.current * 0.01;
+      restoreScrollTopRef.current = retry;
+      setRestoreScrollTop(retry);
+      scrollRestoreTimerRef.current = null;
+    }, 48);
+  }
+
+  // 兼容旧调用名
+  function preserveMenuScrollPosition() {
+    lockMenuScrollPosition();
+  }
+
+  /**
+   * 仅当检测到列表已经丢位回顶时，才把视角拉回当前菜品。
+   * 不能每次都 scroll-into-view：微信常会把目标顶到视口上方，造成二次跳动。
+   */
+  function pinMenuItemIntoView(itemId: string, expectedTop: number) {
+    if (!itemId || expectedTop <= 40) return;
+    if (pinMenuItemTimerRef.current) {
+      clearTimeout(pinMenuItemTimerRef.current);
+      pinMenuItemTimerRef.current = null;
+    }
+    pinMenuItemTimerRef.current = setTimeout(() => {
+      const current = menuScrollTopRef.current;
+      // 仍在原位置附近则无需兜底
+      if (current >= expectedTop - 80) {
+        pinMenuItemTimerRef.current = null;
+        return;
+      }
+      setMenuScrollIntoView(undefined);
+      pinMenuItemTimerRef.current = setTimeout(() => {
+        setMenuScrollIntoView(`menu-item-${itemId}`);
+        // 同步用 scrollTop 再锁一次，避免 intoView 把目标顶到最上方后位置漂移
+        lockMenuScrollPosition();
+        pinMenuItemTimerRef.current = setTimeout(() => {
+          setMenuScrollIntoView(undefined);
+          pinMenuItemTimerRef.current = null;
+        }, 280);
+      }, 16);
+    }, 70);
+  }
+
+  function triggerCartBarPulse() {
+    setCartBarPulse(true);
+    setTimeout(() => setCartBarPulse(false), 420);
+  }
+
+  function triggerFlyInFromRect(rect: any) {
+    if (!rect || Array.isArray(rect)) return;
+    const x = (rect.left || 0) + (rect.width || 0) / 2;
+    const y = (rect.top || 0) + (rect.height || 0) / 2;
+    setFlyInPosition({ x, y });
+    setFlyInVisible(true);
+    // 飞入接近落点时给购物车栏一个回弹反馈
+    setTimeout(() => triggerCartBarPulse(), 480);
+    setTimeout(() => setFlyInVisible(false), 650);
+  }
+
+  function triggerFlyInFromSelector(selector: string) {
+    setTimeout(() => {
+      const query = createSelectorQuery();
+      query.select(selector).boundingClientRect((rect: any) => {
+        triggerFlyInFromRect(rect);
+      }).exec();
+    }, 40);
+  }
+
+  function applySpecSelectionState(
+    item: MenuItem,
+    specs: SpecGroup[],
+    options?: { openPopup?: boolean },
+  ) {
+    const { specsData, defaultSpecs, defaultOptionIds, extraPrice } = buildSpecsSelection(specs);
+    setSelectedItem(item);
+    setSelectedSpecs(defaultSpecs);
+    setSelectedSpecOptionIds(defaultOptionIds);
+    setItemSpecs(specsData);
+    setSpecExtraPrice(extraPrice);
+    setQuantity(1);
+    if (options?.openPopup !== false) {
+      setSpecPopupVisible(true);
+    }
+    setLoadingSpecs(false);
+  }
+
+  async function fetchItemSpecs(itemId: string, options?: { force?: boolean }): Promise<SpecGroup[]> {
+    if (!options?.force) {
+      const cached = readCachedSpecs(itemId);
+      if (cached) return cached;
+    }
+    const specsRes = await get<SpecGroup[]>(`/menu-items/${itemId}/specs`);
+    const specs = specsRes.data || [];
+    writeCachedSpecs(itemId, specs);
+    return specs;
+  }
+
+  async function openSpecPopup(item: MenuItem) {
+    const requestSeq = ++specsRequestSeqRef.current;
+    // 先锁定列表位置，再开弹层（弹层 setState 可能导致 scroll-view 回顶）
+    const expectedTop = menuScrollTopRef.current;
+    lockMenuScrollPosition();
+    pinMenuItemIntoView(item.id, expectedTop);
+    // 先开弹层再拉规格：避免点卡片后白等接口
+    setSelectedItem(item);
+    setQuantity(1);
     setSpecExtraPrice(0);
+    setSpecPopupVisible(true);
+
+    const cached = readCachedSpecs(item.id);
+    if (cached) {
+      applySpecSelectionState(item, cached);
+      // 有缓存时不再强制后台刷新覆盖用户选择，避免弹层内选项被重置
+      return;
+    }
+
+    // 无缓存：弹层内展示 loading
+    setSelectedSpecs({});
+    setSelectedSpecOptionIds({});
+    setItemSpecs([]);
     setLoadingSpecs(true);
     try {
-      const specsRes = await get<SpecGroup[]>(`/menu-items/${item.id}/specs`);
-      const specsData: SpecGroupWithSelection[] = (specsRes.data || []).map((sg) => ({
-        ...sg,
-        selectedOptions: sg.options.map((opt) => ({
-          ...opt,
-          isSelected: opt.isDefault,
-        })),
-      }));
-
-      const defaultSpecs: Record<string, string> = {};
-      const defaultOptionIds: Record<string, string> = {};
-      specsData.forEach((sg) => {
-        const defOpt = sg.options.find((o) => o.isDefault);
-        if (defOpt) {
-          defaultSpecs[sg.id] = defOpt.name;
-          defaultOptionIds[sg.id] = defOpt.id;
-        }
-      });
-
-      setSelectedItem(item);
-      setSelectedSpecs(defaultSpecs);
-      setSelectedSpecOptionIds(defaultOptionIds);
-      setItemSpecs(specsData);
-      setQuantity(1);
-      setScrollIntoView('');
-      setSpecPopupVisible(true);
-      setLoadingSpecs(false);
+      const specs = await fetchItemSpecs(item.id);
+      if (specsRequestSeqRef.current !== requestSeq) return;
+      applySpecSelectionState(item, specs);
     } catch (error) {
+      if (specsRequestSeqRef.current !== requestSeq) return;
       console.error('加载规格失败:', error);
-      setSelectedItem(item);
-      setSelectedSpecs({});
-      setSelectedSpecOptionIds({});
-      setItemSpecs([]);
-      setQuantity(1);
-      setSpecPopupVisible(true);
-      setLoadingSpecs(false);
+      applySpecSelectionState(item, []);
+      Taro.showToast({ title: '规格加载失败，可直接加购', icon: 'none' });
+    }
+  }
+
+  /** 点击整张卡片：打开规格/详情 picker */
+  function handleItemClick(item: MenuItem) {
+    void openSpecPopup(item);
+  }
+
+  function addItemToCartDirect(
+    item: MenuItem,
+    specsData: SpecGroupWithSelection[],
+    selectedSpecsMap: Record<string, string>,
+    selectedOptionIdsMap: Record<string, string>,
+    qty: number,
+    flyInSelector?: string,
+    options?: { silent?: boolean },
+  ) {
+    const missingSpecs = specsData
+      .filter((sg) => sg.isRequired && !selectedOptionIdsMap[sg.id])
+      .map((sg) => sg.name);
+    if (missingSpecs.length > 0) {
+      Taro.showToast({ title: `请选择${missingSpecs.join('、')}`, icon: 'none' });
+      return false;
+    }
+
+    const specDesc = Object.values(selectedSpecsMap).filter(Boolean).join('、');
+    let extra = 0;
+    specsData.forEach((sg) => {
+      const raw = selectedOptionIdsMap[sg.id];
+      if (!raw) return;
+      // 多选时 id 以逗号拼接
+      const ids = String(raw).split(',').filter(Boolean);
+      ids.forEach((oid) => {
+        const selOpt =
+          sg.options.find((o) => o.id === oid)
+          || sg.selectedOptions?.find((o) => o.id === oid);
+        if (selOpt) extra += selOpt.priceAdjust || 0;
+      });
+    });
+
+    const finalPrice = item.price + extra;
+    // 与角标更新同批锁定滚动，避免微信 scroll-view 子节点 patch 回顶
+    const expectedTop = menuScrollTopRef.current;
+    lockMenuScrollPosition();
+    cartStore.addItem({
+      menuItemId: item.id,
+      name: item.name,
+      price: finalPrice,
+      quantity: qty,
+      specDesc: specDesc || '',
+      specOptionIds: Object.values(selectedOptionIdsMap)
+        .flatMap((v) => String(v).split(','))
+        .filter(Boolean),
+      imageUrl: item.imageUrl || '',
+    });
+    pinMenuItemIntoView(item.id, expectedTop);
+
+    if (flyInSelector) {
+      triggerFlyInFromSelector(flyInSelector);
+    }
+    if (!options?.silent) {
+      Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 1000 });
+    }
+    return true;
+  }
+
+  function playQuickAddFeedback(event?: any) {
+    const touch = event?.detail || event?.touches?.[0] || event?.changedTouches?.[0];
+    if (touch && typeof touch.clientX === 'number' && typeof touch.clientY === 'number') {
+      triggerFlyInFromRect({ left: touch.clientX, top: touch.clientY });
+      return;
+    }
+    triggerFlyInFromSelector('.menu-item-card__add-btn');
+  }
+
+  function tryDirectAddWithSpecs(item: MenuItem, specs: SpecGroup[], event?: any): boolean {
+    const { specsData, defaultSpecs, defaultOptionIds, extraPrice } = buildSpecsSelection(specs);
+    const missingRequired = specsData
+      .filter((sg) => sg.isRequired && !defaultOptionIds[sg.id])
+      .map((sg) => sg.name);
+    // 有必选规格但没有默认值：必须打开 picker
+    if (missingRequired.length > 0) {
+      return false;
+    }
+
+    playQuickAddFeedback(event);
+    addItemToCartDirect(item, specsData, defaultSpecs, defaultOptionIds, 1);
+    // addItemToCartDirect 已 toast；这里补上默认规格加价状态无需进弹层
+    setSpecExtraPrice(extraPrice);
+    return true;
+  }
+
+  /** 点击 +：直接加购到购物车栏，不唤起 picker（缺默认必选规格时才降级） */
+  async function handleQuickAdd(item: MenuItem, event?: any) {
+    // 1) 内存缓存命中：用默认规格直加
+    const cached = readCachedSpecs(item.id);
+    if (cached) {
+      if (tryDirectAddWithSpecs(item, cached, event)) return;
+      await openSpecPopup(item);
+      Taro.showToast({ title: '请选择规格', icon: 'none' });
+      return;
+    }
+
+    // 2) 明确无规格：乐观直加，后台仅确认是否其实有规格
+    if (!itemHasSpecs(item)) {
+      playQuickAddFeedback(event);
+      const expectedTop = menuScrollTopRef.current;
+      lockMenuScrollPosition();
+      cartStore.addItem({
+        menuItemId: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: 1,
+        specDesc: '',
+        specOptionIds: [],
+        imageUrl: item.imageUrl || '',
+      });
+      pinMenuItemIntoView(item.id, expectedTop);
+      Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 800 });
+
+      try {
+        const specs = await fetchItemSpecs(item.id);
+        if (!specs.length) return;
+        // 实际有规格：回滚无规格直加，再按默认规格静默重加（避免二次 toast）
+        cartStore.updateQuantity(`${item.id}_default`, -1);
+        const { specsData, defaultSpecs, defaultOptionIds } = buildSpecsSelection(specs);
+        const missingRequired = specsData
+          .filter((sg) => sg.isRequired && !defaultOptionIds[sg.id])
+          .map((sg) => sg.name);
+        if (missingRequired.length > 0) {
+          await openSpecPopup(item);
+          Taro.showToast({ title: '请选择规格', icon: 'none' });
+          return;
+        }
+        addItemToCartDirect(item, specsData, defaultSpecs, defaultOptionIds, 1, undefined, { silent: true });
+      } catch (error) {
+        console.error('确认规格失败:', error);
+      }
+      return;
+    }
+
+    // 3) 已知有规格但无缓存：拉规格后默认直加；缺默认必选再开 picker
+    try {
+      Taro.showLoading({ title: '加购中', mask: true });
+      const specs = await fetchItemSpecs(item.id);
+      Taro.hideLoading();
+      if (tryDirectAddWithSpecs(item, specs, event)) return;
+      await openSpecPopup(item);
+      Taro.showToast({ title: '请选择规格', icon: 'none' });
+    } catch (error) {
+      Taro.hideLoading();
+      console.error('快速加购失败:', error);
+      // 降级：打开 picker 让用户手动处理
+      await openSpecPopup(item);
     }
   }
 
@@ -480,99 +1038,41 @@ export default function MenuPage() {
     if (!item) return;
     setAddingToCart(true);
 
-    const qty = quantityRef.current;
-    const specs = selectedSpecsRef.current;
-    const specOptionIds = selectedSpecOptionIdsRef.current;
-    const specsData = itemSpecsRef.current;
-
-    // 验证必选规格
-    const missingSpecs = specsData
-      .filter((sg) => sg.isRequired && !specOptionIds[sg.id])
-      .map((sg) => sg.name);
-    if (missingSpecs.length > 0) {
-      Taro.showToast({ title: `请选择${missingSpecs.join('、')}`, icon: 'none' });
-      setAddingToCart(false);
-      return;
+    const ok = addItemToCartDirect(
+      item,
+      itemSpecsRef.current,
+      selectedSpecsRef.current,
+      selectedSpecOptionIdsRef.current,
+      quantityRef.current,
+      '.spec-popup__add-cart-btn',
+    );
+    if (ok) {
+      setSpecPopupVisible(false);
     }
-
-    const specDesc = Object.values(specs).filter(Boolean).join('、');
-
-    // 计算规格加价
-    let specExtraPrice = 0;
-    specsData.forEach((sg) => {
-      const selOpt = sg.options.find((o) => o.id === specOptionIds[sg.id]);
-      if (selOpt) specExtraPrice += selOpt.priceAdjust || 0;
-    });
-
-    const finalPrice = item.price + specExtraPrice;
-
-    cartStore.addItem({
-      menuItemId: item.id,
-      name: item.name,
-      price: finalPrice,
-      quantity: qty,
-      specDesc: specDesc || '',
-      // 传 specOptionIds 用于生成稳定的唯一 key（避免规格描述顺序不同导致 key 冲突）
-      specOptionIds: Object.values(specOptionIds).filter(Boolean),
-      imageUrl: item.imageUrl || '',
-    });
-
-    // 触发动画 - 避免在回调中捕获 this/store 引用
-    setTimeout(() => {
-      const query = createSelectorQuery();
-      query.select('.spec-popup__add-cart-btn').boundingClientRect((rect: any) => {
-        if (rect && !Array.isArray(rect)) {
-          setFlyInVisible(true);
-          setFlyInPosition({ x: rect.left, y: rect.top });
-          setTimeout(() => {
-            setFlyInVisible(false);
-          }, 600);
-        }
-      }).exec();
-    }, 100);
-
-    Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 1000 });
-    setSpecPopupVisible(false);
     setAddingToCart(false);
+  }
+
+  function applyLocalSearch(keyword: string) {
+    const source = allCategoriesRef.current;
+    const next = filterCategoriesByKeyword(source, keyword);
+    setCategories(next);
+    setActiveCategoryIndex(0);
+
+    setListBottomSpacer(0);
+    categoryOffsetsRef.current = [];
   }
 
   function handleSearch(keyword: string) {
     setSearchKeyword(keyword);
-    
-    // 清除之前的定时器
+
     if (searchTimerRef.current) {
       clearTimeout(searchTimerRef.current);
     }
-    
-    if (!keyword.trim()) {
-      loadData();
-      return;
-    }
-    
-    // 300ms 防抖
-    searchTimerRef.current = setTimeout(() => {
-      searchItems(keyword);
-    }, 300);
-  }
 
-  async function searchItems(keyword: string) {
-    // 递增请求序号，仅处理最新请求的结果，避免慢响应覆盖新结果
-    const requestId = ++searchRequestRef.current;
-    try {
-      const res = await get<MenuItem[]>('/menu-items', { shop_id: currentShopId || DEFAULT_SHOP_ID, search: keyword });
-      if (requestId !== searchRequestRef.current) return; // 已有更新的请求，丢弃旧结果
-      const menuItemsData = res.data;
-      const cats = categoriesRef.current;
-      const searchedCategories = cats.map((cat) => ({
-        ...cat,
-        items: menuItemsData.filter((item) => item.categoryId === cat.id),
-      }));
-      setCategories(searchedCategories);
-    } catch (error) {
-      if (requestId !== searchRequestRef.current) return;
-      console.error('搜索失败:', error);
-      Taro.showToast({ title: '搜索失败，请稍后重试', icon: 'none' });
-    }
+    // 本地过滤 + 300ms 防抖，避免输入过程中频繁重排
+    searchTimerRef.current = setTimeout(() => {
+      applyLocalSearch(keyword);
+    }, 300);
   }
 
   async function toggleFavorite(item: MenuItem) {
@@ -590,12 +1090,17 @@ export default function MenuPage() {
       const nextFavorite = res.data?.isFavorite ?? !item.isFavorite;
       Taro.showToast({ title: nextFavorite ? '已收藏' : '已取消收藏', icon: 'success' });
 
-      const cats = categoriesRef.current;
-      const newCategories = cats.map(cat => ({
-        ...cat,
-        items: cat.items.map(i => i.id === item.id ? { ...i, isFavorite: nextFavorite } : i)
-      }));
-      setCategories(newCategories);
+      const patchFavorite = (cats: CategoryItemData[]) =>
+        cats.map((cat) => ({
+          ...cat,
+          items: cat.items.map((i) =>
+            i.id === item.id ? { ...i, isFavorite: nextFavorite } : i,
+          ),
+        }));
+      const nextAll = patchFavorite(allCategoriesRef.current);
+      preserveMenuScrollPosition();
+      setAllCategories(nextAll);
+      setCategories(filterCategoriesByKeyword(nextAll, searchKeywordRef.current));
     } catch (e) {
       console.error('收藏操作失败:', e);
       Taro.showToast({ title: '收藏操作失败', icon: 'none' });
@@ -604,8 +1109,13 @@ export default function MenuPage() {
 
   function clearSearch() {
     setSearchKeyword('');
+    searchKeywordRef.current = '';
     setShowSearch(false);
-    loadData();
+    setCategories(allCategoriesRef.current);
+    setActiveCategoryIndex(0);
+
+    setListBottomSpacer(0);
+    categoryOffsetsRef.current = [];
   }
 
   function getItemBgColor(categoryIndex: number): string {
@@ -635,6 +1145,27 @@ export default function MenuPage() {
   const cartItems = cartStore.items;
   const cartTotal = cartStore.getTotalPrice();
   const cartCount = cartStore.items.reduce((s, i) => s + i.quantity, 0);
+  const cartQtyByMenuItemId = useMemo(() => {
+    return cartItems.reduce<Record<string, number>>((acc, item) => {
+      acc[item.menuItemId] = (acc[item.menuItemId] || 0) + item.quantity;
+      return acc;
+    }, {});
+  }, [cartItems]);
+
+  // 入口再锁一次：与后续 cart/popup setState 打进同一事件批，同次渲染带上 scrollTop
+  const handleItemClickCb = useCallback((item: MenuItem) => {
+    lockMenuScrollPosition();
+    void openSpecPopup(item);
+  }, []);
+
+  const handleQuickAddCb = useCallback((item: MenuItem, event?: any) => {
+    lockMenuScrollPosition();
+    void handleQuickAdd(item, event);
+  }, []);
+
+  const toggleFavoriteCb = useCallback((item: MenuItem) => {
+    void toggleFavorite(item);
+  }, []);
   // 兼容旧逻辑：显式 isOpenNow 优先，否则回退 status
   const shopOpen =
     typeof shop?.isOpenNow === 'boolean' ? shop.isOpenNow : shop?.status === 'open';
@@ -643,9 +1174,11 @@ export default function MenuPage() {
     <View className='page menu-page'>
       {/* 顶部店铺信息 */}
       <View className='menu-header'>
-        <View className='menu-header__avatar'><Icon name='shop' size={28} color='#FFFFFF' /></View>
+        <View className='menu-header__avatar'>
+          <ShopLogo src={shop?.logoUrl} size={52} alt={shop?.name || '店铺 Logo'} />
+        </View>
         <View className='menu-header__info'>
-          <View style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View className='menu-header__top'>
             <View
               className='menu-header__title-row'
               onClick={() => shopList.length > 1 && setShopPickerVisible(true)}
@@ -672,7 +1205,13 @@ export default function MenuPage() {
               ) : null}
               <View
                 className={`menu-header__action-btn${showSearch ? ' menu-header__action-btn--active' : ''}`}
-                onClick={() => setShowSearch(!showSearch)}
+                onClick={() => {
+                  if (showSearch) {
+                    clearSearch();
+                  } else {
+                    setShowSearch(true);
+                  }
+                }}
                 aria-label={showSearch ? '关闭搜索' : '打开搜索'}
               >
                 <Icon name={showSearch ? 'close' : 'search'} size={18} color='#FFFFFF' />
@@ -705,6 +1244,7 @@ export default function MenuPage() {
         visible={shopPickerVisible}
         onClose={() => setShopPickerVisible(false)}
         title='选择门店'
+        avoidTabBar
       >
         <View className='shop-picker'>
           {shopList.map((s) => {
@@ -716,8 +1256,11 @@ export default function MenuPage() {
                 onClick={() => handleSwitchShop(s.id)}
               >
                 <View className='shop-picker__main'>
-                  <Text className='shop-picker__name'>{s.name}</Text>
-                  <Text className='shop-picker__addr'>{s.address || s.description || '门店'}</Text>
+                  <ShopLogo src={s.logoUrl} size={40} alt={s.name || '店铺 Logo'} className='shop-picker__logo' />
+                  <View className='shop-picker__text'>
+                    <Text className='shop-picker__name'>{s.name}</Text>
+                    <Text className='shop-picker__addr'>{s.address || s.description || '门店'}</Text>
+                  </View>
                 </View>
                 <Text className='shop-picker__status'>
                   {(typeof s.isOpenNow === 'boolean' ? s.isOpenNow : s.status === 'open') ? '营业中' : '休息中'}
@@ -805,54 +1348,20 @@ export default function MenuPage() {
             ))}
           </ScrollView>
 
-          {/* 右侧菜品列表 */}
-          <ScrollView
-            className='menu-items'
-            scrollY
-            scrollIntoView={scrollIntoView}
-            scrollWithAnimation
-            enhanced
-            showScrollbar={false}
+          {/* 右侧菜品列表：memo 隔离，避免打开 picker 时重渲染回顶 */}
+          <MenuItemsPanel
+            categories={categories}
+            searchKeyword={searchKeyword}
+            listBottomSpacer={listBottomSpacer}
+            menuScrollIntoView={menuScrollIntoView}
+            restoreScrollTop={restoreScrollTop}
+            cartQtyByMenuItemId={cartQtyByMenuItemId}
             onScroll={handleMenuScroll}
-            onScrollToUpper={() => !scrollLockRef.current && setActiveCategoryIndex(0)}
-          >
-            <View className='menu-items__content'>
-              {categories.map((cat, index) => (
-                <View
-                  key={cat.id}
-                  id={`cat-${cat.id}`}
-                  className={`menu-category-section${index === categories.length - 1 ? ' menu-category-section--last' : ''}`}
-                >
-                  <Text className='category-title'>{cat.name}</Text>
-                  {cat.items.length === 0 ? (
-                    <View className='menu-page__empty-item' aria-label='该分类暂无菜品'>
-                      {searchKeyword.trim() ? '未找到相关菜品' : '暂无菜品'}
-                    </View>
-                  ) : (
-                    cat.items.map((item) => (
-                      <MenuItemCard
-                        key={item.id}
-                        item={item}
-                        categoryIndex={index}
-                        onItemClick={handleItemClick}
-                        onFavorite={toggleFavorite}
-                        getItemBgColor={getItemBgColorCb}
-                      />
-                    ))
-                  )}
-                </View>
-              ))}
-              <ListEndTip
-                show={categories.some((cat) => cat.items.length > 0)}
-                hasMore={false}
-                variant='footer'
-                className='menu-items__end-tip'
-              />
-              {listBottomSpacer > 0 ? (
-                <View className='menu-items__bottom-spacer' style={{ height: `${listBottomSpacer}px` }} />
-              ) : null}
-            </View>
-          </ScrollView>
+            onItemClick={handleItemClickCb}
+            onAddClick={handleQuickAddCb}
+            onFavorite={toggleFavoriteCb}
+            getItemBgColor={getItemBgColorCb}
+          />
         </View>
         </>
       )}
@@ -863,13 +1372,19 @@ export default function MenuPage() {
         onClose={() => setCartPopupVisible(false)}
         title='购物车'
         flush
-      >
-        <View className='cart-popup cart-popup--embedded'>
-          <View className='cart-popup__header'>
-            <View className='cart-popup__clear' onClick={() => cartStore.clearCart()}>
+        avoidTabBar
+        headerExtra={
+          cartItems.length > 0 ? (
+            <View
+              className='bottom-sheet-panel__action-text cart-popup__clear'
+              onClick={() => cartStore.clearCart()}
+            >
               清空
             </View>
-          </View>
+          ) : null
+        }
+      >
+        <View className='cart-popup cart-popup--embedded'>
           <View className='cart-popup__body'>
             {cartItems.length === 0 ? (
               <EmptyState
@@ -896,12 +1411,16 @@ export default function MenuPage() {
       {/* 规格选择弹窗（公共 BottomSheet） */}
       <BottomSheet
         visible={!!(specPopupVisible && selectedItem)}
-        onClose={() => setSpecPopupVisible(false)}
+        onClose={() => {
+          setSpecPopupVisible(false);
+        }}
         title={selectedItem?.name || '选择规格'}
         flush
+        avoidTabBar
       >
         {selectedItem && (
             <View className='spec-popup'>
+              <View className='spec-popup__scroll-body'>
               <View className='spec-popup__header'>
                 <FoodThumb
                   className='spec-popup__image'
@@ -974,6 +1493,7 @@ export default function MenuPage() {
                   <View className='spec-popup__qty-btn' onClick={() => setQuantity(quantity + 1)}>+</View>
                 </View>
               </View>
+              </View>{/* spec-popup__scroll-body */}
 
               <View className='spec-popup__footer'>
                 <View className='spec-popup__footer-left'>
@@ -993,27 +1513,17 @@ export default function MenuPage() {
         )}
       </BottomSheet>
 
-      {/* 飞入动画 */}
-      <FlyInAnimation visible={flyInVisible} />
-      {flyInVisible && (
-        <View
-          className='fly-in-target'
-          style={{
-            position: 'fixed',
-            left: flyInPosition.x - 18,
-            top: flyInPosition.y - 18,
-            zIndex: 9999,
-            animation: 'flyIn 0.6s ease-in-out forwards',
-            pointerEvents: 'none',
-          }}
-        >
-          <Icon name='cart' size={28} color='#FFFFFF' />
-        </View>
-      )}
+      {/* 飞入动画：从 + / 加购按钮飞向底部购物车 */}
+      <FlyInAnimation visible={flyInVisible} start={flyInPosition} />
 
-      {/* 底部购物车栏：弹层打开时隐藏，避免压住规格弹窗底部按钮 */}
-      {cartCount > 0 && !specPopupVisible && (
-        <View className='cart-bar' onClick={() => setCartPopupVisible(!cartPopupVisible)}>
+      {/* 底部购物车栏：始终挂载，空车/弹层时仅隐藏，避免挂载引起列表重排回顶 */}
+      <View
+        className={`cart-bar${cartCount > 0 && !specPopupVisible ? '' : ' cart-bar--hidden'}${cartBarPulse ? ' cart-bar--pulse' : ''}`}
+        onClick={() => {
+          if (cartCount <= 0 || specPopupVisible) return;
+          setCartPopupVisible(!cartPopupVisible);
+        }}
+      >
           <View className='cart-bar__icon-wrap'>
             <View className='cart-bar__icon'><Icon name='cart' size={22} color='#FFFFFF' /></View>
             <View className='cart-bar__badge'>
@@ -1047,7 +1557,6 @@ export default function MenuPage() {
             </View>
           </View>
         </View>
-      )}
     </View>
   );
 }

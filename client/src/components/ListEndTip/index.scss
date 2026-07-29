@@ -11,7 +11,7 @@
 
   /* 订单等 tabBar 页：额外抬高，避免被底栏挡住 */
   &--tab {
-    padding-bottom: $space-12;
+    @include tab-bar-spacer($space-4);
   }
 
   /* 有固定底部操作栏的页面 */

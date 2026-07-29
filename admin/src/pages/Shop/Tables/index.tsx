@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Button,
   Form,
@@ -19,92 +19,67 @@ import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import EmptyState from '@/components/EmptyState';
+import { ShopTable, buildTableQrImageUrl } from '@/services/table';
 import {
-  ShopTable,
-  buildTableQrImageUrl,
-  createTable,
-  deleteTable,
-  listTables,
-  seedTables,
-  updateTable,
-} from '@/services/table';
-import { getShop } from '@/services/shop';
+  useTables,
+  useShop,
+  useCreateTable,
+  useUpdateTable,
+  useDeleteTable,
+  useSeedTables,
+} from '@/hooks/queries';
 import { useShopContext } from '@/hooks/useShopContext';
 import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 
 const { Text } = Typography;
 
 export default function ShopTablesPage() {
-  const { shopId, ready, currentShop } = useShopContext();
-  const [loading, setLoading] = useState(false);
-  const [tables, setTables] = useState<ShopTable[]>([]);
-  const [shopName, setShopName] = useState<string>('');
+  const { shopId, ready } = useShopContext();
   const [searchText, setSearchText] = useState('');
   const [activeFilter, setActiveFilter] = useState<string | undefined>();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ShopTable | null>(null);
   const [qrTable, setQrTable] = useState<ShopTable | null>(null);
-  const [seeding, setSeeding] = useState(false);
   const [form] = Form.useForm();
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      if (!shopId) return;
-      const list = await listTables(shopId);
-      setTables(Array.isArray(list) ? list : []);
-    } catch (e) {
-      console.error('加载桌台失败:', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [shopId]);
+  const activeShopId = ready && shopId ? shopId : '';
+  const tablesQuery = useTables(activeShopId);
+  const tables = tablesQuery.data ?? [];
+  const loading = tablesQuery.isPending;
 
-  const loadShopMeta = useCallback(async () => {
-    if (!shopId) return;
-    try {
-      const shop = await getShop(shopId);
-      setShopName(shop?.name || '');
-    } catch (e) {
-      console.error('加载店铺信息失败:', e);
-    }
-  }, [shopId]);
+  const shopQuery = useShop(activeShopId);
+  const shopName = shopQuery.data?.name || '';
 
-  useEffect(() => {
-    if (!ready || !shopId) return;
-    load();
-    loadShopMeta();
-  }, [load, loadShopMeta, ready, shopId]);
+  const createMutation = useCreateTable();
+  const updateMutation = useUpdateTable();
+  const deleteMutation = useDeleteTable();
+  const seedMutation = useSeedTables();
+  const seeding = seedMutation.isPending;
 
   const onSubmit = async () => {
     const values = await form.validateFields();
     try {
       if (editing) {
-        await updateTable(shopId, editing.id, values);
+        await updateMutation.mutateAsync({ shopId, tableId: editing.id, data: values });
         message.success('桌台已更新');
       } else {
-        await createTable(shopId, values);
+        await createMutation.mutateAsync({ shopId, data: values });
         message.success('桌台已创建');
       }
       setOpen(false);
       setEditing(null);
       form.resetFields();
-      load();
     } catch (e) {
       console.error('保存桌台失败:', e);
     }
   };
 
   const handleSeed = async () => {
-    setSeeding(true);
     try {
-      await seedTables(shopId);
+      await seedMutation.mutateAsync(shopId);
       message.success('已初始化 A01-A10');
-      load();
     } catch (e) {
       console.error('初始化桌台失败:', e);
-    } finally {
-      setSeeding(false);
     }
   };
 
@@ -195,9 +170,8 @@ export default function ShopTablesPage() {
               title="确认删除该桌台？"
               onConfirm={async () => {
                 try {
-                  await deleteTable(shopId, row.id);
+                  await deleteMutation.mutateAsync({ shopId, tableId: row.id });
                   message.success('已删除');
-                  load();
                 } catch (e) {
                   console.error('删除桌台失败:', e);
                 }
@@ -211,7 +185,7 @@ export default function ShopTablesPage() {
         ),
       },
     ],
-    [form, load, shopId],
+    [form, deleteMutation, shopId],
   );
 
   return (
@@ -221,7 +195,10 @@ export default function ShopTablesPage() {
         title="桌台与扫码"
         addText="新增桌台"
         onAdd={handleAdd}
-        onRefresh={load}
+        onRefresh={() => {
+          void tablesQuery.refetch();
+          void shopQuery.refetch();
+        }}
         extra={
           <Button onClick={handleSeed} loading={seeding}>
             初始化 A01-A10

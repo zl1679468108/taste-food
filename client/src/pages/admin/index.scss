@@ -5,7 +5,7 @@
 .admin-page {
   min-height: 100vh;
   background: $bg-page;
-  padding-bottom: $space-5;
+  @include tab-bar-spacer($space-4);
 
   &__mine-entry {
     margin: $space-3 $space-3 0;
@@ -593,5 +593,65 @@
     line-height: $leading-normal;
     color: $text-secondary;
     font-weight: $weight-medium;
+  }
+}
+
+
+
+.reason-sheet {
+  padding-bottom: $space-2;
+}
+
+.reason-sheet__hint {
+  display: block;
+  font-size: $font-sm;
+  line-height: $leading-normal;
+  color: $text-secondary;
+  margin-bottom: $space-3;
+}
+
+.reason-sheet__textarea {
+  width: 100%;
+  min-height: 96px;
+  box-sizing: border-box;
+  padding: $space-3;
+  border-radius: $radius-md;
+  background: $bg-muted;
+  font-size: $font-base;
+  line-height: $leading-normal;
+  color: $text-primary;
+  margin-bottom: $space-4;
+}
+
+.reason-sheet__btns {
+  display: flex;
+  gap: $space-3;
+}
+
+.reason-sheet__btn {
+  flex: 1;
+  height: 44px;
+  border-radius: $radius-full;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-base;
+  font-weight: $weight-medium;
+  line-height: $leading-none;
+
+  &--cancel {
+    background: $bg-muted;
+    color: $text-secondary;
+  }
+
+  &--danger {
+    background: $bg-page;
+    border: 1.5px solid $border-strong;
+    color: $text-secondary;
+  }
+
+  &.disabled {
+    opacity: 0.5;
+    pointer-events: none;
   }
 }

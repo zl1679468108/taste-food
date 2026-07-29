@@ -1,3 +1,4 @@
+@use 'sass:color';
 @use '../../styles/design-tokens' as *;
 
 .notif-page {
@@ -40,7 +41,7 @@
 
   &.is-unread {
     border-color: $border-tip;
-    background: mix($primary, $bg-card, 4%);
+    background: color.mix($primary, $bg-card, 4%);
   }
 }
 

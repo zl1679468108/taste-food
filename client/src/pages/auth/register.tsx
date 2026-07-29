@@ -48,7 +48,10 @@ export default function RegisterPage() {
       <Text className='register-page__subtitle'>注册即为顾客，商家/骑手可在「我的」页申请</Text>
 
       <View className='register-page__field'>
-        <Text className='register-page__label'>用户名</Text>
+        <Text className='register-page__label'>
+          用户名
+          <Text className='form-required'>*</Text>
+        </Text>
         <Input
           className='register-page__input'
           placeholder='登录账号'
@@ -57,7 +60,10 @@ export default function RegisterPage() {
         />
       </View>
       <View className='register-page__field'>
-        <Text className='register-page__label'>密码</Text>
+        <Text className='register-page__label'>
+          密码
+          <Text className='form-required'>*</Text>
+        </Text>
         <Input
           className='register-page__input'
           password

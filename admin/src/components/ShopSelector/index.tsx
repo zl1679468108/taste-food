@@ -1,9 +1,8 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Select, Space, Typography } from 'antd';
-import { ShopOutlined } from '@ant-design/icons';
 import { useShopContext } from '@/hooks/useShopContext';
 import type { Shop } from '@/services/shop';
-import { brand } from '@/theme';
+import ShopLogo from '@/components/ShopLogo';
 
 const { Text } = Typography;
 
@@ -17,20 +16,11 @@ const ShopSelector: React.FC = () => {
     loading,
     canSwitchShops,
     setShopId,
-    loadShops,
-    ready,
   } = useShopContext();
-
-  useEffect(() => {
-    if (!ready && !loading) {
-      void loadShops();
-    }
-  }, [ready, loading, loadShops]);
 
   if (!shops.length && !loading) {
     return (
-      <Space size={6} style={{ marginRight: 8 }}>
-        <ShopOutlined style={{ color: brand.textTertiary }} />
+      <Space size={6} className="tf-shop-selector" style={{ marginRight: 8 }}>
         <Text type="secondary" style={{ fontSize: 13 }}>
           暂无店铺
         </Text>
@@ -39,8 +29,7 @@ const ShopSelector: React.FC = () => {
   }
 
   return (
-    <Space size={6} style={{ marginRight: 4 }}>
-      <ShopOutlined style={{ color: brand.primary }} />
+    <Space size={6} className="tf-shop-selector" style={{ marginRight: 4 }}>
       <Select
         size="middle"
         value={shopId || undefined}
@@ -51,6 +40,24 @@ const ShopSelector: React.FC = () => {
         optionFilterProp="label"
         showSearch
         onChange={(value) => setShopId(value)}
+        optionRender={(option) => {
+          const shop = shops.find((item) => item.id === option.value);
+          return (
+            <Space size={8}>
+              <ShopLogo src={shop?.logoUrl} size={24} />
+              <span>{option.label}</span>
+            </Space>
+          );
+        }}
+        labelRender={(props) => {
+          const shop = shops.find((item) => item.id === props.value);
+          return (
+            <Space size={8}>
+              <ShopLogo src={shop?.logoUrl} size={20} />
+              <span>{props.label}</span>
+            </Space>
+          );
+        }}
         options={shops.map((shop: Shop) => ({
           value: shop.id,
           label: shop.name || shop.id,

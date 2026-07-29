@@ -1,49 +1,34 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Button, List, Space, Tag, Typography, Empty, Spin, message } from 'antd';
-import { CheckOutlined, ReloadOutlined } from '@ant-design/icons';
+import { BellOutlined, CheckOutlined } from '@ant-design/icons';
+import { type InboxNotification } from '@/services/notification';
 import {
-  listNotifications,
-  markAllNotificationsRead,
-  markNotificationRead,
-  type InboxNotification,
-} from '@/services/notification';
+  useNotifications,
+  useMarkNotificationRead,
+  useMarkAllNotificationsRead,
+} from '@/hooks/queries';
 import { formatTime } from '@/utils/format';
 import { brand } from '@/theme';
 import TableCard from '@/components/TableCard';
+import PageHeaderActions from '@/components/PageHeaderActions';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 
 const MessagesPage: React.FC = () => {
-  const [items, setItems] = useState<InboxNotification[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
 
-  const load = useCallback(async (p = page) => {
-    setLoading(true);
-    try {
-      const res = await listNotifications(p, 20);
-      setItems(res?.items || []);
-      setTotal(res?.total || 0);
-      setPage(res?.page || p);
-    } catch {
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
+  const notificationsQuery = useNotifications(page, 20);
+  const items = notificationsQuery.data?.items ?? [];
+  const total = notificationsQuery.data?.total ?? 0;
+  const loading = notificationsQuery.isPending;
 
-  useEffect(() => {
-    void load(1);
-  }, []);
+  const markReadMutation = useMarkNotificationRead();
+  const markAllReadMutation = useMarkAllNotificationsRead();
 
   const handleRead = async (item: InboxNotification) => {
     if (item.isRead) return;
     try {
-      await markNotificationRead(item.id);
-      setItems((prev) =>
-        prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n)),
-      );
+      await markReadMutation.mutateAsync(item.id);
     } catch {
       // toast
     }
@@ -51,34 +36,30 @@ const MessagesPage: React.FC = () => {
 
   const handleReadAll = async () => {
     try {
-      await markAllNotificationsRead();
+      await markAllReadMutation.mutateAsync();
       message.success('已全部标为已读');
-      await load(page);
     } catch {
       // toast
     }
   };
 
   return (
-    <div>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <Title level={4} style={{ margin: 0 }}>
-            消息中心
-          </Title>
-          <Text type="secondary">共 {total} 条消息</Text>
-        </div>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => void load(page)}>
-            刷新
-          </Button>
+    <div className="tf-page">
+      <PageHeaderActions
+        icon={<BellOutlined style={{ marginRight: 8 }} />}
+        title="消息中心"
+        onRefresh={() => void notificationsQuery.refetch()}
+        extra={
           <Button type="primary" icon={<CheckOutlined />} onClick={() => void handleReadAll()}>
             全部已读
           </Button>
-        </Space>
-      </Space>
+        }
+      />
 
-      <TableCard>
+      <TableCard
+        title="站内消息"
+        extra={<Text type="secondary">共 {total} 条</Text>}
+      >
         <Spin spinning={loading}>
           {items.length === 0 ? (
             <Empty description="暂无消息" style={{ padding: 48 }} />
@@ -90,10 +71,11 @@ const MessagesPage: React.FC = () => {
                 <List.Item
                   key={item.id}
                   style={{
-                    background: item.isRead ? 'transparent' : brand.primaryLight || '#FFF8F0',
-                    borderRadius: 8,
-                    padding: '12px 16px',
-                    marginBottom: 8,
+                    background: item.isRead ? brand.bgCard : brand.primaryLight,
+                    border: `1px solid ${item.isRead ? brand.border : brand.primaryLight}`,
+                    borderRadius: brand.radius,
+                    padding: `${brand.space3}px ${brand.space4}px`,
+                    marginBottom: brand.space2,
                     cursor: item.isRead ? 'default' : 'pointer',
                   }}
                   onClick={() => void handleRead(item)}
@@ -130,7 +112,9 @@ const MessagesPage: React.FC = () => {
                       </Text>
                     }
                   />
-                  <Paragraph style={{ marginBottom: 0 }}>{item.content}</Paragraph>
+                  <Paragraph style={{ marginBottom: 0, color: brand.textPrimary }}>
+                    {item.content}
+                  </Paragraph>
                 </List.Item>
               )}
             />

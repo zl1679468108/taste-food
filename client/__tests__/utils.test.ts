@@ -21,7 +21,7 @@ describe('format 工具函数', () => {
   });
 
   test('shortOrderId: 截取前8位', () => {
-    expect(shortOrderId('abc12345-6789')).toBe('#ABC12345');
-    expect(shortOrderId('12345678')).toBe('#12345678');
+    expect(shortOrderId('abc12345-6789')).toBe('ABC12345');
+    expect(shortOrderId('12345678')).toBe('12345678');
   });
 });

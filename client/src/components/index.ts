@@ -15,3 +15,5 @@ export type { IconName } from './Icon';
 export { isIconName } from './Icon';
 export { default as FoodThumb, resolveFoodTone } from './FoodThumb';
 export type { FoodThumbTone } from './FoodThumb';
+
+export { default as ShopLogo } from './ShopLogo';
