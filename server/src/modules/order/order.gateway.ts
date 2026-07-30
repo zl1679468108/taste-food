@@ -24,6 +24,7 @@ interface DeliveryTrackEventPayload {
   shopId: string;
   userId: string;
   riderId?: string;
+  riderDeliveryCount?: number;
   latitude: number;
   longitude: number;
   recordedAt: string;
@@ -126,17 +127,22 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    // 顾客额外加入个人房间（用于跨设备推送）
-    if (payload.role === UserRole.CUSTOMER) {
-      client.join(`user:${payload.userId}`);
-    }
-
-    // 骑手加入通用房间：无 shopId 也能收到外送池事件；有 shopId 时双收
-    if (payload.role === UserRole.RIDER) {
-      client.join(this.riderRoom());
-      this.logger.log(`客户端加入 role:rider 房间: ${client.id}`);
-    }
+  // 顾客额外加入个人房间（用于跨设备推送）
+  if (payload.role === UserRole.CUSTOMER) {
+    client.join(`user:${payload.userId}`);
   }
+
+  // 公共个人房间：跨设备推送（通知、订单状态等）均发给 userId
+  if (payload.userId) {
+    client.join(`user:${payload.userId}`);
+  }
+
+  // 骑手加入通用房间：无 shopId 也能收到外送池事件；有 shopId 时双收
+  if (payload.role === UserRole.RIDER) {
+    client.join(this.riderRoom());
+    this.logger.log(`客户端加入 role:rider 房间: ${client.id}`);
+  }
+}
 
   handleDisconnect(client: Socket): void {
     const user = client.data?.user as CurrentUserPayload | undefined;
@@ -174,6 +180,7 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
       shopId: order.shopId,
       userId: order.userId,
       riderId: order.riderId,
+      riderDeliveryCount: order.riderDeliveryCount,
       status: order.status,
       total: order.total,
       deliveryFee: order.deliveryFee,
@@ -309,6 +316,28 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`user:${payload.userId}`).emit('delivery:track', payload);
     this.logger.log(
       `[WS] delivery:track orderId=${payload.orderId}, shopId=${payload.shopId}, recordedAt=${payload.recordedAt}`,
+    );
+  }
+
+  /** 消息通知推送：发给对应用户（顾客/管理员/骑手） */
+  emitNotificationToUser(payload: {
+    userId: string;
+    notification: {
+      id: string;
+      title: string;
+      content: string;
+      createdAt: string;
+    };
+  }): void {
+    if (!this.server) {
+      this.logger.warn('[WS] server 未初始化，跳过 notification:new 推送');
+      return;
+    }
+    this.server
+      .to(`user:${payload.userId}`)
+      .emit('notification:new', payload.notification);
+    this.logger.log(
+      `[WS] notification:new userId=${payload.userId}, id=${payload.notification.id}`,
     );
   }
 }

@@ -3,15 +3,16 @@ import request from '../utils/request';
 // Mock axios
 jest.mock('axios', () => ({
   create: jest.fn(() => ({
-    interceptors: {
-      request: { use: jest.fn() },
-      response: { use: jest.fn() },
-    },
-    get: jest.fn(),
-    post: jest.fn(),
-    patch: jest.fn(),
-    delete: jest.fn(),
-  })),
+  interceptors: {
+    request: { use: jest.fn() },
+    response: { use: jest.fn() },
+  },
+  get: jest.fn(),
+  post: jest.fn(),
+  put: jest.fn(),
+  patch: jest.fn(),
+  delete: jest.fn(),
+})),
 }));
 
 describe('request 工具', () => {
@@ -31,7 +32,10 @@ describe('request 工具', () => {
     expect(request.patch).toBeDefined();
   });
 
-  it('应该有 delete 方法', () => {
-    expect(request.delete).toBeDefined();
-  });
+it('应该有 delete 方法', () => {
+  expect(request.delete).toBeDefined();
+});
+it('应该有 put 方法', () => {
+  expect(request.put).toBeDefined();
+});
 });

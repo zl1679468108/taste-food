@@ -6,6 +6,13 @@ import { disconnectSocket } from '../services/socket';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
+/**
+ * 切换身份进行中标志（模块级）。
+ * zustand 的 isLoading 只能在下一次渲染后被读到，挡不住同一 tick 内的连点，
+ * 因此用模块级布尔做强互斥，避免重复签发 token 与多次跳转。
+ */
+let switchRoleInFlight = false;
+
 /** 可切换业务角色（小程序禁止 admin） */
 export type SwitchableRole = 'customer' | 'merchant' | 'rider';
 
@@ -363,6 +370,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         return;
       }
 
+      if (switchRoleInFlight) return;
+      switchRoleInFlight = true;
       set({ isLoading: true });
       try {
         const body: Record<string, unknown> = { role: targetRole };
@@ -379,9 +388,11 @@ export const useAuthStore = create<AuthState>((set, get) => {
         Taro.showToast({ title: `已切换为${label}`, icon: 'success' });
 
         setTimeout(() => {
+          switchRoleInFlight = false;
           navigateByRole(targetRole);
         }, 800);
       } catch (error) {
+        switchRoleInFlight = false;
         set({ isLoading: false });
         throw error;
       }

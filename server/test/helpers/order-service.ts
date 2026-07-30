@@ -1,4 +1,4 @@
-import { DeliveryType, OrderStatus, ShopStatus } from '../../src/common/constants/enums';
+import { DeliveryType, MenuItemStatus, OrderStatus, ShopStatus } from '../../src/common/constants/enums';
 import { OrderService, OrderRecord } from '../../src/modules/order/order.service';
 
 type TestShop = {
@@ -11,9 +11,11 @@ type TestShop = {
 
 type TestMenuItem = {
   id: string;
+  shopId?: string;
   name: string;
   price: number;
   imageUrl?: string;
+  status?: MenuItemStatus;
 };
 
 type TestSpecOption = {
@@ -46,6 +48,7 @@ export type DeliveryTrackEvent = {
   shopId: string;
   userId: string;
   riderId?: string;
+  riderDeliveryCount?: number;
   latitude: number;
   longitude: number;
   recordedAt: string;
@@ -97,12 +100,16 @@ export function createOrderService(options: TestOrderServiceOptions = {}) {
     ),
     getMenuItemSpecs: async (menuItemId: string) => specGroupsByMenuItemId[menuItemId] || [],
   };
+  const addressService = {
+    findByUserId: async () => [],
+  };
 
   const service = new OrderService(
     gateway as never,
     promotionService as never,
     shopService as never,
     menuService as never,
+    addressService as never,
   );
 
   return {

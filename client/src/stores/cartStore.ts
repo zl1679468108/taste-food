@@ -110,6 +110,8 @@ interface CartState {
   addItem: (item: Omit<CartItem, 'key'>) => void;
   /** 移除商品 */
   removeItem: (key: string) => void;
+  /** 批量移除商品 */
+  removeItems: (keys: string[]) => void;
   /** 更新商品数量（delta = +1 或 -1） */
   updateQuantity: (key: string, delta: number) => void;
   /** 直接设置商品数量 */
@@ -167,6 +169,16 @@ export const useCartStore = create<CartState>((set, get) => ({
     const newItems = items.filter((i) => i.key !== key);
     set({ items: newItems });
     persistCart({ items: newItems, shopId, remarks });
+  },
+
+  removeItems: (keys) => {
+    if (keys.length === 0) return;
+    const { items, shopId, remarks } = get();
+    const keySet = new Set(keys);
+    const newItems = items.filter((i) => !keySet.has(i.key));
+    if (newItems.length === items.length) return;
+    set({ items: newItems });
+    persistCartImmediate({ items: newItems, shopId, remarks });
   },
 
   updateQuantity: (key, delta) => {

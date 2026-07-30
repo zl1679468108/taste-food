@@ -4,7 +4,7 @@
 .notif-page {
   min-height: 100vh;
   background: $bg-page;
-  padding: $space-4 $page-padding-x $space-10;
+  padding: $space-4 $page-padding-x calc(70px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -24,6 +24,12 @@
   font-size: $font-sm;
   color: $text-price;
   font-weight: $weight-medium;
+
+  &.is-disabled {
+    color: $text-disabled;
+    opacity: 0.6;
+    pointer-events: none;
+  }
 }
 
 .notif-page__list {
@@ -43,6 +49,11 @@
     border-color: $border-tip;
     background: color.mix($primary, $bg-card, 4%);
   }
+
+  &.is-pending {
+    opacity: 0.7;
+    pointer-events: none;
+  }
 }
 
 .notif-page__item-head {
@@ -57,6 +68,13 @@
   font-weight: $weight-medium;
   color: $text-primary;
   flex: 1;
+}
+
+.notif-page__marking {
+  font-size: $font-2xs;
+  color: $text-hint;
+  margin-left: $space-2;
+  flex-shrink: 0;
 }
 
 .notif-page__dot {

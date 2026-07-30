@@ -1,5 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Form, FormInstance, message } from 'antd';
+import { isRequestErrorHandled } from '@/utils/request';
 
 export interface UseCrudModalOptions<T> {
   /** 打开编辑时写入表单的字段映射，默认 setFieldsValue(record) */
@@ -24,6 +25,8 @@ export function useCrudModal<T extends { id: string }>(
 
   const [visible, setVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // ref 守卫：state 在同一 tick 内读到的是渲染期旧值，连点会穿透
+  const submittingRef = useRef(false);
   const [editing, setEditing] = useState<T | null>(null);
   const [form] = Form.useForm();
 
@@ -55,12 +58,15 @@ export function useCrudModal<T extends { id: string }>(
         transformValues?: (values: Record<string, unknown>, editing: T | null) => Record<string, unknown> | Promise<Record<string, unknown>>;
       },
     ) => {
+      // 校验是异步的，必须在校验「之前」上锁，否则两次快速点击会双双穿透产生重复创建
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setSubmitting(true);
       try {
         let values = await form.validateFields();
         if (handlers.transformValues) {
           values = await handlers.transformValues(values, editing);
         }
-        setSubmitting(true);
         if (editing) {
           await handlers.update(editing.id, values);
           message.success(updateSuccessText);
@@ -72,9 +78,12 @@ export function useCrudModal<T extends { id: string }>(
         await onSuccess?.();
       } catch (error) {
         if ((error as { errorFields?: unknown })?.errorFields) return;
+        // 重复提交被请求层拦截属正常行为，不作为失败提示给用户
+        if (isRequestErrorHandled(error)) return;
         console.error('提交失败:', error);
         message.error('操作失败');
       } finally {
+        submittingRef.current = false;
         setSubmitting(false);
       }
     },

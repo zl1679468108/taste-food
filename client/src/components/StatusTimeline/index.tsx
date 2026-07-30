@@ -97,8 +97,8 @@ function StatusTimelineInner({
   }, [currentStatus, statusHistory, deliveryType]);
 
   const currentStepIndex = steps.findIndex((s) => s.current);
-  // 让当前节点尽量滚入可视区：每步约 76px
-  const scrollLeft = Math.max(0, (currentStepIndex - 1) * 76);
+  // 让当前节点尽量滚入可视区：每步约 92px
+  const scrollLeft = Math.max(0, (currentStepIndex - 1) * 92);
 
   return (
     <View className='status-timeline'>

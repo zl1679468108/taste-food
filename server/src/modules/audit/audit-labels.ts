@@ -33,6 +33,7 @@ const PATH_ACTION_RULES: Array<{ test: RegExp; label: string | ((method: string)
   { test: /\/orders\/[^/]+\/deliver(?:\/|$|\?)/, label: '确认送达' },
   { test: /\/orders\/[^/]+\/pay(?:\/|$|\?)/, label: '支付订单' },
   { test: /\/orders\/[^/]+\/reviews(?:\/|$|\?)/, label: '创建评价' },
+  { test: /\/orders\/rider\/location(?:\/|$|\?)/, label: '上报骑手位置' },
   { test: /\/orders\/[^/]+\/delivery-track(?:\/|$|\?)/, label: '更新配送轨迹' },
   { test: /\/reviews\/[^/]+\/reply(?:\/|$|\?)/, label: '回复评价' },
   { test: /\/shops\/[^/]+\/tables\/seed(?:\/|$|\?)/, label: '初始化桌台' },

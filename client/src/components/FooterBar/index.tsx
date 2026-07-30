@@ -11,6 +11,8 @@ interface FooterBarProps {
   className?: string;
   /** 仅展示全宽操作按钮（如表单提交） */
   actionOnly?: boolean;
+  /** tab 页中抬到底部 tabBar 上方 */
+  avoidTabBar?: boolean;
 }
 
 function FooterBarInner({
@@ -21,11 +23,12 @@ function FooterBarInner({
   onAction,
   className = '',
   actionOnly = false,
+  avoidTabBar = false,
   children,
 }: PropsWithChildren<FooterBarProps>) {
   return (
     <View
-      className={`tf-footer-bar${actionOnly ? ' tf-footer-bar--action-only' : ''} ${className}`.trim()}
+      className={`tf-footer-bar${actionOnly ? ' tf-footer-bar--action-only' : ''}${avoidTabBar ? ' tf-footer-bar--avoid-tab-bar' : ''} ${className}`.trim()}
     >
       {children ? (
         children

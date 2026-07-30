@@ -100,5 +100,11 @@
     &.danger {
       color: $danger;
     }
+
+    &.is-disabled {
+      color: $text-disabled;
+      opacity: 0.6;
+      pointer-events: none;
+    }
   }
 }

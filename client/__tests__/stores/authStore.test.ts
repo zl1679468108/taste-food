@@ -21,24 +21,26 @@ describe('authStore', () => {
   const mockPost = post as jest.Mock;
   const taro = require('@tarojs/taro').default || require('@tarojs/taro');
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers();
-    mockPost.mockImplementation((_url, data) => {
-      const role = data.code.replace('_code', '');
-      return Promise.resolve({
-        code: 0,
-        data: {
-          token: `${role}-token`,
-          refreshToken: `${role}-refresh-token`,
-          userId: `${role}-user`,
-          openid: `${role}-openid`,
-          role,
-        },
-        message: 'success',
-      });
+beforeEach(() => {
+  jest.clearAllMocks();
+  jest.useFakeTimers();
+  mockPost.mockImplementation((_url, data: Record<string, unknown>) => {
+    const role = data.code
+      ? String(data.code).replace('_code', '')
+      : (data.role as string) || 'customer';
+    return Promise.resolve({
+      code: 0,
+      data: {
+        token: `${role}-token`,
+        refreshToken: `${role}-refresh-token`,
+        userId: `${role}-user`,
+        openid: `${role}-openid`,
+        role,
+      },
+      message: 'success',
     });
   });
+});
 
   afterEach(() => {
     jest.clearAllTimers();
@@ -124,31 +126,50 @@ describe('authStore', () => {
     });
   });
 
-  test('getRoleLabel should return correct labels', () => {
-    expect(getRoleLabel('admin')).toBe('商家');
-    expect(getRoleLabel('customer')).toBe('顾客');
-    expect(getRoleLabel('rider')).toBe('骑手');
-    expect(getRoleLabel('unknown')).toBe('unknown');
+test('getRoleLabel should return correct labels', () => {
+  expect(getRoleLabel('admin')).toBe('管理员');
+  expect(getRoleLabel('merchant')).toBe('商家');
+  expect(getRoleLabel('customer')).toBe('顾客');
+  expect(getRoleLabel('rider')).toBe('骑手');
+  expect(getRoleLabel('unknown')).toBe('unknown');
+});
+
+test('switchRole should handle different roles', async () => {
+  const showToast = taro.showToast as jest.Mock;
+  const switchTab = taro.switchTab as jest.Mock;
+
+  // admin 不支持小程序，提前返回
+  await switchRole('admin');
+  expect(showToast).toHaveBeenCalledWith({ title: '小程序不支持管理员角色', icon: 'none' });
+
+  mockPost.mockImplementation((_url, data) => {
+    const role = typeof data === 'string' ? data.replace('_code', '') : (data as Record<string, string>)?.role || 'customer';
+    return Promise.resolve({
+      code: 0,
+      data: {
+        token: `${role}-token`,
+        refreshToken: `${role}-refresh-token`,
+        userId: `${role}-user`,
+        openid: `${role}-openid`,
+        role,
+      },
+      message: 'success',
+    });
   });
 
-  test('switchRole should handle different roles', async () => {
-    const showToast = taro.showToast as jest.Mock;
-    const reLaunch = taro.reLaunch as jest.Mock;
-    const switchTab = taro.switchTab as jest.Mock;
+  await switchRole('merchant');
+  expect(showToast).toHaveBeenCalledWith({ title: '已切换为商家', icon: 'success' });
+  jest.advanceTimersByTime(800);
+  expect(switchTab).toHaveBeenCalledWith({ url: '/pages/admin/index' });
 
-    await switchRole('admin');
-    expect(showToast).toHaveBeenCalledWith({ title: '已切换为商家视角', icon: 'success' });
-    jest.advanceTimersByTime(800);
-    expect(reLaunch).toHaveBeenCalledWith({ url: '/pages/admin/index' });
+  await switchRole('customer');
+  expect(showToast).toHaveBeenCalledWith({ title: '已切换为顾客', icon: 'success' });
+  jest.advanceTimersByTime(800);
+  expect(switchTab).toHaveBeenCalledWith({ url: '/pages/menu/index' });
 
-    await switchRole('customer');
-    expect(showToast).toHaveBeenCalledWith({ title: '已切换为顾客视角', icon: 'success' });
-    jest.advanceTimersByTime(800);
-    expect(switchTab).toHaveBeenCalledWith({ url: '/pages/menu/index' });
-
-    await switchRole('rider');
-    expect(showToast).toHaveBeenCalledWith({ title: '已切换为骑手视角', icon: 'success' });
-    jest.advanceTimersByTime(800);
-    expect(reLaunch).toHaveBeenCalledWith({ url: '/pages/rider/index' });
-  });
+  await switchRole('rider');
+  expect(showToast).toHaveBeenCalledWith({ title: '已切换为骑手', icon: 'success' });
+  jest.advanceTimersByTime(800);
+  expect(switchTab).toHaveBeenCalledWith({ url: '/pages/rider/index' });
+});
 });

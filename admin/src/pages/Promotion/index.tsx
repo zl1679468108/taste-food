@@ -10,9 +10,10 @@ import {
   useDeletePromotion,
 } from '@/hooks/queries';
 import SearchFilterBar from '@/components/SearchFilterBar';
-import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE, filterByKeyword } from '@/utils/table';
 import { formatTime } from '@/utils/format';
 import { useShopContext } from '@/hooks/useShopContext';
+import { isRequestErrorHandled } from '@/utils/request';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
@@ -55,70 +56,161 @@ const PromotionPage: React.FC = () => {
   const updatePromotionMutation = useUpdatePromotion();
   const deletePromotionMutation = useDeletePromotion();
 
-  const {
-    form,
-    visible: modalVisible,
-    submitting,
-    editing: editingPromotion,
-    openCreate: handleAdd,
-    openEdit: handleEdit,
-    close: closeModal,
-    submit: submitModal,
-  } = useCrudModal<Promotion>({
-    mapRecordToForm: (record) => {
-      const ruleFields: Record<string, number> = {};
-      const rule = (record.rule || {}) as Record<string, number>;
-      if (typeof rule.threshold === 'number') ruleFields.threshold = rule.threshold / 100;
-      if (typeof rule.discount === 'number') ruleFields.discount = rule.discount / 100;
-      return {
-        name: record.name,
-        type: record.type,
-        status: record.status,
-        description: record.description,
-        dateRange: record.startDate && record.endDate
-          ? [dayjs(record.startDate), dayjs(record.endDate)]
-          : null,
-        ...ruleFields,
-      };
+const {
+  form,
+  visible: modalVisible,
+  editing: editingPromotion,
+  openCreate: handleAdd,
+  openEdit: handleEdit,
+  close: closeModal,
+} = useCrudModal<Promotion>({
+  mapRecordToForm: (record) => {
+    const ruleFields: Record<string, number> = {};
+    const rule = (record.rule || {}) as Record<string, number>;
+    if (typeof rule.threshold === 'number') ruleFields.threshold = rule.threshold / 100;
+    if (typeof rule.discount === 'number') ruleFields.discount = rule.discount / 100;
+    return {
+      name: record.name,
+      type: record.type,
+      status: record.status,
+      description: record.description,
+      dateRange: record.startDate && record.endDate
+        ? [dayjs(record.startDate), dayjs(record.endDate)]
+        : null,
+      ...ruleFields,
+    };
+  },
+    onSuccess: async () => {
+      await promotionsQuery.refetch();
     },
+});
+
+const [submitting, setSubmitting] = useState(false);
+const [conflictModalVisible, setConflictModalVisible] = useState(false);
+const [pendingSubmitData, setPendingSubmitData] = useState<Record<string, unknown> | null>(null);
+const [conflictRecord, setConflictRecord] = useState<Promotion | undefined>();
+const [deletingId, setDeletingId] = useState<string | null>(null);
+
+const checkTimeConflict = (record: {
+  id?: string;
+  type: string;
+  status: string;
+  startDate?: string;
+  endDate?: string;
+}): Promotion | undefined => {
+  if (loading) return undefined;
+
+  return promotions.find((p) => {
+    if (p.id === record.id) return false;
+    if (p.type !== record.type) return false;
+    if (p.status !== record.status) return false;
+
+    const pStart = p.startDate;
+    const pEnd = p.endDate;
+    const rStart = record.startDate;
+    const rEnd = record.endDate;
+
+    if (!pStart && !pEnd) return true;
+    if (!rStart && !rEnd) return true;
+
+        return (pStart ?? '') < (rEnd ?? '') && (pEnd ?? '') > (rStart ?? '');
   });
+};
 
-  const selectedType = Form.useWatch('type', form);
+const performSubmit = async (data: Record<string, unknown>, isCreate: boolean) => {
+  setSubmitting(true);
+  try {
+    if (isCreate) {
+      await createPromotionMutation.mutateAsync(data);
+      message.success('创建成功');
+    } else {
+      await updatePromotionMutation.mutateAsync({ id: editingPromotion!.id, data, shopId });
+      message.success('更新成功');
+    }
+    closeModal();
+    await promotionsQuery.refetch();
+  } catch (error) {
+    console.error('提交失败:', error);
+    if (!isRequestErrorHandled(error)) {
+      message.error('操作失败');
+    }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
-  const handleDelete = async (id: string) => {
+const handleSubmit = async () => {
+  try {
+    const values = await form.validateFields();
+    const { dateRange, type, threshold, discount, ...rest } = values as {
+      dateRange?: [dayjs.Dayjs, dayjs.Dayjs];
+      type?: string;
+      threshold?: number;
+      discount?: number;
+      [key: string]: unknown;
+    };
+    const rule: Record<string, number> = {};
+    if (typeof threshold === 'number') rule.threshold = Math.round(threshold * 100);
+    if (typeof discount === 'number') rule.discount = Math.round(discount * 100);
+    const data: Record<string, unknown> = { ...rest, rule };
+    if (!editingPromotion) {
+      data.type = type;
+      data.shopId = shopId;
+    }
+    if (dateRange && dateRange[0] && dateRange[1]) {
+      data.startDate = dateRange[0].toISOString();
+      data.endDate = dateRange[1].toISOString();
+    }
+
+    const conflict = checkTimeConflict({
+      id: editingPromotion?.id,
+      type: type || editingPromotion?.type || '',
+      status: 'active',
+      startDate: data.startDate as string | undefined,
+      endDate: data.endDate as string | undefined,
+    });
+
+    if (conflict) {
+      setPendingSubmitData(data);
+      setConflictRecord(conflict);
+      setConflictModalVisible(true);
+      return;
+    }
+
+    await performSubmit(data, !editingPromotion);
+  } catch (error) {
+    if ((error as { errorFields?: unknown })?.errorFields) return;
+    console.error('提交失败:', error);
+    if (!isRequestErrorHandled(error)) {
+      message.error('操作失败');
+    }
+  }
+};
+
+const handleConflictConfirm = async () => {
+  setConflictModalVisible(false);
+  if (pendingSubmitData) {
+    const data = pendingSubmitData;
+    setPendingSubmitData(null);
+    setConflictRecord(undefined);
+    await performSubmit(data, !!editingPromotion);
+  }
+};
+
+const selectedType = Form.useWatch('type', form);
+
+const handleDelete = async (id: string) => {
+    setDeletingId(id);
     try {
       await deletePromotionMutation.mutateAsync({ id, shopId });
       message.success('删除成功');
     } catch (error) {
       console.error('删除促销失败:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  const handleSubmit = () =>
-    submitModal({
-      transformValues: (values, editing) => {
-        const { dateRange, type, threshold, discount, ...rest } = values as any;
-        const rule: Record<string, number> = {};
-        if (typeof threshold === 'number') rule.threshold = Math.round(threshold * 100);
-        if (typeof discount === 'number') rule.discount = Math.round(discount * 100);
-        const data: Record<string, unknown> = {
-          ...rest,
-          rule,
-        };
-        if (!editing) {
-          data.type = type;
-          data.shopId = shopId;
-        }
-        if (dateRange && dateRange[0] && dateRange[1]) {
-          data.startDate = (dateRange[0] as dayjs.Dayjs).toISOString();
-          data.endDate = (dateRange[1] as dayjs.Dayjs).toISOString();
-        }
-        return data;
-      },
-      create: (values) => createPromotionMutation.mutateAsync(values as any),
-      update: (id, values) =>
-        updatePromotionMutation.mutateAsync({ id, data: values as any, shopId }),
-    });
 
   const renderRuleSummary = (record: Promotion): string => {
     const rule = (record.rule || {}) as Record<string, number>;
@@ -192,8 +284,18 @@ const PromotionPage: React.FC = () => {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+          <Popconfirm
+            title="确认删除？"
+            okButtonProps={{ danger: true, loading: deletingId === record.id }}
+            onConfirm={() => handleDelete(record.id)}
+          >
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              loading={deletingId === record.id}
+            >
               删除
             </Button>
           </Popconfirm>
@@ -204,14 +306,15 @@ const PromotionPage: React.FC = () => {
 
   const currentRuleFields = selectedType ? RULE_FIELDS_BY_TYPE[selectedType] || [] : [];
 
-  const filteredPromotions = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    return promotions.filter((p) => {
-      const matchName = !keyword || (p.name || '').toLowerCase().includes(keyword);
-      const matchType = !typeFilter || p.type === typeFilter;
-      return matchName && matchType;
-    });
-  }, [promotions, searchText, typeFilter]);
+const filteredByKeyword = useMemo(
+  () => filterByKeyword(promotions, searchText, ['name']),
+  [promotions, searchText],
+);
+
+const filteredPromotions = useMemo(
+  () => filteredByKeyword.filter((p) => !typeFilter || p.type === typeFilter),
+  [filteredByKeyword, typeFilter],
+);
 
   return (
     <div className="tf-page">
@@ -246,10 +349,30 @@ const PromotionPage: React.FC = () => {
           locale={DEFAULT_TABLE_LOCALE}
           scroll={{ x: 900 }}
         />
-      </TableCard>
+</TableCard>
 
-      <Modal
-        title={editingPromotion ? '编辑促销' : '新增促销'}
+<Modal
+  title="时间段冲突警告"
+  open={conflictModalVisible}
+  onOk={handleConflictConfirm}
+  confirmLoading={submitting}
+  onCancel={() => setConflictModalVisible(false)}
+  okText="仍然创建/更新"
+  cancelText="取消"
+  width={520}
+>
+  <p>当前时间段内已有其他<strong>{conflictRecord ? promotionTypeMap[conflictRecord.type]?.text || conflictRecord.type : ''}</strong>活动：</p>
+  {conflictRecord && (
+    <ul>
+      <li>活动名称：{conflictRecord.name}</li>
+      <li>有效期：{conflictRecord.startDate && conflictRecord.endDate ? `${formatTime(conflictRecord.startDate)} ~ ${formatTime(conflictRecord.endDate)}` : '永久'}</li>
+    </ul>
+  )}
+  <p style={{ marginTop: 12, color: 'var(--tf-text-tertiary)' }}>如确定要继续创建/更新，请点击"仍然创建/更新"。</p>
+</Modal>
+
+<Modal
+ title={editingPromotion ? '编辑促销' : '新增促销'}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={closeModal}
@@ -258,7 +381,7 @@ const PromotionPage: React.FC = () => {
         width={520}
         destroyOnClose
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" disabled={submitting}>
           <Form.Item name="name" label="活动名称" rules={[{ required: true, message: '请输入活动名称' }]}>
             <Input />
           </Form.Item>
@@ -275,7 +398,7 @@ const PromotionPage: React.FC = () => {
               name={field.name}
               label={field.label}
               rules={field.required ? [{ required: true, message: `请输入${field.label}` }] : []}
-              extra={<Text type="secondary" style={{ fontSize: 12 }}>{field.hint}</Text>}
+              extra={<Text type="secondary" style={{ fontSize: 'var(--tf-font-xs)' }}>{field.hint}</Text>}
             >
               <InputNumber
                 min={0}

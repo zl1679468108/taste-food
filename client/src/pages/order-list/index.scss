@@ -31,4 +31,9 @@
     padding-top: $section-gap;
     box-sizing: border-box;
   }
+
+  &__scroll {
+    height: 100%;
+    box-sizing: border-box;
+  }
 }

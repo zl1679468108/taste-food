@@ -11,6 +11,7 @@ import { DeliveryType } from '../../types/order';
 import { DEFAULT_SHOP_ID } from '../../env';
 import { loadDineContext } from '../../utils/dine-context';
 import { Promotion } from '../../types/promotion';
+import { MenuItemStatus, type MenuItem } from '../../types/menu';
 import SectionCard from '../../components/SectionCard';
 import FooterBar from '../../components/FooterBar';
 import { isNonEmpty } from '../../utils/validators';
@@ -25,6 +26,7 @@ const OrderConfirmPage = () => {
   const cartRemarks = useCartStore((s) => s.remarks);
   const cartShopId = useCartStore((s) => s.shopId);
   const clearCart = useCartStore((s) => s.clearCart);
+  const removeItems = useCartStore((s) => s.removeItems);
   const setRemarks = useCartStore((s) => s.setRemarks);
   const getTotalPrice = useCartStore((s) => s.getTotalPrice);
   const authLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -177,6 +179,49 @@ const OrderConfirmPage = () => {
     }
   };
 
+  const syncCartAvailabilityBeforeSubmit = async (): Promise<boolean> => {
+    const shopId = cartShopId || DEFAULT_SHOP_ID;
+    let toastTitle = '';
+    let shouldNavigateBack = false;
+    Taro.showLoading({ title: '同步菜单', mask: true });
+    try {
+      const res = await get<MenuItem[]>('/menu-items', { shop_id: shopId }, {
+        useCache: false,
+        showError: false,
+      });
+      const activeItemIds = new Set(
+        (res.data || [])
+          .filter((item) => item.status === MenuItemStatus.ACTIVE)
+          .map((item) => item.id),
+      );
+      const invalidItems = cartItems.filter((item) => !activeItemIds.has(item.menuItemId));
+      if (invalidItems.length === 0) return true;
+
+      removeItems(invalidItems.map((item) => item.key));
+      if (invalidItems.length === cartItems.length) {
+        toastTitle = '菜品已更新，请重新加购';
+        shouldNavigateBack = true;
+      } else {
+        toastTitle = `已移除${invalidItems.length}个失效菜品，请确认`;
+      }
+      return false;
+    } catch (error) {
+      console.error('校验购物车菜品失败:', error);
+      toastTitle = '菜单校验失败，请稍后重试';
+      return false;
+    } finally {
+      Taro.hideLoading();
+      if (toastTitle) {
+        Taro.showToast({ title: toastTitle, icon: 'none', duration: 2000 });
+      }
+      if (shouldNavigateBack) {
+        setTimeout(() => {
+          Taro.navigateBack();
+        }, 1500);
+      }
+    }
+  };
+
   /** 提交订单 */
   const submitOrder = async () => {
     if (cartItems.length === 0) {
@@ -221,11 +266,20 @@ const OrderConfirmPage = () => {
     }
 
     await runSubmit(async () => {
+      const canSubmit = await syncCartAvailabilityBeforeSubmit();
+      if (!canSubmit) return;
+
+      const latestCartItems = useCartStore.getState().items;
+      if (latestCartItems.length === 0) {
+        Taro.showToast({ title: '购物车为空', icon: 'none' });
+        return;
+      }
+
       const orderData = {
         shopId: cartShopId || DEFAULT_SHOP_ID,
         // 服务端校验菜品价格：仅传 menuItemId/quantity/specDesc，price 由后端从数据库查询
         // 避免客户端篡改 price 导致低价下单
-        items: cartItems.map((item) => ({
+        items: latestCartItems.map((item) => ({
           menuItemId: item.menuItemId,
           name: item.name,
           quantity: item.quantity,
@@ -294,12 +348,12 @@ const OrderConfirmPage = () => {
     <View className='order-confirm'>
       <View className='order-confirm__content'>
         {/* 配送方式 */}
-        <SectionCard className='delivery-section' icon='order' title='配送方式'>
+        <SectionCard className='delivery-section' icon='delivery' title='配送方式'>
           <View className='delivery-type-list'>
             {([
-              { type: DeliveryType.DELIVERY, icon: 'cart' as IconName, label: '外卖配送' },
-              { type: DeliveryType.PICKUP, icon: 'shop' as IconName, label: '到店自取' },
-              { type: DeliveryType.DINE_IN, icon: 'food' as IconName, label: '堂食' },
+              { type: DeliveryType.DELIVERY, icon: 'delivery' as IconName, label: '外卖配送' },
+              { type: DeliveryType.PICKUP, icon: 'pickup' as IconName, label: '到店自取' },
+              { type: DeliveryType.DINE_IN, icon: 'dine-in' as IconName, label: '堂食' },
             ]).map((item) => (
               <View
                 key={item.type}
@@ -416,9 +470,7 @@ const OrderConfirmPage = () => {
           <View className='goods-list'>
             {cartItems.map((item) => (
               <View key={item.key} className='goods-item'>
-                <View className='goods-item__image'>
-                  <FoodThumb src={item.imageUrl} name={item.name} size='sm' round />
-                </View>
+                <FoodThumb className='goods-item__thumb' src={item.imageUrl} name={item.name} size='sm' round />
                 <View className='goods-item__info'>
                   <Text className='goods-item__name'>{item.name}</Text>
                   <Text className='goods-item__spec'>{item.specDesc || '标准份'}</Text>

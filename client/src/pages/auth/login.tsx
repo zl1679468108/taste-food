@@ -118,6 +118,12 @@ const LoginPage = () => {
           >
             开发：模拟顾客微信登录
           </View>
+          <View
+            className='login-page__link'
+            onClick={() => !loading && handleWechatLogin('rider_code')}
+          >
+            开发：模拟骑手微信登录
+          </View>
         </>
       ) : (
         <View className='login-page__form'>
@@ -168,6 +174,7 @@ const LoginPage = () => {
 
           <View className='login-page__hint'>
             <Text className='login-page__hint-text'>演示商家：merchant / merchant123</Text>
+            <Text className='login-page__hint-text'>演示骑手：rider / rider123</Text>
           </View>
         </View>
       )}

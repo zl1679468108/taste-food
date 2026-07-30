@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useAuthStore } from '../../stores/authStore';
 import EmptyState from '../../components/EmptyState';
 import Icon from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
+import FooterBar from '../../components/FooterBar';
+import { useAsyncAction } from '../../hooks';
 import './index.scss';
 
 type AppRole = 'customer' | 'admin' | 'merchant' | 'rider';
@@ -31,6 +33,8 @@ export default function MinePage() {
   const logout = useAuthStore((s) => s.logout);
   const getRoleLabel = useAuthStore((s) => s.getRoleLabel);
   const switchRole = useAuthStore((s) => s.switchRole);
+  const { pending: switching, run: runSwitchRole } = useAsyncAction();
+  const [switchingKey, setSwitchingKey] = useState<string | null>(null);
   // 直接读取 user.roles 原始数据，避免在 selector 里调用方法返回新数组导致无限重渲染
   const userRoles = useAuthStore((s) => s.user?.roles);
   const switchableRoles = useMemo(() => {
@@ -87,17 +91,7 @@ export default function MinePage() {
       ];
     }
 
-    if (role === 'rider') {
-      return [
-        {
-          key: 'rider-home',
-          label: '骑手工作台',
-          desc: '待抢单 / 我的配送',
-          icon: 'order',
-          onClick: () => Taro.switchTab({ url: '/pages/rider/index' }),
-        },
-      ];
-    }
+    if (role === 'rider') return [];
 
     return [
       {
@@ -143,10 +137,14 @@ export default function MinePage() {
             icon='lock'
             title='请先登录'
             description='登录后就能管理账号与订单'
-            actionText='去登录'
-            onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
           />
         </View>
+        <FooterBar
+          actionOnly
+          avoidTabBar
+          actionText='去登录'
+          onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
+        />
       </View>
     );
   }
@@ -173,43 +171,45 @@ export default function MinePage() {
       </View>
 
       <View className='mine-body'>
-        <View className={`mine-panel${useGrid ? ' mine-panel--grid' : ''}`}>
-          <View className='mine-panel__head'>
-            <Text className='mine-panel__title'>常用功能</Text>
-          </View>
+        {serviceMenus.length > 0 && (
+          <View className={`mine-panel${useGrid ? ' mine-panel--grid' : ''}`}>
+            <View className='mine-panel__head'>
+              <Text className='mine-panel__title'>常用功能</Text>
+            </View>
 
-          {useGrid ? (
-            <View className='mine-grid'>
-              {serviceMenus.map((item) => (
-                <View key={item.key} className='mine-grid__item' onClick={item.onClick}>
-                  <View className='mine-grid__icon'>
-                    <Icon name={item.icon} size={22} color={BRAND_COLOR} />
+            {useGrid ? (
+              <View className='mine-grid'>
+                {serviceMenus.map((item) => (
+                  <View key={item.key} className='mine-grid__item' onClick={item.onClick}>
+                    <View className='mine-grid__icon'>
+                      <Icon name={item.icon} size={22} color={BRAND_COLOR} />
+                    </View>
+                    <Text className='mine-grid__label'>{item.label}</Text>
                   </View>
-                  <Text className='mine-grid__label'>{item.label}</Text>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View className='mine-list'>
-              {serviceMenus.map((item, index) => (
-                <View
-                  key={item.key}
-                  className={`mine-list__item${index === serviceMenus.length - 1 ? ' mine-list__item--last' : ''}`}
-                  onClick={item.onClick}
-                >
-                  <View className='mine-list__icon'>
-                    <Icon name={item.icon} size={20} color={BRAND_COLOR} />
+                ))}
+              </View>
+            ) : (
+              <View className='mine-list'>
+                {serviceMenus.map((item, index) => (
+                  <View
+                    key={item.key}
+                    className={`mine-list__item${index === serviceMenus.length - 1 ? ' mine-list__item--last' : ''}`}
+                    onClick={item.onClick}
+                  >
+                    <View className='mine-list__icon'>
+                      <Icon name={item.icon} size={20} color={BRAND_COLOR} />
+                    </View>
+                    <View className='mine-list__body'>
+                      <Text className='mine-list__label'>{item.label}</Text>
+                      {!!item.desc && <Text className='mine-list__desc'>{item.desc}</Text>}
+                    </View>
+                    <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
                   </View>
-                  <View className='mine-list__body'>
-                    <Text className='mine-list__label'>{item.label}</Text>
-                    {!!item.desc && <Text className='mine-list__desc'>{item.desc}</Text>}
-                  </View>
-                  <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
-                </View>
-              ))}
-            </View>
-          )}
-        </View>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
 
         <View className='mine-panel mine-account-panel'>
           <View className='mine-panel__head'>
@@ -241,18 +241,33 @@ export default function MinePage() {
               <Text className='mine-panel__title'>切换身份</Text>
             </View>
             <View className='mine-role-switch'>
-              {switchableRoles.map((r) => (
-                <View
-                  key={`${r.role}-${r.shopId || ''}`}
-                  className={`mine-role-switch__item${r.role === role ? ' is-active' : ''}`}
-                  onClick={() => {
-                    if (r.role === role) return;
-                    switchRole(r.role as any, r.shopId || undefined);
-                  }}
-                >
-                  <Text className='mine-role-switch__label'>{getRoleLabel(r.role)}</Text>
-                </View>
-              ))}
+              {switchableRoles.map((r) => {
+                const itemKey = `${r.role}-${r.shopId || ''}`;
+                const isSwitchingItem = switchingKey === itemKey;
+                return (
+                  <View
+                    key={itemKey}
+                    className={`mine-role-switch__item${r.role === role ? ' is-active' : ''}${switching ? ' is-disabled' : ''}`}
+                    onClick={() => {
+                      if (r.role === role || switching) return;
+                      setSwitchingKey(itemKey);
+                      runSwitchRole(async () => {
+                        try {
+                          await switchRole(r.role as any, r.shopId || undefined);
+                        } catch {
+                          // switchRole 内部已提示错误
+                        } finally {
+                          setSwitchingKey(null);
+                        }
+                      });
+                    }}
+                  >
+                    <Text className='mine-role-switch__label'>
+                      {isSwitchingItem ? '切换中...' : getRoleLabel(r.role)}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
           </View>
         )}

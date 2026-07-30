@@ -31,6 +31,8 @@ const NON_ID_SEGMENTS = new Set([
   'reviews',
   'reply',
   'delivery-track',
+  'rider',
+  'location',
   'default',
   'set-default',
   'toggle',

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
-import { get, post, isRetryableError } from '../../utils/request';
+import { get, post, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { shortOrderId } from '../../utils/format';
 import { Order, OrderStatus } from '../../types/order';
@@ -12,11 +12,21 @@ import OrderCard from '../../components/OrderCard';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import { usePullRefresh } from '../../hooks/usePullRefresh';
-import { useAsyncAction } from '../../hooks/useAsyncAction';
+import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
+import { useRiderLocationTracker } from '../../hooks/useRiderLocationTracker';
 import './index.scss';
 import ListEndTip from '../../components/ListEndTip';
+import FooterBar from '../../components/FooterBar';
 
-const DEMO_RIDER_COORD = { latitude: 30.27662, longitude: 120.16021 };
+/** 定位状态用的秒级相对时间（shared 的 formatRelativeTime 只到分钟，粒度不够） */
+function formatSyncedAgo(timestamp: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
+  if (seconds < 10) return '刚刚';
+  if (seconds < 60) return `${seconds} 秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分钟前`;
+  return `${Math.floor(minutes / 60)} 小时前`;
+}
 
 const RiderPage = () => {
   // Store 订阅（函数组件中正确订阅变化）
@@ -27,10 +37,15 @@ const RiderPage = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pool' | 'mine'>('pool');
-  const [actingId, setActingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
   const [shopNameMap, setShopNameMap] = useState<Record<string, string>>({});
+  // 每 10s 走一次，驱动「位置已同步 · x 秒前」文案自动刷新
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // 列表按 key 维度互斥（ref 判定，可挡同一 tick 连点）：
+  // grab:${orderId} / deliver:${orderId} / track:${orderId}
+  const rowAction = useKeyedAsyncAction();
 
   /** 加载店铺名映射（跨店抢单展示用） */
   const ensureShopNames = async (list: Order[]) => {
@@ -113,6 +128,11 @@ const RiderPage = () => {
     }
   });
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, []);
+
   const refreshLoader = useCallback(async () => {
     await loadDataRef.current();
   }, []);
@@ -125,95 +145,49 @@ const RiderPage = () => {
   };
 
   /** 抢单 */
-  const handleGrab = async (orderId: string) => {
-    if (actingId) return;
-    setActingId(orderId);
-    try {
-      await post(`/orders/${orderId}/grab`);
-      Taro.showToast({ title: '抢单成功', icon: 'success' });
-      loadData();
-    } catch (e) {
-      console.error('抢单失败:', e);
-      Taro.showToast({ title: '抢单失败', icon: 'none' });
-    } finally {
-      setActingId(null);
-    }
-  };
+  const handleGrab = (orderId: string) =>
+    rowAction.run(`grab:${orderId}`, async () => {
+      try {
+        await post(`/orders/${orderId}/grab`);
+        Taro.showToast({ title: '抢单成功', icon: 'success' });
+        loadData();
+      } catch (e) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(e)) return;
+        console.error('抢单失败:', e);
+        Taro.showToast({ title: '抢单失败', icon: 'none' });
+      }
+    });
 
   /** 确认送达 */
-  const handleDeliver = async (orderId: string) => {
-    if (actingId) return;
-    setActingId(orderId);
-    try {
-      await post(`/orders/${orderId}/deliver`);
-      Taro.showToast({ title: '确认送达成功', icon: 'success' });
-      loadData();
-    } catch (e) {
-      console.error('确认送达失败:', e);
-      Taro.showToast({ title: '确认送达失败', icon: 'none' });
-    } finally {
-      setActingId(null);
-    }
-  };
+  const handleDeliver = (orderId: string) =>
+    rowAction.run(`deliver:${orderId}`, async () => {
+      try {
+        await post(`/orders/${orderId}/deliver`);
+        Taro.showToast({ title: '确认送达成功', icon: 'success' });
+        loadData();
+      } catch (e) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(e)) return;
+        console.error('确认送达失败:', e);
+        Taro.showToast({ title: '确认送达失败', icon: 'none' });
+      }
+    });
 
-  const getCurrentLocationOrDemo = async (order?: Order) => {
-    try {
-      const res = await Taro.getLocation({ type: 'gcj02' });
-      return {
-        latitude: res.latitude,
-        longitude: res.longitude,
-        speed: res.speed || 0,
-        accuracy: res.accuracy || 0,
-        source: 'rider_location',
-      };
-    } catch {
-      const drift = (Date.now() % 60000) / 60000;
-      const shopLat = order?.shopLatitude;
-      const shopLng = order?.shopLongitude;
-      const destLat = order?.deliveryLatitude;
-      const destLng = order?.deliveryLongitude;
-      const baseLat =
-        typeof shopLat === 'number' && typeof destLat === 'number'
-          ? (shopLat + destLat) / 2
-          : typeof destLat === 'number'
-            ? destLat
-            : typeof shopLat === 'number'
-              ? shopLat
-              : DEMO_RIDER_COORD.latitude;
-      const baseLng =
-        typeof shopLng === 'number' && typeof destLng === 'number'
-          ? (shopLng + destLng) / 2
-          : typeof destLng === 'number'
-            ? destLng
-            : typeof shopLng === 'number'
-              ? shopLng
-              : DEMO_RIDER_COORD.longitude;
-      return {
-        latitude: baseLat + drift * 0.004,
-        longitude: baseLng + drift * 0.005,
-        speed: 0,
-        accuracy: 0,
-        source: 'demo_location',
-      };
+  // 有配送中订单时才开启定位，避免空跑消耗骑手电量
+  const deliveringCount = orders.filter(
+    (o) => o.status === OrderStatus.DELIVERING && o.deliveryType === 'delivery',
+  ).length;
+  const isRider = isLoggedIn && user?.role === 'rider';
+  const tracker = useRiderLocationTracker(isRider && deliveringCount > 0);
+  const trackerHint = (() => {
+    if (tracker.status === 'denied') return '定位未开启，用户看不到你的位置';
+    if (tracker.status === 'error') return '位置同步失败，正在自动重试';
+    if (tracker.lastReportedAt > 0) {
+      return `位置已同步 · ${formatSyncedAgo(tracker.lastReportedAt, nowTick)}`;
     }
-  };
-
-  /** 上报配送位置 */
-  const handleReportLocation = async (orderId: string) => {
-    const target = orders.find((o) => o.id === orderId);
-    if (actingId) return;
-    setActingId(`track-${orderId}`);
-    try {
-      const location = await getCurrentLocationOrDemo(target);
-      await post(`/orders/${orderId}/delivery-track`, location);
-      Taro.showToast({ title: '位置已更新', icon: 'success' });
-    } catch (e) {
-      console.error('上报位置失败:', e);
-      Taro.showToast({ title: '上报失败', icon: 'none' });
-    } finally {
-      setActingId(null);
-    }
-  };
+    return '正在获取定位...';
+  })();
 
   return (
     <View className='rider-page'>
@@ -228,17 +202,40 @@ const RiderPage = () => {
         scrollable={false}
       />
 
-      <ScrollView scrollY className='order-list'>
+      {activeTab === 'mine' && deliveringCount > 0 && (
+        <View className={`rider-tracker rider-tracker--${tracker.status}`}>
+          <View className='rider-tracker__dot' />
+          <View className='rider-tracker__body'>
+            <Text className='rider-tracker__title'>实时定位中</Text>
+            <Text className='rider-tracker__desc'>{trackerHint}</Text>
+          </View>
+          {tracker.status === 'denied' ? (
+            <Text className='rider-tracker__action' onClick={tracker.retry}>
+              开启定位
+            </Text>
+          ) : (
+            <Text className='rider-tracker__count'>{deliveringCount} 单</Text>
+          )}
+        </View>
+      )}
+
+      <ScrollView scrollY enhanced showScrollbar={false} className='order-list'>
         {loading ? (
-          <SkeletonLoader mode='card' count={3} />
+          <SkeletonLoader mode='rider-card' count={3} />
         ) : loadError ? (
-          <EmptyState
-            icon='warning'
-            title='加载失败'
-            description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
-            actionText={canRetry ? '再试一次' : '重新加载'}
-            onAction={() => loadData()}
-          />
+          <>
+            <EmptyState
+              icon='warning'
+              title='加载失败'
+              description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
+            />
+            <FooterBar
+              actionOnly
+              avoidTabBar
+              actionText={canRetry ? '再试一次' : '重新加载'}
+              onAction={() => loadData()}
+            />
+          </>
         ) : orders.length === 0 ? (
           <EmptyState
             icon='order'
@@ -254,33 +251,24 @@ const RiderPage = () => {
               footerExtra={
                 activeTab === 'pool' ? (
                   <View
-                    className={`btn grab-btn${actingId === order.id ? ' disabled' : ''}`}
+                    className={`btn grab-btn${rowAction.isPending(`grab:${order.id}`) ? ' disabled' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation?.();
                       handleGrab(order.id);
                     }}
                   >
-                    {actingId === order.id ? '抢单中...' : '抢单'}
+                    {rowAction.isPending(`grab:${order.id}`) ? '抢单中...' : '抢单'}
                   </View>
                 ) : order.status === OrderStatus.DELIVERING ? (
                   <View className='rider-actions'>
                     <View
-                      className={`btn track-btn${actingId === `track-${order.id}` ? ' disabled' : ''}`}
-                      onClick={(e) => {
-                        e.stopPropagation?.();
-                        handleReportLocation(order.id);
-                      }}
-                    >
-                      {actingId === `track-${order.id}` ? '上报中...' : '上报位置'}
-                    </View>
-                    <View
-                      className={`btn deliver-btn${actingId === order.id ? ' disabled' : ''}`}
+                      className={`btn deliver-btn${rowAction.isPending(`deliver:${order.id}`) ? ' disabled' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation?.();
                         handleDeliver(order.id);
                       }}
                     >
-                      {actingId === order.id ? '提交中...' : '确认送达'}
+                      {rowAction.isPending(`deliver:${order.id}`) ? '提交中...' : '确认送达'}
                     </View>
                   </View>
                 ) : (
@@ -290,7 +278,7 @@ const RiderPage = () => {
             />
           ))
         )}
-        <ListEndTip show={orders.length > 0 && !loading && !loadError} hasMore={false} />
+        <ListEndTip show={orders.length > 0 && !loading && !loadError} hasMore={false} variant='tab' />
       </ScrollView>
     </View>
   );

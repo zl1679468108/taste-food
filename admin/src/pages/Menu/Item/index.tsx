@@ -10,6 +10,7 @@ import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PriceDisplay from '@/components/PriceDisplay';
 import MediaPicker from '@/components/MediaPicker';
 import { useShopContext } from '@/hooks/useShopContext';
+import { isRequestErrorHandled } from '@/utils/request';
 import {
   useCategories,
   useMenuItems,
@@ -24,6 +25,9 @@ const MenuItemPage: React.FC = () => {
   const { shopId, ready, currentShop } = useShopContext();
   const [searchText, setSearchText] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState<string | undefined>();
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchUpdating, setBatchUpdating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const enabled = ready && !!shopId;
   const itemsQuery = useMenuItems({ shopId: enabled ? shopId : '' });
@@ -37,10 +41,38 @@ const MenuItemPage: React.FC = () => {
   const updateItem = useUpdateMenuItem();
   const deleteItem = useDeleteMenuItem();
 
-  const refresh = useCallback(() => {
-    itemsQuery.refetch();
-    categoriesQuery.refetch();
-  }, [itemsQuery, categoriesQuery]);
+const refresh = useCallback(() => {
+  itemsQuery.refetch();
+  categoriesQuery.refetch();
+}, [itemsQuery, categoriesQuery]);
+
+const handleBatchUpdate = async (status: 'active' | 'inactive') => {
+  setBatchUpdating(true);
+  try {
+    await Promise.all(
+      selectedRowKeys.map((id) =>
+        updateItem.mutateAsync({
+          id: id as string,
+          data: { status, shopId } as Record<string, unknown>,
+        }),
+      ),
+    );
+    message.success(status === 'active' ? '批量上架成功' : '批量下架成功');
+    setSelectedRowKeys([]);
+    refresh();
+  } catch (error) {
+    console.error('批量更新菜品状态失败:', error);
+    if (!isRequestErrorHandled(error)) {
+      message.error('批量更新失败，请重试');
+    }
+  } finally {
+    setBatchUpdating(false);
+  }
+};
+
+const handleBatchActive = () => handleBatchUpdate('active');
+
+const handleBatchInactive = () => handleBatchUpdate('inactive');
 
   const {
     form,
@@ -60,11 +92,14 @@ const MenuItemPage: React.FC = () => {
   });
 
   const handleDelete = async (id: string) => {
+    setDeletingId(id);
     try {
       await deleteItem.mutateAsync(id);
       message.success('删除成功');
     } catch (error) {
       console.error('删除菜品失败:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -75,7 +110,7 @@ const MenuItemPage: React.FC = () => {
           ...values,
           price: Math.round(Number(values.price) * 100),
           shopId,
-        } as any),
+        } as Record<string, unknown>),
       update: (id, values) =>
         updateItem.mutateAsync({
           id,
@@ -83,7 +118,7 @@ const MenuItemPage: React.FC = () => {
             ...values,
             price: Math.round(Number(values.price) * 100),
             shopId,
-          } as any,
+          } as Record<string, unknown>,
         }),
     });
 
@@ -145,8 +180,17 @@ const MenuItemPage: React.FC = () => {
           <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>
+          <Popconfirm
+            title="确认删除？"
+            okButtonProps={{ danger: true, loading: deletingId === record.id }}
+            onConfirm={() => handleDelete(record.id)}
+          >
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              loading={deletingId === record.id}
+            >
               删除
             </Button>
           </Popconfirm>
@@ -163,15 +207,44 @@ const MenuItemPage: React.FC = () => {
     });
   }, [items, searchText, filterCategoryId]);
 
-  return (
-    <div className="tf-page">
-      <PageHeaderActions
-        icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
-        title={currentShop?.name ? `菜品管理 · ${currentShop.name}` : '菜品管理'}
-        addText="新增菜品"
-        onAdd={handleAdd}
-        onRefresh={refresh}
-      />
+return (
+  <div className="tf-page">
+  <PageHeaderActions
+    icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
+    title={currentShop?.name ? `菜品管理 · ${currentShop.name}` : '菜品管理'}
+    addText="新增菜品"
+    onAdd={handleAdd}
+    onRefresh={refresh}
+    extra={
+      selectedRowKeys.length > 0
+        ? (
+            <Space size="small">
+              <Popconfirm
+                title={`确认批量上架选中的 ${selectedRowKeys.length} 个菜品？`}
+                onConfirm={handleBatchActive}
+                okText="确认"
+                cancelText="取消"
+              >
+                <Button size="small" loading={batchUpdating}>
+                  批量上架 ({selectedRowKeys.length})
+                </Button>
+              </Popconfirm>
+              <Popconfirm
+                title={`确认批量下架选中的 ${selectedRowKeys.length} 个菜品？`}
+                onConfirm={handleBatchInactive}
+                okText="确认"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+              >
+                <Button size="small" danger loading={batchUpdating}>
+                  批量下架 ({selectedRowKeys.length})
+                </Button>
+              </Popconfirm>
+            </Space>
+          )
+        : undefined
+    }
+  />
 
       <TableCard className="tf-table-card">
         <SearchFilterBar

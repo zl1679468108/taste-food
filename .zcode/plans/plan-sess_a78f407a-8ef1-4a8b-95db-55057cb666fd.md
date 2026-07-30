@@ -1,0 +1,1 @@
+执行 admin 缺陷修复：修复 Order 功能（错误提示+刷新竞态）、替换多文件 as any、修复 ShopManage �应式/ Audit 分页重置/ Promotion 提交状态。先修复 Order 页面和类型问题。

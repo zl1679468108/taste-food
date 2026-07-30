@@ -41,7 +41,7 @@ import {
   useDeleteShop,
 } from '@/hooks/queries';
 import { formatTime, formatPrice } from '@/utils/format';
-import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE, filterByKeyword } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
@@ -141,6 +141,8 @@ const ShopManagePage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [hoursDraft, setHoursDraft] = useState<Record<BusinessDayKey, DayDraft>>(hoursToDraft());
   const [tablesShop, setTablesShop] = useState<ShopModel | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const shopsQuery = useShops();
   const loading = shopsQuery.isPending;
@@ -191,25 +193,32 @@ const ShopManagePage: React.FC = () => {
       message.warning('仅平台管理员可删除店铺');
       return;
     }
+    setDeletingId(id);
     try {
       await deleteShopMutation.mutateAsync(id);
       message.success('删除成功');
-      void reloadShopContext();
+      await reloadShopContext();
     } catch (error) {
       console.error('删除店铺失败:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const handleStatusChange = async (record: ShopModel, checked: boolean) => {
+    if (statusUpdatingId) return;
+    setStatusUpdatingId(record.id);
     try {
       await updateStatusMutation.mutateAsync({
         id: record.id,
         status: checked ? 'open' : 'closed',
       });
       message.success('状态更新成功');
-      void reloadShopContext();
+      await reloadShopContext();
     } catch (error) {
       console.error('状态更新失败:', error);
+    } finally {
+      setStatusUpdatingId(null);
     }
   };
 
@@ -263,7 +272,7 @@ const ShopManagePage: React.FC = () => {
           deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
           deliveryFee: Math.round(Number(values.deliveryFee) * 100),
           minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
-        } as any);
+        } as Record<string, unknown>);
         // 新建后同步营业时段
         try {
           const businessHours = draftToHours(hoursDraft);
@@ -285,25 +294,22 @@ const ShopManagePage: React.FC = () => {
             deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
             deliveryFee: Math.round(Number(values.deliveryFee) * 100),
             minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
-          } as any,
+          } as Record<string, unknown>,
         });
         const businessHours = draftToHours(hoursDraft);
         await updateHoursMutation.mutateAsync({ id, businessHours });
       },
     });
 
-  const filteredShops = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    return shops.filter((s) => {
-      const matchKeyword =
-        !keyword ||
-        (s.name || '').toLowerCase().includes(keyword) ||
-        (s.address || '').toLowerCase().includes(keyword) ||
-        (s.phone || '').includes(keyword);
-      const matchStatus = !statusFilter || s.status === statusFilter;
-      return matchKeyword && matchStatus;
-    });
-  }, [shops, searchText, statusFilter]);
+const filteredByKeyword = useMemo(
+  () => filterByKeyword(shops, searchText, ['name', 'address', 'phone']),
+  [shops, searchText],
+);
+
+const filteredShops = useMemo(
+  () => filteredByKeyword.filter((s) => !statusFilter || s.status === statusFilter),
+  [filteredByKeyword, statusFilter],
+);
 
   const columns = [
     {
@@ -319,7 +325,7 @@ const ShopManagePage: React.FC = () => {
             <Text strong>{name}</Text>
             {record.phone ? (
               <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" style={{ fontSize: 'var(--tf-font-xs)' }}>
                   {record.phone}
                 </Text>
               </div>
@@ -345,6 +351,8 @@ const ShopManagePage: React.FC = () => {
         <Switch
           checked={status === 'open'}
           onChange={(checked) => handleStatusChange(record, checked)}
+          loading={statusUpdatingId === record.id}
+          disabled={!!statusUpdatingId && statusUpdatingId !== record.id}
           checkedChildren="营业中"
           unCheckedChildren="已打烊"
         />
@@ -402,10 +410,16 @@ const ShopManagePage: React.FC = () => {
               description="删除后该店铺的所有数据将无法恢复"
               okText="确认删除"
               cancelText="取消"
-              okButtonProps={{ danger: true }}
+              okButtonProps={{ danger: true, loading: deletingId === record.id }}
               onConfirm={() => handleDelete(record.id)}
             >
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={deletingId === record.id}
+              >
                 删除
               </Button>
             </Popconfirm>
@@ -516,7 +530,7 @@ const ShopManagePage: React.FC = () => {
             />
           </Form.Item>
           <Row gutter={16}>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item
                 name="deliveryRange"
                 label="配送范围（公里）"
@@ -526,7 +540,7 @@ const ShopManagePage: React.FC = () => {
                 <InputNumber min={0.5} max={20} step={0.5} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item
                 name="deliveryFee"
                 label="配送费（元）"
@@ -536,7 +550,7 @@ const ShopManagePage: React.FC = () => {
                 <InputNumber min={0} max={50} step={0.5} precision={2} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item
                 name="minOrderAmount"
                 label="起送价（元）"
@@ -551,7 +565,7 @@ const ShopManagePage: React.FC = () => {
           <Divider orientation="left" plain>
             营业时段
           </Divider>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--tf-space-2)', gap: 12, flexWrap: 'wrap' }}>
             <Text type="secondary">先配周一，再一键同步到其余天（仅本地草稿）</Text>
             <Button size="small" icon={<CopyOutlined />} onClick={applyMondayToRestOfWeek}>
               同步周一到全周

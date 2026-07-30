@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Button, Dropdown, Empty, List, Spin, Typography } from 'antd';
 import { BellOutlined } from '@ant-design/icons';
 import { history } from '@umijs/max';
@@ -8,19 +8,25 @@ import {
   markNotificationRead,
   type InboxNotification,
 } from '@/services/notification';
+import {
+  connectSocket,
+  disconnectSocket,
+  offNotificationNew,
+  onNotificationNew,
+} from '@/services/socket';
 import { formatTime } from '@/utils/format';
 import { brand } from '@/theme';
 
 const { Text } = Typography;
 
-/**
- * 顶栏消息铃铛：未读数 + 最近消息预览
- */
+/** 顶栏消息铃铛：未读数 + 最近消息预览 */
 const NotificationBell: React.FC = () => {
   const [count, setCount] = useState(0);
   const [items, setItems] = useState<InboxNotification[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  // 正在标记已读的消息 id：同一条被连点时直接跳过重复 PATCH
+  const [readingId, setReadingId] = useState<string | null>(null);
 
   const refreshCount = useCallback(async () => {
     try {
@@ -43,12 +49,26 @@ const NotificationBell: React.FC = () => {
     }
   }, []);
 
+  // WebSocket 推送优先，60s 轮询兜底
   useEffect(() => {
+    const socket = connectSocket();
+
+    const onNew = (notification: InboxNotification) => {
+      handleNotificationPush.onNew(notification);
+    };
+
+    onNotificationNew(onNew);
+
     void refreshCount();
     const timer = window.setInterval(() => {
       void refreshCount();
     }, 60000);
-    return () => window.clearInterval(timer);
+
+    return () => {
+      window.clearInterval(timer);
+      offNotificationNew(onNew);
+      disconnectSocket();
+    };
   }, [refreshCount]);
 
   useEffect(() => {
@@ -58,16 +78,32 @@ const NotificationBell: React.FC = () => {
     }
   }, [open, loadPreview, refreshCount]);
 
+  const handleNotificationPush = useMemo(
+    () => ({
+      onNew: (notification: InboxNotification) => {
+        setCount((c) => c + 1);
+        setItems((prev) => {
+          const exists = prev.some((item) => item.id === notification.id);
+          if (exists) return prev;
+          const next = [notification, ...prev];
+          return next.slice(0, 5);
+        });
+      },
+    }),
+    [],
+  );
+
   const handleItemClick = async (item: InboxNotification) => {
-    if (!item.isRead) {
+    if (!item.isRead && readingId !== item.id) {
+      setReadingId(item.id);
       try {
         await markNotificationRead(item.id);
         setCount((c) => Math.max(0, c - 1));
-        setItems((prev) =>
-          prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n)),
-        );
+        setItems((prev) => prev.map((n) => (n.id === item.id ? { ...n, isRead: true } : n)));
       } catch {
         // ignore
+      } finally {
+        setReadingId(null);
       }
     }
     setOpen(false);

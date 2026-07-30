@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase, hasSupabase } from '../../database/supabase.client';
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
+import { OrderGateway } from '../order/order.gateway';
 
 export interface InboxNotification {
   id: string;
@@ -20,6 +21,8 @@ const memory = new Map<string, InboxNotification>();
 @Injectable()
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
+
+  constructor(private readonly orderGateway: OrderGateway) {}
 
   async create(input: {
     userId: string;
@@ -57,6 +60,21 @@ export class InboxService {
         .select('*')
         .single();
       if (!error && data) {
+        try {
+          this.orderGateway.emitNotificationToUser({
+            userId: record.userId,
+            notification: {
+              id: record.id,
+              title: record.title,
+              content: record.content,
+              createdAt: record.createdAt,
+            },
+          });
+        } catch (e) {
+          this.logger.warn(
+            `[Inbox] WS push failed: ${e instanceof Error ? e.message : e}`,
+          );
+        }
         return this.toRecord(data);
       }
       this.logger.warn(`[Inbox] insert failed: ${error?.message}`);
@@ -64,6 +82,21 @@ export class InboxService {
 
     assertMemoryFallbackAllowed('InboxService');
     memory.set(record.id, record);
+    try {
+      this.orderGateway.emitNotificationToUser({
+        userId: record.userId,
+        notification: {
+          id: record.id,
+          title: record.title,
+          content: record.content,
+          createdAt: record.createdAt,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(
+        `[Inbox] WS push failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
     return record;
   }
 

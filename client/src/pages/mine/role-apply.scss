@@ -4,7 +4,7 @@
 .role-apply-page {
   min-height: 100vh;
   background: $bg-page;
-  padding: $space-4 $page-padding-x $space-10;
+  padding: $space-4 $page-padding-x calc(76px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -99,23 +99,6 @@
   box-sizing: border-box;
 }
 
-.role-apply-page__btn {
-  margin-top: $space-2;
-  height: 44px;
-  border-radius: $radius-3xl;
-  background: $gradient-brand;
-  color: $text-inverse;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: $font-base;
-  font-weight: $weight-medium;
-
-  &.is-disabled {
-    opacity: 0.55;
-  }
-}
-
 .role-apply-page__history-title {
   display: block;
   font-size: $font-base;
@@ -130,6 +113,16 @@
   color: $text-hint;
   text-align: center;
   padding: $space-4 0;
+}
+
+.role-apply-page__history-empty {
+  min-height: 0;
+  padding: $space-5 $space-3 $space-6;
+
+  .empty-state__desc {
+    max-width: 230px;
+    margin-bottom: 0;
+  }
 }
 
 .role-apply-page__item {

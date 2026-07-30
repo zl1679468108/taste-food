@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import * as ExcelJS from 'exceljs';
-import { OrderStatus, DeliveryType, PromotionType, ShopStatus } from '../../common/constants/enums';
+import { OrderStatus, DeliveryType, PromotionType, ShopStatus, MenuItemStatus } from '../../common/constants/enums';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -27,6 +27,12 @@ export interface OrderItemRecord {
   price: number;
   specDesc: string;
   imageUrl: string;
+}
+
+export interface OrderStatusHistoryRecord {
+  status: OrderStatus;
+  time: string;
+  fromStatus?: OrderStatus;
 }
 
 export interface OrderRecord {
@@ -55,6 +61,9 @@ export interface OrderRecord {
   invoiceTitle?: string;
   invoiceTaxNo?: string;
   items: OrderItemRecord[];
+  statusHistory?: OrderStatusHistoryRecord[];
+  /** 当前骑手手上配送中的外送单数量（含当前单） */
+  riderDeliveryCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +80,17 @@ export interface DeliveryTrackPointRecord {
   source: string;
   recordedAt: string;
   createdAt: string;
+}
+
+/** 骑手一次无感定位上报的结果（同步到其全部配送中订单） */
+export interface RiderLocationReportResult {
+  /** 实际写入轨迹点的订单数 */
+  reported: number;
+  /** 本次同步的订单 ID 列表 */
+  orderIds: string[];
+  recordedAt: string;
+  /** 骑手当前配送中订单数 */
+  riderDeliveryCount: number;
 }
 
 // Supabase 行类型
@@ -123,6 +143,16 @@ interface DeliveryTrackPointRow {
   created_at: string;
 }
 
+interface OrderStatusHistoryRow {
+  id: string;
+  order_id: string;
+  shop_id: string;
+  status: string;
+  from_status?: string | null;
+  recorded_at: string;
+  created_at: string;
+}
+
 export interface OrderStats {
   totalOrders: number;
   totalRevenue: number;
@@ -145,8 +175,12 @@ export interface StatusDistributionItem {
 // Memory fallback storage
 const memoryOrders: Map<string, OrderRecord> = new Map();
 const memoryDeliveryTracks: Map<string, DeliveryTrackPointRecord[]> = new Map();
+const memoryOrderStatusHistory: Map<string, OrderStatusHistoryRecord[]> = new Map();
 // 旧库无 rider_id 列时，用内存记录抢单归属（进程内有效）
 const memoryRiderClaims: Map<string, string> = new Map();
+/** 单个骑手一次无感定位最多同步的配送中订单数 */
+const RIDER_LOCATION_MAX_ORDERS = 50;
+
 /** 店铺日序号（内存）：key = shopId:YYYYMMDD */
 const memoryOrderSeq: Map<string, number> = new Map();
 
@@ -187,6 +221,16 @@ export class OrderService {
     return (
       (msg.includes('column') && (msg.includes('does not exist') || msg.includes('schema cache'))) ||
       (msg.includes('could not find the') && msg.includes('column'))
+    );
+  }
+
+  private isMissingStatusHistoryStorageError(error: { message?: string } | null | undefined): boolean {
+    const msg = String(error?.message || '').toLowerCase();
+    return (
+      msg.includes('tf_order_status_history') ||
+      msg.includes('schema cache') ||
+      msg.includes('does not exist') ||
+      this.isMissingColumnError(error)
     );
   }
 
@@ -359,6 +403,8 @@ export class OrderService {
 
     const order = this.toRecord(data);
     order.items = await this.fetchItems(id);
+    await this.recordStatusHistory(order, toStatus, fromStatus, now);
+    order.statusHistory = await this.fetchStatusHistory(order);
     return order;
   }
 
@@ -599,6 +645,126 @@ export class OrderService {
     };
   }
 
+  private toStatusHistoryRecord(row: OrderStatusHistoryRow): OrderStatusHistoryRecord {
+    return {
+      status: row.status as OrderStatus,
+      fromStatus: row.from_status ? (row.from_status as OrderStatus) : undefined,
+      time: row.recorded_at || row.created_at,
+    };
+  }
+
+  private fallbackStatusHistory(order: OrderRecord): OrderStatusHistoryRecord[] {
+    const history: OrderStatusHistoryRecord[] = [
+      { status: OrderStatus.PENDING_PAYMENT, time: order.createdAt },
+    ];
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      history.push({
+        status: order.status,
+        time: order.updatedAt || order.createdAt,
+      });
+    }
+    return history;
+  }
+
+  private mergeFallbackStatusHistory(
+    order: OrderRecord,
+    history: OrderStatusHistoryRecord[],
+  ): OrderStatusHistoryRecord[] {
+    const byStatus = new Map<string, OrderStatusHistoryRecord>();
+    for (const item of history) {
+      if (!byStatus.has(item.status)) byStatus.set(item.status, item);
+    }
+    if (!byStatus.has(OrderStatus.PENDING_PAYMENT)) {
+      byStatus.set(OrderStatus.PENDING_PAYMENT, {
+        status: OrderStatus.PENDING_PAYMENT,
+        time: order.createdAt,
+      });
+    }
+    if (!byStatus.has(order.status)) {
+      byStatus.set(order.status, {
+        status: order.status,
+        time: order.updatedAt || order.createdAt,
+      });
+    }
+    return Array.from(byStatus.values()).sort(
+      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+    );
+  }
+
+  private async fetchStatusHistory(order: OrderRecord): Promise<OrderStatusHistoryRecord[]> {
+    if (hasSupabase() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('tf_order_status_history')
+          .select('id, order_id, shop_id, status, from_status, recorded_at, created_at')
+          .eq('order_id', order.id)
+          .order('recorded_at', { ascending: true });
+        if (error) {
+          if (this.isMissingStatusHistoryStorageError(error)) {
+            return this.fallbackStatusHistory(order);
+          }
+          this.logger.warn(`[Order] 查询状态历史失败，使用兜底时间: ${error.message}`);
+          return this.fallbackStatusHistory(order);
+        }
+        const history = (data || []).map((row: OrderStatusHistoryRow) => this.toStatusHistoryRecord(row));
+        return this.mergeFallbackStatusHistory(order, history);
+      } catch (e) {
+        this.logger.warn(
+          `[Order] 查询状态历史异常，使用兜底时间: ${e instanceof Error ? e.message : e}`,
+        );
+        return this.fallbackStatusHistory(order);
+      }
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    return this.mergeFallbackStatusHistory(order, memoryOrderStatusHistory.get(order.id) || []);
+  }
+
+  private async recordStatusHistory(
+    order: Pick<OrderRecord, 'id' | 'shopId'>,
+    status: OrderStatus,
+    fromStatus?: OrderStatus | string,
+    time = new Date().toISOString(),
+  ): Promise<void> {
+    const item: OrderStatusHistoryRecord = {
+      status,
+      fromStatus: fromStatus ? (String(fromStatus) as OrderStatus) : undefined,
+      time,
+    };
+
+    const list = memoryOrderStatusHistory.get(order.id) || [];
+    if (!list.some((h) => h.status === status)) {
+      list.push(item);
+      list.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      memoryOrderStatusHistory.set(order.id, list);
+    }
+
+    if (!hasSupabase() || !supabase) return;
+
+    try {
+      const { error } = await supabase
+        .from('tf_order_status_history')
+        .upsert(
+          {
+            order_id: order.id,
+            shop_id: order.shopId,
+            status,
+            from_status: fromStatus || null,
+            recorded_at: time,
+            created_at: time,
+          },
+          { onConflict: 'order_id,status', ignoreDuplicates: true },
+        );
+      if (error && !this.isMissingStatusHistoryStorageError(error)) {
+        this.logger.warn(`[Order] 写入状态历史失败: ${error.message}`);
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 写入状态历史异常: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
   private async fetchItems(orderId: string): Promise<OrderItemRecord[]> {
     if (!hasSupabase() || !supabase) {
       assertMemoryFallbackAllowed('OrderService');
@@ -717,6 +883,12 @@ export class OrderService {
     for (const item of dto.items) {
       try {
         const menuItem = await this.menuService.getMenuItemById(item.menuItemId);
+        if (menuItem.status && menuItem.status !== MenuItemStatus.ACTIVE) {
+          throw new BadRequestException(`菜品 ${menuItem.name} 不存在或已下架`);
+        }
+        if (menuItem.shopId && menuItem.shopId !== dto.shopId) {
+          throw new BadRequestException(`菜品 ${menuItem.name} 不属于当前店铺`);
+        }
         let unitPrice = menuItem.price; // 基础价（分）
 
         // 有 specOptionIds 时按 option.priceAdjust 累加核价；无则兼容旧客户端仅用 base price
@@ -1015,6 +1187,9 @@ export class OrderService {
       });
     }
 
+    await this.recordStatusHistory(order, OrderStatus.PENDING_PAYMENT, undefined, now);
+    order.statusHistory = this.fallbackStatusHistory(order);
+
     // Send WebSocket event
     try {
       this.orderGateway.emitOrderCreated(order);
@@ -1035,13 +1210,59 @@ export class OrderService {
       if (error || !data) throw new NotFoundException(`订单 ${id} 不存在`);
       const order = this.toRecord(data);
       order.items = await this.fetchItems(id);
+      order.statusHistory = await this.fetchStatusHistory(order);
+      order.riderDeliveryCount = await this.getOrderRiderDeliveryCount(order);
       return this.ensureDeliveryCoordinates(order);
     }
 
     assertMemoryFallbackAllowed('OrderService');
     const order = memoryOrders.get(id);
     if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
+    order.statusHistory = await this.fetchStatusHistory(order);
+    order.riderDeliveryCount = await this.getOrderRiderDeliveryCount(order);
     return this.ensureDeliveryCoordinates(order);
+  }
+
+  private async getOrderRiderDeliveryCount(order: OrderRecord): Promise<number | undefined> {
+    if (
+      order.deliveryType !== DeliveryType.DELIVERY ||
+      order.status !== OrderStatus.DELIVERING ||
+      !order.riderId
+    ) {
+      return undefined;
+    }
+    try {
+      return await this.countRiderActiveDeliveries(order.riderId);
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 查询骑手配送负载失败，跳过展示: ${e instanceof Error ? e.message : e}`,
+      );
+      return undefined;
+    }
+  }
+
+  async countRiderActiveDeliveries(riderId: string): Promise<number> {
+    if (!riderId) return 0;
+    if (hasSupabase() && supabase) {
+      const { count, error } = await supabase
+        .from('tf_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('rider_id', riderId)
+        .eq('delivery_type', DeliveryType.DELIVERY)
+        .eq('status', OrderStatus.DELIVERING);
+      if (error) {
+        throw new BadRequestException(`查询骑手配送负载失败: ${error.message}`);
+      }
+      return count || 0;
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    return Array.from(memoryOrders.values()).filter(
+      (o) =>
+        o.riderId === riderId &&
+        o.deliveryType === DeliveryType.DELIVERY &&
+        o.status === OrderStatus.DELIVERING,
+    ).length;
   }
 
   /** 历史单/旧链路缺坐标时，读取时补齐并尽力回写 */
@@ -1182,6 +1403,14 @@ export class OrderService {
     }
 
     const now = new Date().toISOString();
+    let riderDeliveryCount: number | undefined;
+    try {
+      riderDeliveryCount = await this.countRiderActiveDeliveries(riderId);
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 查询骑手配送负载失败，轨迹继续上报: ${e instanceof Error ? e.message : e}`,
+      );
+    }
     const point: DeliveryTrackPointRecord = {
       id: uuidv4(),
       orderId,
@@ -1227,6 +1456,7 @@ export class OrderService {
               shopId: point.shopId,
               userId: order.userId,
               riderId: point.riderId,
+              riderDeliveryCount,
               latitude: point.latitude,
               longitude: point.longitude,
               recordedAt: point.recordedAt,
@@ -1245,6 +1475,7 @@ export class OrderService {
           shopId: saved.shopId,
           userId: order.userId,
           riderId: saved.riderId,
+          riderDeliveryCount,
           latitude: saved.latitude,
           longitude: saved.longitude,
           recordedAt: saved.recordedAt,
@@ -1265,6 +1496,7 @@ export class OrderService {
         shopId: point.shopId,
         userId: order.userId,
         riderId: point.riderId,
+        riderDeliveryCount,
         latitude: point.latitude,
         longitude: point.longitude,
         recordedAt: point.recordedAt,
@@ -1273,6 +1505,173 @@ export class OrderService {
       this.logger.warn(e instanceof Error ? e.message : String(e));
     }
     return point;
+  }
+
+  /**
+   * 取该骑手当前「配送中的外送订单」（精简查询，仅用于位置同步，不带订单项）。
+   * 旧库缺 rider_id 列时降级到进程内抢单归属 memoryRiderClaims。
+   */
+  private async listRiderDeliveringOrders(riderId: string): Promise<OrderRecord[]> {
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_orders')
+        .select('*')
+        .eq('rider_id', riderId)
+        .eq('delivery_type', DeliveryType.DELIVERY)
+        .eq('status', OrderStatus.DELIVERING)
+        .order('updated_at', { ascending: false })
+        .limit(RIDER_LOCATION_MAX_ORDERS);
+      if (error) {
+        if (this.isMissingColumnError(error)) {
+          this.logger.warn(
+            `[Order] tf_orders 缺少 rider_id 列，降级内存抢单归属: ${error.message}`,
+          );
+          return this.listClaimedDeliveringOrders(riderId);
+        }
+        throw new BadRequestException(`查询配送中订单失败: ${error.message}`);
+      }
+      return (data || []).map((row) => this.toRecord(row));
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    return Array.from(memoryOrders.values()).filter(
+      (o) =>
+        (o.riderId === riderId || memoryRiderClaims.get(o.id) === riderId) &&
+        o.deliveryType === DeliveryType.DELIVERY &&
+        o.status === OrderStatus.DELIVERING,
+    );
+  }
+
+  /** 旧库降级路径：按内存抢单归属逐单校验状态 */
+  private async listClaimedDeliveringOrders(riderId: string): Promise<OrderRecord[]> {
+    const claimedIds = Array.from(memoryRiderClaims.entries())
+      .filter(([, claimedBy]) => claimedBy === riderId)
+      .map(([orderId]) => orderId)
+      .slice(0, RIDER_LOCATION_MAX_ORDERS);
+
+    const orders: OrderRecord[] = [];
+    for (const orderId of claimedIds) {
+      try {
+        const order = await this.findById(orderId);
+        if (
+          order.deliveryType === DeliveryType.DELIVERY &&
+          order.status === OrderStatus.DELIVERING
+        ) {
+          orders.push(order);
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Order] 内存归属订单 ${orderId} 读取失败，跳过位置同步: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    }
+    return orders;
+  }
+
+  /**
+   * 骑手无感定位：一次上报即同步到该骑手全部配送中订单。
+   * 相比逐单调用 appendDeliveryTrackPoint，把「查单 + 落库」压到 2 次数据库往返，
+   * 并复用同一 recordedAt，保证多单轨迹时间戳一致。
+   */
+  async reportRiderLocation(
+    riderId: string,
+    dto: DeliveryTrackPointDto,
+  ): Promise<RiderLocationReportResult> {
+    if (!riderId) {
+      throw new BadRequestException('缺少骑手身份，无法上报位置');
+    }
+
+    const recordedAt = new Date().toISOString();
+    const orders = await this.listRiderDeliveringOrders(riderId);
+    if (orders.length === 0) {
+      return { reported: 0, orderIds: [], recordedAt, riderDeliveryCount: 0 };
+    }
+
+    const riderDeliveryCount = orders.length;
+    const entries = orders.map((order) => ({
+      order,
+      point: {
+        id: uuidv4(),
+        orderId: order.id,
+        shopId: order.shopId,
+        riderId,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        speed: dto.speed,
+        accuracy: dto.accuracy,
+        source: dto.source || 'rider_auto',
+        recordedAt,
+        createdAt: recordedAt,
+      } as DeliveryTrackPointRecord,
+    }));
+
+    let persisted = false;
+    if (hasSupabase() && supabase) {
+      const { error } = await supabase.from('tf_delivery_tracks').insert(
+        entries.map(({ point }) => ({
+          id: point.id,
+          order_id: point.orderId,
+          shop_id: point.shopId,
+          rider_id: point.riderId,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          speed: point.speed ?? null,
+          accuracy: point.accuracy ?? null,
+          source: point.source,
+          recorded_at: point.recordedAt,
+          created_at: point.createdAt,
+        })),
+      );
+      if (error) {
+        const msg = String(error.message || '').toLowerCase();
+        if (
+          msg.includes('tf_delivery_tracks') ||
+          msg.includes('schema cache') ||
+          msg.includes('does not exist')
+        ) {
+          this.logger.warn(`[Order] tf_delivery_tracks 不可用，降级内存轨迹: ${error.message}`);
+        } else {
+          throw new BadRequestException(`上报配送位置失败: ${error.message}`);
+        }
+      } else {
+        persisted = true;
+      }
+    } else {
+      assertMemoryFallbackAllowed('OrderService');
+    }
+
+    if (!persisted) {
+      for (const { point } of entries) {
+        const list = memoryDeliveryTracks.get(point.orderId) || [];
+        list.push(point);
+        memoryDeliveryTracks.set(point.orderId, list);
+      }
+    }
+
+    // 逐单推送，商家房间与顾客私有房间都会收到（见 OrderGateway.emitDeliveryTrackUpdated）
+    for (const { order, point } of entries) {
+      try {
+        this.orderGateway.emitDeliveryTrackUpdated({
+          orderId: point.orderId,
+          shopId: point.shopId,
+          userId: order.userId,
+          riderId: point.riderId,
+          riderDeliveryCount,
+          latitude: point.latitude,
+          longitude: point.longitude,
+          recordedAt: point.recordedAt,
+        });
+      } catch (e) {
+        this.logger.warn(e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    return {
+      reported: entries.length,
+      orderIds: entries.map(({ point }) => point.orderId),
+      recordedAt,
+      riderDeliveryCount,
+    };
   }
 
   async findByUserId(
@@ -1346,12 +1745,11 @@ export class OrderService {
         .range(from, to);
 
       if (isPool) {
-        // 抢单池：仅 PREPARING 且无骑手的外送单
-        // delivering 不在池中（已有骑手或商家自配送 preparing→delivering）
+        // 抢单池：待取餐或已开始配送但还没有骑手认领的外送单
         query = query
           .eq('delivery_type', DeliveryType.DELIVERY)
           .is('rider_id', null)
-          .eq('status', OrderStatus.PREPARING);
+          .in('status', [OrderStatus.PREPARING, OrderStatus.DELIVERING]);
       } else if (status) {
         query = query.eq('status', status);
       }
@@ -1390,7 +1788,7 @@ export class OrderService {
       filtered = filtered.filter(o =>
         o.deliveryType === DeliveryType.DELIVERY &&
         !o.riderId &&
-        o.status === OrderStatus.PREPARING,
+        (o.status === OrderStatus.PREPARING || o.status === OrderStatus.DELIVERING),
       );
     } else if (status) {
       filtered = filtered.filter((o) => o.status === status);
@@ -1400,7 +1798,7 @@ export class OrderService {
 
 
   /**
-   * 骑手跨店抢单池：所有店铺 PREPARING 且无骑手的外送单
+   * 骑手跨店抢单池：所有店铺待配送且无骑手的外送单
    */
   async findDeliveryPool(
     page = 1,
@@ -1415,7 +1813,7 @@ export class OrderService {
         .select('*', { count: 'exact' })
         .eq('delivery_type', DeliveryType.DELIVERY)
         .is('rider_id', null)
-        .eq('status', OrderStatus.PREPARING)
+        .in('status', [OrderStatus.PREPARING, OrderStatus.DELIVERING])
         .order('created_at', { ascending: false })
         .range(from, to);
       if (shopId) {
@@ -1446,7 +1844,7 @@ export class OrderService {
         (o) =>
           o.deliveryType === DeliveryType.DELIVERY &&
           !o.riderId &&
-          o.status === OrderStatus.PREPARING &&
+          (o.status === OrderStatus.PREPARING || o.status === OrderStatus.DELIVERING) &&
           (!shopId || o.shopId === shopId),
       )
       .sort(
@@ -1571,6 +1969,8 @@ export class OrderService {
         if (dto.status === OrderStatus.REJECTED) order.rejectReason = reason;
         if (dto.status === OrderStatus.CANCELLED) order.cancelReason = reason;
         order.updatedAt = new Date().toISOString();
+        await this.recordStatusHistory(order, dto.status, previousStatus, order.updatedAt);
+        order.statusHistory = await this.fetchStatusHistory(order);
         this.emitStatusEvents(order, previousStatus);
         return order;
       }
@@ -1600,6 +2000,8 @@ export class OrderService {
       if (dto.status === OrderStatus.CANCELLED) order.cancelReason = reason;
       order.updatedAt = new Date().toISOString();
       memoryOrders.set(id, order);
+      await this.recordStatusHistory(order, dto.status, previousStatus, order.updatedAt);
+      order.statusHistory = await this.fetchStatusHistory(order);
       this.emitStatusEvents(order, previousStatus);
       return order;
     }
@@ -1674,6 +2076,8 @@ export class OrderService {
       order.status = OrderStatus.CANCELLED;
       order.cancelReason = cancelReason;
       order.updatedAt = new Date().toISOString();
+      await this.recordStatusHistory(order, OrderStatus.CANCELLED, previousStatus, order.updatedAt);
+      order.statusHistory = await this.fetchStatusHistory(order);
       try {
         this.orderGateway.emitOrderUpdated(order, previousStatus);
       } catch (e) {
@@ -1717,9 +2121,8 @@ export class OrderService {
     if (order.deliveryType !== DeliveryType.DELIVERY) {
       throw new BadRequestException('该订单不是外送订单，无需配送');
     }
-    // 骑手只抢 PREPARING 且无 riderId 的外送单（厨房已开始制作）
-    // 商家 preparing → delivering 为「商家自配送」，不进抢单池
-    if (order.status !== OrderStatus.PREPARING) {
+    // 骑手可认领待配送外送单；兼容后台已点“开始配送”但 rider_id 仍为空的历史/演示单。
+    if (![OrderStatus.PREPARING, OrderStatus.DELIVERING].includes(order.status)) {
       throw new BadRequestException('当前订单状态不可抢单');
     }
     if (order.riderId) {
@@ -1727,6 +2130,7 @@ export class OrderService {
     }
 
     const previousStatus = order.status;
+    const now = new Date().toISOString();
 
     if (hasSupabase() && supabase) {
       // 使用原子操作确保只有一个骑手能成功抢单
@@ -1735,10 +2139,10 @@ export class OrderService {
         .update({
           rider_id: riderId,
           status: OrderStatus.DELIVERING,
-          updated_at: new Date().toISOString(),
+          updated_at: now,
         })
         .eq('id', id)
-        .eq('status', OrderStatus.PREPARING)
+        .eq('status', previousStatus)
         .is('rider_id', null)
         .select()
         .maybeSingle();
@@ -1750,10 +2154,10 @@ export class OrderService {
           .from('tf_orders')
           .update({
             status: OrderStatus.DELIVERING,
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           })
           .eq('id', id)
-          .eq('status', OrderStatus.PREPARING)
+          .eq('status', previousStatus)
           .select()
           .maybeSingle());
       }
@@ -1764,12 +2168,13 @@ export class OrderService {
       assertMemoryFallbackAllowed('OrderService');
       order.riderId = riderId;
       order.status = OrderStatus.DELIVERING;
-      order.updatedAt = new Date().toISOString();
+      order.updatedAt = now;
       memoryOrders.set(id, order);
     }
 
     // 无论 DB 是否有 rider_id，都记录进程内归属，便于 deliver 校验
     memoryRiderClaims.set(id, riderId);
+    await this.recordStatusHistory(order, OrderStatus.DELIVERING, previousStatus, now);
 
     const updatedOrder = await this.findById(id);
     if (!updatedOrder.riderId) {
@@ -1816,6 +2221,10 @@ export class OrderService {
       );
     }
     // 若 RPC 已把状态写成 paid，仍按 paid 推送；否则以查询结果为准
+    if (order.status === OrderStatus.PAID) {
+      await this.recordStatusHistory(order, OrderStatus.PAID, previousStatus, order.updatedAt);
+      order.statusHistory = await this.fetchStatusHistory(order);
+    }
     this.emitStatusEvents(order, previousStatus);
     return order;
   }

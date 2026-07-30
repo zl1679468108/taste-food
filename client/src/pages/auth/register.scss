@@ -3,7 +3,7 @@
 .register-page {
   min-height: 100vh;
   background: $bg-page;
-  padding: $space-6 $page-padding-x $space-12;
+  padding: $space-6 $page-padding-x calc(76px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -85,27 +85,6 @@
   display: block;
   font-size: $font-xs;
   color: $text-tertiary;
-}
-
-.register-page__btn {
-  height: 48px;
-  border-radius: $radius-3xl;
-  background: $gradient-brand;
-  color: $text-inverse;
-  font-size: $font-lg;
-  font-weight: $weight-medium;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: $shadow-btn;
-
-  &.is-loading {
-    opacity: 0.7;
-  }
-
-  &:active {
-    opacity: 0.85;
-  }
 }
 
 .register-page__back {

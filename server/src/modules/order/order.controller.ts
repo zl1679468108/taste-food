@@ -17,7 +17,7 @@ import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { resolveAdminTargetShopId } from '../../common/utils/admin-shop-scope';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
-import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem, DeliveryTrackPointRecord } from './order.service';
+import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem, DeliveryTrackPointRecord, RiderLocationReportResult } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto, OrderQueryDto } from './dto/update-order.dto';
 import { DeliveryTrackPointDto } from './dto/delivery-track.dto';
@@ -177,6 +177,21 @@ export class OrderController {
     const daysNum = days ? Math.min(Math.max(parseInt(days, 10) || 0, 0), 90) : undefined;
     const dist = await this.orderService.getStatusDistribution(shopId, daysNum || undefined);
     return success(dist);
+  }
+
+  /**
+   * 骑手无感定位上报：一次请求同步到该骑手全部配送中订单。
+   * 必须声明在 `:id` 系列路由之前，避免 rider 被当作订单 ID 匹配。
+   */
+  @Post('rider/location')
+  @Roles(UserRole.RIDER)
+  @HttpCode(HttpStatus.OK)
+  async reportRiderLocation(
+    @Body() dto: DeliveryTrackPointDto,
+    @CurrentUser('userId') userId: string,
+  ): Promise<ApiResponse<RiderLocationReportResult>> {
+    const result = await this.orderService.reportRiderLocation(userId, dto);
+    return success(result, result.reported > 0 ? '位置已同步' : '当前无配送中订单');
   }
 
   @Get(':id/delivery-track')

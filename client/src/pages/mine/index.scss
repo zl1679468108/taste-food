@@ -250,6 +250,10 @@
       color: $primary;
       font-weight: $weight-semibold;
     }
+
+    &.is-disabled {
+      opacity: 0.6;
+    }
   }
 
   &__label {

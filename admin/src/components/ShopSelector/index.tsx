@@ -41,7 +41,7 @@ const ShopSelector: React.FC = () => {
         showSearch
         onChange={(value) => setShopId(value)}
         optionRender={(option) => {
-          const shop = shops.find((item) => item.id === option.value);
+          const shop = shops.find((item: Shop) => item.id === option.value);
           return (
             <Space size={8}>
               <ShopLogo src={shop?.logoUrl} size={24} />
@@ -50,7 +50,7 @@ const ShopSelector: React.FC = () => {
           );
         }}
         labelRender={(props) => {
-          const shop = shops.find((item) => item.id === props.value);
+          const shop = shops.find((item: Shop) => item.id === props.value);
           return (
             <Space size={8}>
               <ShopLogo src={shop?.logoUrl} size={20} />

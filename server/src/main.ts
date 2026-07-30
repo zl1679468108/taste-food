@@ -5,6 +5,12 @@ import { resolve } from 'path';
 const envFile = resolve(process.cwd(), `.env.${process.env.NODE_ENV || 'development'}`);
 dotenv.config({ path: envFile });
 
+// Node 默认不走 shell 代理；npm scripts 已加 --use-env-proxy。这里仅打印诊断信息。
+const _proxy = process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy;
+if (_proxy) {
+  console.log(`[Proxy] 检测到代理 ${_proxy}（需 Node --use-env-proxy 才能让 fetch/Supabase 生效）`);
+}
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { getSupabaseClientAsync } from './database/supabase.client';

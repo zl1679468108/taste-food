@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView, Textarea } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
-import { get, post } from '../../utils/request';
+import { get, post, isDuplicateSubmitError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
+import { useAsyncAction, useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
 import { ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP, getOrderStatusLabel, getMerchantOrderActionHint } from '../../utils/constants';
-import { Order, OrderStatus } from '../../types/order';
+import { DeliveryTrackPoint, DeliveryType, Order, OrderStatus } from '../../types/order';
 import { Category } from '../../types/menu';
 import { PaginatedData } from '../../types/api';
 import {
   onOrderUpdated,
   onOrderNew,
+  onDeliveryTrackUpdated,
   removePageListeners,
   playMerchantNewOrderAlert,
 } from '../../services/socket';
@@ -19,6 +21,7 @@ import { DEFAULT_SHOP_ID } from '../../env';
 import Icon from '../../components/Icon';
 import ListEndTip from '../../components/ListEndTip';
 import BottomSheet from '../../components/BottomSheet';
+import RiderTrackMap, { toMapPoint } from '../../components/RiderTrackMap';
 import './index.scss';
 
 /** 商家新订单横幅数据（优先用 WS 摘要字段） */
@@ -75,13 +78,56 @@ const AdminPage = () => {
   const [reasonSheetVisible, setReasonSheetVisible] = useState(false);
   const [reasonMode, setReasonMode] = useState<'reject' | 'cancel'>('reject');
   const [reasonText, setReasonText] = useState('');
-  const [reasonSubmitting, setReasonSubmitting] = useState(false);
   const [pendingActionOrderId, setPendingActionOrderId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const shopId = DEFAULT_SHOP_ID;
   const [newOrderBanner, setNewOrderBanner] = useState<NewOrderBannerData | null>(null);
+  const [deliveryTrack, setDeliveryTrack] = useState<DeliveryTrackPoint[]>([]);
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [riderDeliveryCount, setRiderDeliveryCount] = useState<number | undefined>(undefined);
   const [paidPendingCount, setPaidPendingCount] = useState(0);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 强守卫：订单状态流转按 `${orderId}:${status}` 维度互斥（列表/弹窗多按钮）
+  const statusAction = useKeyedAsyncAction();
+  // 强守卫：原因弹层为单例表单，用单一动作互斥
+  const { pending: reasonSubmitting, run: runReasonSubmit } = useAsyncAction();
+  // 当前详情弹窗的订单 ID，供 socket 回调判断是否需要刷新轨迹（避免闭包过期）
+  const trackedOrderIdRef = useRef<string>('');
+
+  /** 加载订单配送轨迹（静默失败，不打断商家操作） */
+  const loadDeliveryTrack = async (orderId: string) => {
+    setTrackLoading(true);
+    try {
+      const res = await get<DeliveryTrackPoint[]>(`/orders/${orderId}/delivery-track`, undefined, {
+        useCache: false,
+        showError: false,
+      });
+      setDeliveryTrack(res.data || []);
+    } catch (error) {
+      console.error('加载配送轨迹失败:', error);
+      setDeliveryTrack([]);
+    } finally {
+      setTrackLoading(false);
+    }
+  };
+
+  const loadDeliveryTrackRef = useRef(loadDeliveryTrack);
+  loadDeliveryTrackRef.current = loadDeliveryTrack;
+
+  /** 清空骑手轨迹状态（关闭/切换详情时调用） */
+  const resetDeliveryTrack = () => {
+    trackedOrderIdRef.current = '';
+    setDeliveryTrack([]);
+    setTrackLoading(false);
+    setRiderDeliveryCount(undefined);
+  };
+
+  /** 关闭订单详情弹窗 */
+  const closeActionModal = () => {
+    setModalVisible(false);
+    resetDeliveryTrack();
+  };
 
   /** 加载分类 */
   const loadCategories = async () => {
@@ -224,6 +270,15 @@ const AdminPage = () => {
       loadDataRef.current();
       pullPaidPendingRef.current();
     }, 'admin');
+
+    // 骑手实时定位：仅刷新当前打开详情的那一单
+    onDeliveryTrackUpdated((data) => {
+      if (!trackedOrderIdRef.current || data.orderId !== trackedOrderIdRef.current) return;
+      if (typeof data.riderDeliveryCount === 'number') {
+        setRiderDeliveryCount(data.riderDeliveryCount);
+      }
+      loadDeliveryTrackRef.current(trackedOrderIdRef.current);
+    }, 'admin');
   };
 
   /** 横幅摘要：桌号/地址 */
@@ -249,19 +304,23 @@ const AdminPage = () => {
   };
 
   /** 横幅一键接单 */
-  const handleBannerAcceptOrder = async () => {
+  const handleBannerAcceptOrder = () => {
     const orderId = newOrderBanner?.orderId;
     if (!orderId) return;
-    try {
-      await post(`/orders/${orderId}/status`, { status: OrderStatus.ACCEPTED });
-      Taro.showToast({ title: '已接单', icon: 'success' });
-      closeNewOrderBanner();
-      loadOrders(1);
-      loadStats();
-      pullPaidPendingOrders();
-    } catch (error) {
-      console.error('接单失败:', error);
-    }
+    return statusAction.run(`${orderId}:${OrderStatus.ACCEPTED}`, async () => {
+      try {
+        await post(`/orders/${orderId}/status`, { status: OrderStatus.ACCEPTED });
+        Taro.showToast({ title: '已接单', icon: 'success' });
+        closeNewOrderBanner();
+        loadOrders(1);
+        loadStats();
+        pullPaidPendingOrders();
+      } catch (error) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('接单失败:', error);
+      }
+    });
   };
 
   /** 检查登录状态 */
@@ -283,6 +342,7 @@ const AdminPage = () => {
 
     return () => {
       removePageListeners('admin');
+      trackedOrderIdRef.current = '';
       if (bannerTimerRef.current) {
         clearTimeout(bannerTimerRef.current);
       }
@@ -311,27 +371,30 @@ const AdminPage = () => {
   };
 
   /** 更新订单状态 */
-  const updateOrderStatus = async (orderId: string, status: OrderStatus, reason?: string) => {
-    try {
-      await post(`/orders/${orderId}/status`, { status, reason });
-      Taro.showToast({
-        title: status === OrderStatus.REJECTED ? '已拒单' : '操作成功',
-        icon: 'success',
-      });
+  const updateOrderStatus = (orderId: string, status: OrderStatus, reason?: string) =>
+    statusAction.run(`${orderId}:${status}`, async () => {
+      try {
+        await post(`/orders/${orderId}/status`, { status, reason });
+        Taro.showToast({
+          title: status === OrderStatus.REJECTED ? '已拒单' : '操作成功',
+          icon: 'success',
+        });
 
-      // 关闭弹窗并刷新
-      setReasonSheetVisible(false);
-      setReasonText('');
-      setPendingActionOrderId(null);
-      setModalVisible(false);
-      setSelectedOrder(null);
-      loadOrders(1);
-      loadStats();
-      pullPaidPendingOrders();
-    } catch (error: any) {
-      console.error('操作失败:', error);
-    }
-  };
+        // 关闭弹窗并刷新
+        setReasonSheetVisible(false);
+        setReasonText('');
+        setPendingActionOrderId(null);
+        closeActionModal();
+        setSelectedOrder(null);
+        loadOrders(1);
+        loadStats();
+        pullPaidPendingOrders();
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('操作失败:', error);
+      }
+    });
 
   /** 打开拒单/取消原因弹层 */
   const openReasonSheet = (orderId: string, mode: 'reject' | 'cancel') => {
@@ -342,7 +405,7 @@ const AdminPage = () => {
   };
 
   /** 提交拒单/取消原因 */
-  const submitReasonAction = async () => {
+  const submitReasonAction = () => {
     if (!pendingActionOrderId) return;
     const reason = reasonText.trim();
     if (!reason) {
@@ -354,33 +417,45 @@ const AdminPage = () => {
       return;
     }
 
-    setReasonSubmitting(true);
-    try {
-      if (reasonMode === 'reject') {
-        await updateOrderStatus(pendingActionOrderId, OrderStatus.REJECTED, reason);
-      } else {
-        await post(`/orders/${pendingActionOrderId}/cancel`, { reason });
-        Taro.showToast({ title: '订单已取消', icon: 'success' });
-        setReasonSheetVisible(false);
-        setReasonText('');
-        setPendingActionOrderId(null);
-        setModalVisible(false);
-        setSelectedOrder(null);
-        loadOrders(1);
-        loadStats();
-        pullPaidPendingOrders();
+    return runReasonSubmit(async () => {
+      try {
+        if (reasonMode === 'reject') {
+          await updateOrderStatus(pendingActionOrderId, OrderStatus.REJECTED, reason);
+        } else {
+          await post(`/orders/${pendingActionOrderId}/cancel`, { reason });
+          Taro.showToast({ title: '订单已取消', icon: 'success' });
+          setReasonSheetVisible(false);
+          setReasonText('');
+          setPendingActionOrderId(null);
+          closeActionModal();
+          setSelectedOrder(null);
+          loadOrders(1);
+          loadStats();
+          pullPaidPendingOrders();
+        }
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('提交原因失败:', error);
       }
-    } catch (error: any) {
-      console.error('提交原因失败:', error);
-    } finally {
-      setReasonSubmitting(false);
-    }
+    });
   };
 
   /** 打开操作弹窗 */
   const openActionModal = (order: Order) => {
     setSelectedOrder(order);
     setModalVisible(true);
+
+    const showTrack =
+      order.deliveryType === DeliveryType.DELIVERY && order.status === OrderStatus.DELIVERING;
+    resetDeliveryTrack();
+    if (showTrack) {
+      trackedOrderIdRef.current = order.id;
+      setRiderDeliveryCount(
+        typeof order.riderDeliveryCount === 'number' ? order.riderDeliveryCount : undefined,
+      );
+      loadDeliveryTrack(order.id);
+    }
   };
 
   /** 获取状态可进行的操作 */
@@ -464,10 +539,18 @@ const AdminPage = () => {
                 <Text className='new-order-banner__btn-text'>查看</Text>
               </View>
               <View
-                className='new-order-banner__btn new-order-banner__btn--solid'
+                className={`new-order-banner__btn new-order-banner__btn--solid${
+                  statusAction.isPending(`${newOrderBanner.orderId}:${OrderStatus.ACCEPTED}`)
+                    ? ' new-order-banner__btn--disabled'
+                    : ''
+                }`}
                 onClick={handleBannerAcceptOrder}
               >
-                <Text className='new-order-banner__btn-text new-order-banner__btn-text--solid'>一键接单</Text>
+                <Text className='new-order-banner__btn-text new-order-banner__btn-text--solid'>
+                  {statusAction.isPending(`${newOrderBanner.orderId}:${OrderStatus.ACCEPTED}`)
+                    ? '接单中...'
+                    : '一键接单'}
+                </Text>
               </View>
             </View>
           </View>
@@ -613,7 +696,7 @@ const AdminPage = () => {
       {modalVisible && selectedOrder && (
         <View
           className='action-modal'
-          onClick={() => setModalVisible(false)}
+          onClick={closeActionModal}
         >
           <View
             className='action-modal__content'
@@ -625,7 +708,7 @@ const AdminPage = () => {
               </Text>
               <View
                 className='action-modal__close'
-                onClick={() => setModalVisible(false)}
+                onClick={closeActionModal}
               >
                 <Icon name='close' size={16} color='#999999' />
               </View>
@@ -689,6 +772,25 @@ const AdminPage = () => {
                 </Text>
               </View>
 
+              {/* 骑手实时位置：仅外卖配送中订单 */}
+              {selectedOrder.deliveryType === DeliveryType.DELIVERY
+                && selectedOrder.status === OrderStatus.DELIVERING ? (
+                <RiderTrackMap
+                  className='action-modal__rider-map'
+                  track={deliveryTrack}
+                  shopPoint={toMapPoint(selectedOrder.shopLatitude, selectedOrder.shopLongitude)}
+                  customerPoint={toMapPoint(
+                    selectedOrder.deliveryLatitude,
+                    selectedOrder.deliveryLongitude,
+                  )}
+                  riderDeliveryCount={riderDeliveryCount}
+                  loading={trackLoading}
+                  requireTrack
+                  emptyText=''
+                  pendingText='骑手尚未上报位置'
+                />
+              ) : null}
+
               {/* 操作按钮 */}
               {(selectedOrder.cancelReason || selectedOrder.rejectReason) && (
                 <View className='action-modal__info-row'>
@@ -703,28 +805,35 @@ const AdminPage = () => {
 
               {/* 操作按钮 */}
               <View className='action-modal__actions'>
-                {getAvailableActions(selectedOrder).map((action) => (
-                  <View
-                    key={action.nextStatus}
-                    className={`action-modal__btn action-modal__btn--${action.type}`}
-                    onClick={() => {
-                      if (action.nextStatus === OrderStatus.REJECTED) {
-                        openReasonSheet(selectedOrder.id, 'reject');
-                        return;
-                      }
-                      if (action.nextStatus === OrderStatus.CANCELLED) {
-                        openReasonSheet(selectedOrder.id, 'cancel');
-                        return;
-                      }
-                      updateOrderStatus(selectedOrder.id, action.nextStatus as OrderStatus);
-                    }}
-                  >
-                    {action.label}
-                  </View>
-                ))}
+                {getAvailableActions(selectedOrder).map((action) => {
+                  const actionPending = statusAction.isPending(
+                    `${selectedOrder.id}:${action.nextStatus}`,
+                  );
+                  return (
+                    <View
+                      key={action.nextStatus}
+                      className={`action-modal__btn action-modal__btn--${action.type}${
+                        actionPending ? ' action-modal__btn--disabled' : ''
+                      }`}
+                      onClick={() => {
+                        if (action.nextStatus === OrderStatus.REJECTED) {
+                          openReasonSheet(selectedOrder.id, 'reject');
+                          return;
+                        }
+                        if (action.nextStatus === OrderStatus.CANCELLED) {
+                          openReasonSheet(selectedOrder.id, 'cancel');
+                          return;
+                        }
+                        updateOrderStatus(selectedOrder.id, action.nextStatus as OrderStatus);
+                      }}
+                    >
+                      {actionPending ? '处理中...' : action.label}
+                    </View>
+                  );
+                })}
                 <View
                   className='action-modal__btn action-modal__btn--secondary'
-                  onClick={() => setModalVisible(false)}
+                  onClick={closeActionModal}
                 >
                   关闭
                 </View>

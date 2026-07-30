@@ -1,18 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, Textarea, Map as TaroMap } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { get, post, isRetryableError } from '../../utils/request';
+import { get, post, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
 import { DELIVERY_TYPE_MAP, getOrderStatusLabel, getCustomerOrderStatusHint } from '../../utils/constants';
-import { DeliveryTrackPoint, Order, OrderStatus, DeliveryType } from '../../types/order';
+import {
+  DeliveryTrackPoint,
+  Order,
+  OrderStatus,
+  DeliveryType,
+  OrderStatusHistoryItem,
+} from '../../types/order';
 import { onDeliveryTrackUpdated, onOrderUpdated, removePageListeners } from '../../services/socket';
+import { useAsyncAction } from '../../hooks/useAsyncAction';
+import FoodThumb from '../../components/FoodThumb';
 import StatusTimeline from '../../components/StatusTimeline';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import Icon from '../../components/Icon';
 import EmptyState from '../../components/EmptyState';
 import BottomSheet from '../../components/BottomSheet';
+import FooterBar from '../../components/FooterBar';
 import orderActiveIcon from '../../assets/icons/order-active.png';
 import './index.scss';
 
@@ -33,7 +42,6 @@ const OrderDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
-  const [paying, setPaying] = useState(false);
   const [deliveryFee] = useState(0);
   const [deliveryTrack, setDeliveryTrack] = useState<DeliveryTrackPoint[]>([]);
   const [trackLoading, setTrackLoading] = useState(false);
@@ -49,13 +57,17 @@ const OrderDetailPage = () => {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewContent, setReviewContent] = useState('');
-  const [submittingReview, setSubmittingReview] = useState(false);
   const [goodsExpanded, setGoodsExpanded] = useState(false);
   const [reviewSheetVisible, setReviewSheetVisible] = useState(false);
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [cancelSheetVisible, setCancelSheetVisible] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
-  const [cancelling, setCancelling] = useState(false);
+
+  // 写操作强守卫（ref 判定，可挡同一 tick 内的连点，避免重复支付/重复退款/重复评价）
+  const payAction = useAsyncAction();
+  const cancelAction = useAsyncAction();
+  const reviewAction = useAsyncAction();
+  const reorderAction = useAsyncAction();
 
   // orderId 跨渲染持久化（不触发重渲染）
   const orderIdRef = useRef<string>('');
@@ -128,34 +140,34 @@ const OrderDetailPage = () => {
   };
 
   /** 提交评价 */
-  const submitReview = async () => {
-    if (!order || submittingReview) return;
-    if (reviewRating < 1 || reviewRating > 5) {
-      Taro.showToast({ title: '请选择 1-5 星评分', icon: 'none' });
-      return;
-    }
-    setSubmittingReview(true);
-    try {
-      const res = await post<{
-        id: string;
-        orderId: string;
-        rating: number;
-        content: string;
-        createdAt: string;
-      }>(`/orders/${order.id}/reviews`, {
-        rating: reviewRating,
-        content: reviewContent.trim(),
-      });
-      setReview(res.data);
-      setReviewContent('');
-      setReviewSheetVisible(false);
-      Taro.showToast({ title: '评价成功', icon: 'success' });
-    } catch (error) {
-      console.error('提交评价失败:', error);
-    } finally {
-      setSubmittingReview(false);
-    }
-  };
+  const submitReview = () =>
+    reviewAction.run(async () => {
+      if (!order) return;
+      if (reviewRating < 1 || reviewRating > 5) {
+        Taro.showToast({ title: '请选择 1-5 星评分', icon: 'none' });
+        return;
+      }
+      try {
+        const res = await post<{
+          id: string;
+          orderId: string;
+          rating: number;
+          content: string;
+          createdAt: string;
+        }>(`/orders/${order.id}/reviews`, {
+          rating: reviewRating,
+          content: reviewContent.trim(),
+        });
+        setReview(res.data);
+        setReviewContent('');
+        setReviewSheetVisible(false);
+        Taro.showToast({ title: '评价成功', icon: 'success' });
+      } catch (error) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('提交评价失败:', error);
+      }
+    });
 
   // 仅订单本人（顾客）可提交评价；商家/骑手只读
   const canSubmitReview =
@@ -174,6 +186,11 @@ const OrderDetailPage = () => {
     }, 'order-detail');
     onDeliveryTrackUpdated((data) => {
       if (data.orderId === orderIdRef.current) {
+        if (typeof data.riderDeliveryCount === 'number') {
+          setOrder((prev) =>
+            prev ? { ...prev, riderDeliveryCount: data.riderDeliveryCount } : prev,
+          );
+        }
         loadDeliveryTrack(orderIdRef.current);
       }
     }, 'order-detail');
@@ -200,90 +217,91 @@ const OrderDetailPage = () => {
   }, []);
 
   /** 再来一单：回填购物车商品与备注（发票需在确认页重新填写） */
-  const reorder = async () => {
-    if (!order) return;
-
-    try {
-      // 清空现有购物车，添加再来一单的商品
-      clearCart();
-      if (order.shopId) {
-        useCartStore.getState().setShopId(order.shopId);
-      }
-      order.items.forEach((item) => {
-        addItem({
-          menuItemId: item.menuItemId || item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-          specDesc: item.specDesc || '',
-          specOptionIds: (item as { specOptionIds?: string[] }).specOptionIds || [],
-          imageUrl: item.imageUrl || '',
+  const reorder = () =>
+    reorderAction.run(async () => {
+      if (!order) return;
+      try {
+        // 清空现有购物车，添加再来一单的商品
+        clearCart();
+        if (order.shopId) {
+          useCartStore.getState().setShopId(order.shopId);
+        }
+        order.items.forEach((item) => {
+          addItem({
+            menuItemId: item.menuItemId || item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            specDesc: item.specDesc || '',
+            specOptionIds: (item as { specOptionIds?: string[] }).specOptionIds || [],
+            imageUrl: item.imageUrl || '',
+          });
         });
-      });
-      if (order.remark) {
-        useCartStore.getState().setRemarks(order.remark);
+        if (order.remark) {
+          useCartStore.getState().setRemarks(order.remark);
+        }
+        Taro.showToast({ title: '已加入购物车', icon: 'success' });
+        setTimeout(() => {
+          Taro.switchTab({ url: '/pages/menu/index' });
+        }, 800);
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('再来一单失败:', error);
+        Taro.showToast({ title: '操作失败', icon: 'none' });
       }
-      Taro.showToast({ title: '已加入购物车', icon: 'success' });
-      setTimeout(() => {
-        Taro.switchTab({ url: '/pages/menu/index' });
-      }, 800);
-    } catch (error: any) {
-      console.error('再来一单失败:', error);
-      Taro.showToast({ title: '操作失败', icon: 'none' });
-    }
-  };
+    });
 
   /** 支付订单 */
-  const payOrder = async () => {
-    if (!order) return;
+  const payOrder = () =>
+    payAction.run(async () => {
+      if (!order) return;
+      try {
+        // 后端返回 PaymentResponseDto：
+        // - 开发环境 mock: true → 直接显示支付成功
+        // - 生产环境 wxPayParams → 调起 Taro.requestPayment 完成真实微信支付
+        const res = await post<{
+          transactionId: string;
+          mock?: boolean;
+          provider?: 'sandbox' | 'wechat' | 'third_party';
+          wxPayParams?: {
+            timeStamp: string;
+            nonceStr: string;
+            package: string;
+            signType: 'MD5' | 'HMAC-SHA256' | 'RSA';
+            paySign: string;
+          };
+        }>(`/orders/${order.id}/pay`);
 
-    setPaying(true);
-    try {
-      // 后端返回 PaymentResponseDto：
-      // - 开发环境 mock: true → 直接显示支付成功
-      // - 生产环境 wxPayParams → 调起 Taro.requestPayment 完成真实微信支付
-      const res = await post<{
-        transactionId: string;
-        mock?: boolean;
-        provider?: 'sandbox' | 'wechat' | 'third_party';
-        wxPayParams?: {
-          timeStamp: string;
-          nonceStr: string;
-          package: string;
-          signType: 'MD5' | 'HMAC-SHA256' | 'RSA';
-          paySign: string;
-        };
-      }>(`/orders/${order.id}/pay`);
-
-      // 真实微信支付参数存在时，调起微信支付
-      if (res.data.wxPayParams) {
-        await Taro.requestPayment({
-          timeStamp: res.data.wxPayParams.timeStamp,
-          nonceStr: res.data.wxPayParams.nonceStr,
-          package: res.data.wxPayParams.package,
-          signType: res.data.wxPayParams.signType,
-          paySign: res.data.wxPayParams.paySign,
+        // 真实微信支付参数存在时，调起微信支付
+        if (res.data.wxPayParams) {
+          await Taro.requestPayment({
+            timeStamp: res.data.wxPayParams.timeStamp,
+            nonceStr: res.data.wxPayParams.nonceStr,
+            package: res.data.wxPayParams.package,
+            signType: res.data.wxPayParams.signType,
+            paySign: res.data.wxPayParams.paySign,
+          });
+        }
+        // mock/sandbox 或真实支付成功后，刷新订单
+        const isSandbox = res.data.mock || res.data.provider === 'sandbox';
+        Taro.showToast({
+          title: isSandbox ? '沙箱支付成功' : '支付成功',
+          icon: 'success',
         });
+        loadOrder(order.id);
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        // 用户取消支付（errMsg 含 cancel）不当作错误
+        const errMsg = error?.errMsg || error?.message || '';
+        if (errMsg.includes('cancel')) {
+          Taro.showToast({ title: '已取消支付', icon: 'none' });
+        } else {
+          console.error('支付失败:', error);
+        }
       }
-      // mock/sandbox 或真实支付成功后，刷新订单
-      const isSandbox = res.data.mock || res.data.provider === 'sandbox';
-      Taro.showToast({
-        title: isSandbox ? '沙箱支付成功' : '支付成功',
-        icon: 'success',
-      });
-      loadOrder(order.id);
-    } catch (error: any) {
-      // 用户取消支付（errMsg 含 cancel）不当作错误
-      const errMsg = error?.errMsg || error?.message || '';
-      if (errMsg.includes('cancel')) {
-        Taro.showToast({ title: '已取消支付', icon: 'none' });
-      } else {
-        console.error('支付失败:', error);
-      }
-    } finally {
-      setPaying(false);
-    }
-  };
+    });
 
   /** 打开取消原因弹层 */
   const openCancelSheet = () => {
@@ -293,32 +311,31 @@ const OrderDetailPage = () => {
   };
 
   /** 取消订单：待支付/已支付可自主取消；商家接单后不可自行取消；原因必填 */
-  const cancelOrder = async () => {
-    if (!order) return;
-    const reason = cancelReason.trim();
-    if (!reason) {
-      Taro.showToast({ title: '请填写取消原因', icon: 'none' });
-      return;
-    }
-    if (reason.length < 2) {
-      Taro.showToast({ title: '原因至少 2 个字', icon: 'none' });
-      return;
-    }
-
-    setCancelling(true);
-    try {
-      // 顾客取消走专用 /cancel（含本人校验与已支付退款），不要走商家专用 /status
-      await post(`/orders/${order.id}/cancel`, { reason });
-      setCancelSheetVisible(false);
-      setCancelReason('');
-      Taro.showToast({ title: '订单已取消', icon: 'success' });
-      loadOrder(order.id);
-    } catch (error: any) {
-      console.error('取消订单失败:', error);
-    } finally {
-      setCancelling(false);
-    }
-  };
+  const cancelOrder = () =>
+    cancelAction.run(async () => {
+      if (!order) return;
+      const reason = cancelReason.trim();
+      if (!reason) {
+        Taro.showToast({ title: '请填写取消原因', icon: 'none' });
+        return;
+      }
+      if (reason.length < 2) {
+        Taro.showToast({ title: '原因至少 2 个字', icon: 'none' });
+        return;
+      }
+      try {
+        // 顾客取消走专用 /cancel（含本人校验与已支付退款），不要走商家专用 /status
+        await post(`/orders/${order.id}/cancel`, { reason });
+        setCancelSheetVisible(false);
+        setCancelReason('');
+        Taro.showToast({ title: '订单已取消', icon: 'success' });
+        loadOrder(order.id);
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('取消订单失败:', error);
+      }
+    });
 
 
   if (loading) {
@@ -337,6 +354,9 @@ const OrderDetailPage = () => {
             icon='warning'
             title='加载失败'
             description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
+          />
+          <FooterBar
+            actionOnly
             actionText={canRetry ? '再试一次' : '返回订单列表'}
             onAction={() => {
               if (canRetry && orderIdRef.current) {
@@ -355,6 +375,9 @@ const OrderDetailPage = () => {
           icon='empty'
           title='订单不存在'
           description='可能已删除，或链接失效了'
+        />
+        <FooterBar
+          actionOnly
           actionText='返回订单列表'
           onAction={() => Taro.switchTab({ url: '/pages/order-list/index' })}
         />
@@ -368,6 +391,11 @@ const OrderDetailPage = () => {
   const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const total = order.total;
   const lastTrackPoint = deliveryTrack[deliveryTrack.length - 1];
+  const riderDeliveryCount =
+    typeof order.riderDeliveryCount === 'number' ? order.riderDeliveryCount : undefined;
+  const showRiderDeliveryPanel =
+    order.deliveryType === DeliveryType.DELIVERY &&
+    order.status === OrderStatus.DELIVERING;
   const shopPoint: MapPoint | null =
     typeof order.shopLatitude === 'number' && typeof order.shopLongitude === 'number'
       ? { latitude: order.shopLatitude, longitude: order.shopLongitude }
@@ -499,6 +527,15 @@ const OrderDetailPage = () => {
         }]
       : []),
   ];
+  const timelineStatusHistory: OrderStatusHistoryItem[] =
+    order.statusHistory && order.statusHistory.length > 0
+      ? order.statusHistory
+      : [
+          { status: OrderStatus.PENDING_PAYMENT, time: order.createdAt },
+          ...(order.status !== OrderStatus.PENDING_PAYMENT
+            ? [{ status: order.status, time: order.updatedAt || order.createdAt }]
+            : []),
+        ];
 
   return (
     <View className='order-detail'>
@@ -507,12 +544,7 @@ const OrderDetailPage = () => {
         deliveryType={order.deliveryType}
         orderNo={shortOrderId(order.id, order.orderNo)}
         createdAt={order.createdAt}
-        statusHistory={[
-          { status: 'pending_payment', time: order.createdAt },
-          ...(order.status !== 'pending_payment'
-            ? [{ status: order.status, time: order.updatedAt || order.createdAt }]
-            : []),
-        ]}
+        statusHistory={timelineStatusHistory}
       />
 
       {(order.cancelReason || order.rejectReason) && (
@@ -594,6 +626,23 @@ const OrderDetailPage = () => {
               </Text>
             </View>
           )}
+          {showRiderDeliveryPanel ? (
+            <View className='delivery-map__rider-panel'>
+              <View className='delivery-map__rider-item'>
+                <Text className='delivery-map__rider-label'>骑手位置</Text>
+                <Text className='delivery-map__rider-value'>
+                  {lastTrackPoint ? formatTime(lastTrackPoint.recordedAt, 'HH:mm') : '待上报'}
+                </Text>
+              </View>
+              <View className='delivery-map__rider-divider' />
+              <View className='delivery-map__rider-item'>
+                <Text className='delivery-map__rider-label'>手上待配送</Text>
+                <Text className='delivery-map__rider-value'>
+                  {typeof riderDeliveryCount === 'number' ? `${riderDeliveryCount} 单` : '统计中'}
+                </Text>
+              </View>
+            </View>
+          ) : null}
           <View className='delivery-map__meta'>
             <View className='delivery-map__meta-item'>
               <View className='delivery-map__legend-dot delivery-map__legend-dot--shop' />
@@ -669,6 +718,7 @@ const OrderDetailPage = () => {
         <View className={`order-goods__list ${!goodsExpanded && order.items.length > 3 ? 'order-goods__list--collapsed' : ''}`}>
           {(goodsExpanded || order.items.length <= 3 ? order.items : order.items.slice(0, 3)).map((item) => (
             <View key={item.id} className='order-goods__item'>
+              <FoodThumb className='order-goods__item-thumb' src={item.imageUrl} name={item.name} size='sm' round />
               <View className='order-goods__item-main'>
                 <Text className='order-goods__item-name'>{item.name}</Text>
                 <Text className='order-goods__item-spec'>{item.specDesc || '标准份'}</Text>
@@ -728,10 +778,10 @@ const OrderDetailPage = () => {
         {/* 支付按钮：仅待支付状态显示，避免已支付订单重复支付 */}
         {order.status === OrderStatus.PENDING_PAYMENT && (
           <View
-            className={`order-actions__btn order-actions__btn--primary ${paying ? 'order-actions__btn--loading' : ''}`}
-            onClick={() => !paying && payOrder()}
+            className={`order-actions__btn order-actions__btn--primary ${payAction.pending ? 'order-actions__btn--loading' : ''}`}
+            onClick={() => payOrder()}
           >
-            {paying ? '支付中...' : `立即支付 ${formatPriceWithSymbol(total)}`}
+            {payAction.pending ? '支付中...' : `立即支付 ${formatPriceWithSymbol(total)}`}
           </View>
         )}
         {[
@@ -748,10 +798,10 @@ const OrderDetailPage = () => {
         {order.status === OrderStatus.COMPLETED && (
           <>
             <View
-              className='order-actions__btn order-actions__btn--secondary'
+              className={`order-actions__btn order-actions__btn--secondary ${reorderAction.pending ? 'order-actions__btn--loading' : ''}`}
               onClick={() => reorder()}
             >
-              再来一单
+              {reorderAction.pending ? '处理中...' : '再来一单'}
             </View>
             {canSubmitReview ? (
               <View
@@ -782,10 +832,10 @@ const OrderDetailPage = () => {
         {(order.status === OrderStatus.CANCELLED || order.status === OrderStatus.REJECTED) && (
           <>
             <View
-              className='order-actions__btn order-actions__btn--secondary'
+              className={`order-actions__btn order-actions__btn--secondary ${reorderAction.pending ? 'order-actions__btn--loading' : ''}`}
               onClick={() => reorder()}
             >
-              再来一单
+              {reorderAction.pending ? '处理中...' : '再来一单'}
             </View>
             <View
               className='order-actions__btn order-actions__btn--primary'
@@ -865,10 +915,10 @@ const OrderDetailPage = () => {
                 onInput={(e) => setReviewContent(e.detail.value)}
               />
               <View
-                className={`order-review__submit ${submittingReview ? 'order-review__submit--disabled' : ''}`}
-                onClick={() => !submittingReview && submitReview()}
+                className={`order-review__submit ${reviewAction.pending ? 'order-review__submit--disabled' : ''}`}
+                onClick={() => submitReview()}
               >
-                {submittingReview ? '提交中...' : '提交评价'}
+                {reviewAction.pending ? '提交中...' : '提交评价'}
               </View>
             </View>
           ) : (
@@ -880,7 +930,7 @@ const OrderDetailPage = () => {
       {/* 取消原因弹层 */}
       <BottomSheet
         visible={cancelSheetVisible}
-        onClose={() => !cancelling && setCancelSheetVisible(false)}
+        onClose={() => !cancelAction.pending && setCancelSheetVisible(false)}
         title="取消订单"
         showClose
       >
@@ -894,20 +944,20 @@ const OrderDetailPage = () => {
             maxlength={200}
             placeholder='请填写取消原因...'
             onInput={(e) => setCancelReason(e.detail.value)}
-            disabled={cancelling}
+            disabled={cancelAction.pending}
           />
           <View className='order-cancel__btns'>
             <View
-              className={`order-cancel__btn order-cancel__btn--cancel ${cancelling ? 'disabled' : ''}`}
-              onClick={() => !cancelling && setCancelSheetVisible(false)}
+              className={`order-cancel__btn order-cancel__btn--cancel ${cancelAction.pending ? 'disabled' : ''}`}
+              onClick={() => !cancelAction.pending && setCancelSheetVisible(false)}
             >
               再想想
             </View>
             <View
-              className={`order-cancel__btn order-cancel__btn--danger ${cancelling || !cancelReason.trim() ? 'disabled' : ''}`}
-              onClick={() => !cancelling && cancelOrder()}
+              className={`order-cancel__btn order-cancel__btn--danger ${cancelAction.pending || !cancelReason.trim() ? 'disabled' : ''}`}
+              onClick={() => cancelOrder()}
             >
-              {cancelling ? '提交中...' : '确认取消'}
+              {cancelAction.pending ? '提交中...' : '确认取消'}
             </View>
           </View>
         </View>

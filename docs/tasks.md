@@ -9,6 +9,107 @@
 
 ## 当前待办
 
+### T234 — PC 管理后台体验与代码优化 — 2026-07-30
+
+> **来源**: 代码审查发现 15 处可优化点
+> **范围**: admin 前端代码质量、用户体验、功能增强
+> **原则**: 子任务可独立开发和验证；组件抽离优先于样式重构
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T234.1 | 抽离 CSV/Excel 导出工具到公共 utils | admin | §3.4 | P1 | done | export.ts 已创建，Order 页导入 |
+| T234.2 | User 页面分页优化（去掉 pageSize=200） | admin | §3.4 | P1 | done | 改为 useState + DEFAULT_TABLE_PAGINATION |
+| T234.3 | 抽离通用 useKeywordFilter hook（filterByKeyword 已存在） | admin/server | §3.4 / §4 | P1 | todo | 复用 utils/table.ts filterByKeyword，替换页面手动 filter |
+| T234.4 | 订单状态操作映射提取到 shared constants | shared | §4 | P1 | done | OrderStatusAction + getOrderStatusActions 已落地 |
+| T234.5 | Dashboard 增加自定义日期范围选择 | admin | §3.4 | P1 | todo | Segmented 增加 RangePicker 备选 |
+| T234.6 | 多店铺全量数据看板（平台管理员） | admin | §3.18 | P1 | todo | canPlatformAdmin 时增加"全店汇总"选项 |
+| T234.7 | 菜品管理增加批量上架/下架 | admin | §3.4 | P1 | todo | Table rowSelection + 批量操作 |
+| T234.8 | 促销管理增加时间冲突检测 | admin/server | §3.4 / §4.6 | P2 | todo | 创建/编辑时检测重叠时间并警告 |
+| T234.9 | 消息通知改为 WebSocket 推送 | server/admin | §3.19 / §4 | P2 | todo | NotificationBell 从轮询改为 WS 推送 |
+| T234.10 | 用户管理增加最后登录时间字段 | server/admin | §3.4 / §4.1 | P2 | done | tf_users 补 last_login_at + 自动更新 |
+| T234.11 | 订单详情增加状态时间线（StatusTimeline） | admin | §3.4 | P2 | todo | 详情弹窗增加完整状态流转时间线 |
+| T234.12 | 页面硬编码 CSS 改为 CSS Variable | admin | §3.4 | P2 | done | 5 页 20+ 处间距/字号替换为 CSS Vars |
+| T234.13 | Dashboard 增加营收/订单趋势对比 | admin | §3.4 | P2 | todo | 昨日 vs 今日 / 上周同期 vs 本周对比 |
+| T234.14 | Order 页面拆分 hooks 减重（685行→拆分） | admin | §3.4 | P3 | todo | 导出逻辑→T234.1；状态映射→T234.4；动作逻辑→新 hook |
+
+### P1 — 小程序骨架屏真实 DOM 对齐（T233）— ✅ 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T233.1 | 全站 SkeletonLoader mode 与真实卡片 DOM 对齐 | client | §3.1 / §3.12 / §3.19 | P1 | ✅ done 2026-07-30 | 新增 review/notification/rider-card；菜单/订单/详情/地址/收藏骨架宽高间距对齐真实列表 |
+
+### P2 — 小程序页面级主按钮底部统一（T232）— ✅ 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T232.1 | 收藏/地址/订单/我的等页面级主按钮统一底部样式 | client | §3.1 | P2 | ✅ done 2026-07-30 | 复用 FooterBar；收藏「去点餐」对齐地址底部按钮；空态/错误态主 CTA 下沉，tab 页避让自定义 tabBar |
+
+### P1 — 顾客端骑手实时位置与配送负载展示（T231）— ✅ 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T231.1 | 订单详情下发骑手配送中单量 | server/order | §3.17 / §4.12 | P1 | ✅ done 2026-07-30 | `GET /orders/:id` 对配送中外送单返回 `riderDeliveryCount`，口径为同一骑手 `delivering` 外送单数（含当前单） |
+| T231.2 | 配送轨迹实时推送带骑手负载 | server/order, client/socket | §3.17 / §4.12 | P1 | ✅ done 2026-07-30 | `delivery:track` WS payload 增加 `riderDeliveryCount`，顾客端收到定位上报时同步刷新 |
+| T231.3 | 顾客订单详情展示骑手位置与待配送单数 | client/order-detail | §3.17 / §3.1.4 | P1 | ✅ done 2026-07-30 | 配送轨迹卡片显示骑手位置更新时间和手上待配送单数；未上报位置时保留待上报状态 |
+| T231.4 | 骑手负载统计索引与测试 | database/server | §5.1 / §3.17 | P1 | ✅ done 2026-07-30 | `idx_orders_rider_active_delivery` 支持统计查询；补充配送轨迹服务测试覆盖负载字段 |
+
+### P0 — 骑手端订单可见性与角色入口修复（T230）— ✅ 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T230.1 | 骑手角色避免停留顾客菜单页 | client/menu, client/auth | §3.1 / §3.3 | P0 | ✅ done 2026-07-30 | 菜单页检测当前角色，骑手自动回接单页；登录页补模拟骑手入口与 rider/rider123 提示 |
+| T230.2 | 未分配骑手的配送中外送单进入骑手待抢池 | server/order | §3.3 / §4.4 / §5.2 | P0 | ✅ done 2026-07-30 | 待抢池兼容 preparing 与 delivering 且 rider_id 为空的外送单；抢单时可补写 rider_id |
+| T230.3 | 固定测试骑手种子账号 | database/server/auth | §2 / §3.3 | P0 | ✅ done 2026-07-30 | database-init.sql 与内存种子补 rider/rider123，角色为 rider + customer，不绑定店铺 |
+
+### P2 — 小程序我的页入口与申请空态收敛（T229）— ✅ 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T229.1 | 去掉骑手我的页重复工作台入口 | client/mine | §3.1 / §3.19 | P2 | ✅ done 2026-07-30 | 骑手底部 tab 已直达接单页；我的页不再重复展示「骑手工作台」常用功能卡片 |
+| T229.2 | 小程序身份申请去掉资格检查预请求 | client/mine | §3.19 / §4.1 | P2 | ✅ done 2026-07-30 | 移除 `/role-applications/check-eligibility` 防抖调用；基于登录信息 roles + 本人申请记录判断本地提交态，提交接口保留后端兜底 |
+| T229.3 | 申请记录空状态统一组件化 | client/mine | §3.19 | P2 | ✅ done 2026-07-30 | 空记录使用公共 EmptyState compact 样式，和其他小程序空态保持一致 |
+
+### P1 — 订单进度状态完成时间（T228）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T228.1 | 订单状态历史表与迁移 | database | §5.1 / §5.2 | P1 | ✅ done 2026-07-29 | 新增 tf_order_status_history；v18 从订单/支付/审计日志回填历史状态；RPC 建单/改状态写历史 |
+| T228.2 | 后端订单详情下发 statusHistory | server/order | §4.4 / §5.2 | P1 | ✅ done 2026-07-29 | findById 查询状态历史；建单/支付/取消/商家状态/骑手抢单均记录进入时间；旧库缺表兜底 createdAt/updatedAt |
+| T228.3 | 小程序进度条显示完整状态时间 | client/order-detail | §3.1 / §4.4 | P1 | ✅ done 2026-07-29 | 订单详情优先使用 order.statusHistory；StatusTimeline 节点宽度调为 92px，避免时间被裁切 |
+
+### P0 — 购物车失效菜品提交防护（T225）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T225.1 | 下单前同步菜单并清理失效项 | client/order-confirm | §3.1 / §4.4 | P0 | ✅ done 2026-07-29 | 提交前拉取当前菜单 active 项；移除旧购物车中不存在/下架菜品并中断提交，避免 1001 才暴露 |
+| T225.2 | 购物车批量移除动作与测试 | client/store | §3.1 | P0 | ✅ done 2026-07-29 | cartStore 增加 removeItems；失效项立即持久化，覆盖旧 storage 混入新菜单场景 |
+| T225.3 | 服务端下单校验菜品状态和店铺归属 | server/order | §4.4 / §5.1 | P0 | ✅ done 2026-07-29 | create order 核价前拒绝 inactive 菜品和跨店菜品；补充 order-create-pricing 单测 |
+
+### P0 — 订单待取餐状态约束修复（T221）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T221.1 | 线上 tf_orders_status_check 补 ready_for_pickup | database | §5.1 / §5.2 | P0 | ✅ done 2026-07-29 | 旧 8 态约束导致制作完成失败；已 ALTER 为 9 态；验证 preparing→ready_for_pickup 成功 |
+| T221.2 | 增量迁移 v17 落库文档 | docs | §5.1 | P0 | ✅ done 2026-07-29 | docs/migrations/v17-orders-status-ready-for-pickup.sql；database-init.sql 已含 9 态无需改 |
+
+### P2 — 配送方式图标语义优化（T222）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T222.1 | 配送方式 SVG 图标优化 | client/order-confirm | §3.1 | P2 | ✅ done 2026-07-29 | 新增 delivery/pickup/dine-in 专用图标；外卖车简化轮廓、到店自取使用店面、堂食使用盘子刀叉；同步标题和选项引用 |
+
+### P2 — 配送方式图标视觉细化（T223）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T223.1 | 配送方式 SVG 图标第二轮优化 | client/order-confirm | §3.1 | P2 | ✅ done 2026-07-29 | 外卖改为完整小电驴轮廓，到店自取改为手提餐袋，堂食改为盘子配叉勺；减少杂线并统一 24px 视觉重心 |
+
+### P2 — 订单商品明细补图（T226）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T226.1 | 确认订单/订单详情商品明细补图并铺满卡片高度 | client/order-confirm, client/order-detail | §3.1.4 | P2 | ✅ done 2026-07-29 | 两页统一使用 FoodThumb；订单详情补商品图，图片随卡片高度拉伸，详情折叠高度同步上调 |
+
 ### P0 — 取消/拒单原因必填（T219）— ✅ 2026-07-29
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
@@ -26,6 +127,12 @@
 | T216.2 | 订单进度条节点真机不对齐 | client/StatusTimeline | §3.1.4 | P1 | ✅ done 2026-07-29 | track 顶对齐；连线绝对定位压中线；label 固定行高，避免当前态字号把圆点顶歪 |
 | T217 | 配送轨迹放大查看 | client/order-detail | §3.1.4 | P1 | ✅ done 2026-07-29 | 预览图点击或全屏按钮可放大查看轨迹，包含缩放拖动，includePoints 自动适配视口 |
 | T218 | 订单号和下单时间标签值样式对齐 | client/order-detail | §3.1.4 | P1 | ✅ done 2026-07-29 | order-meta__item 改为 flex 结构，label 固定宽度，value 自动伸展 |
+
+### P1 — 订单列表卡片高度修复（T227）— ✅ 2026-07-29
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T227.1 | 订单列表卡片改为自适应高度 | client/order-list | §3.1.4 | P1 | ✅ done 2026-07-29 | 移除订单页等高 VirtualList，改用 ScrollView 渲染自然高度卡片；恢复 ListEndTip 的 tab 变体，避免短订单大空白和末卡贴底遮挡 |
 
 
 ### P1 — 菜单滚动回顶修复（T220）— ✅ 2026-07-29
@@ -469,6 +576,15 @@
 | T164.2 | 顾客订单详情地图 | client | §3.17 | P2 | ✅ done 2026-07-24 | 外卖订单展示 Taro Map、路线、骑手当前位置与最后更新时间 |
 | T164.3 | 骑手位置上报 | client | §3.17 | P2 | ✅ done 2026-07-24 | 配送中订单可上报定位；定位失败使用演示坐标兜底 |
 
+### P1 — 骑手实时无感定位（T232）— ✅ 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T232.1 | 骑手定位批量上报接口 | server | §3.17 / §4.12 | P1 | ✅ done 2026-07-30 | `POST /orders/rider/location`；一次定位 fan-out 到该骑手全部配送中外卖单，共享同一 recordedAt，仅 2 次 DB 往返；source 默认 `rider_auto` |
+| T232.2 | 骑手端自动定位 hook | client | §3.17 | P1 | ✅ done 2026-07-30 | `useRiderLocationTracker`：startLocationUpdate + onLocationChange，10s/30m 节流、60s 心跳，失败降级 getLocation 轮询；移除「上报位置」按钮，改为实时定位状态条 |
+| T232.3 | PC 后台骑手位置面板 | admin | §3.17 | P1 | ✅ done 2026-07-30 | 新增 socket.io 接入 + `RiderLocationPanel`（SVG 示意图 + 轨迹时间轴 + 地图外链）；补 nginx `/socket.io` 升级代理 |
+| T232.4 | 小程序商家端骑手位置 | client | §3.17 | P1 | ✅ done 2026-07-30 | 抽出 `RiderTrackMap` 公共组件，商家端订单详情接入 Taro Map + `delivery:track` 实时刷新；顾客端原有链路无需改动 |
+
 
 ### P2 — 操作审计日志（T163）— ✅ 2026-07-24
 
@@ -534,6 +650,39 @@
 | T157.4 | 商家看板统计路径修复 | client | §4.4 | P0 | ✅ done 2026-07-24 | /orders/stats/:shopId → /orders/stats/today |
 | T157.5 | 订单 GET 禁用默认缓存 | client | §3.1 | P0 | ✅ done 2026-07-24 | request 对 /orders 默认不缓存，避免支付/接单后状态脏读 |
 
+
+### P1 — PC 管理后台代码与体验优化（T234）⏳
+
+> 来源: 2026-07-30 PC 管理后台功能模块全面审查，共 15 个子任务，按依赖关系分 4 批可并行执行。
+
+#### 批次 A：无依赖，可并行 —— 代码抽离与规范统一
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T234.1 | 抽离 CSV/Excel 导出工具到 admin/src/utils/export.ts | admin | §3.4 / §3.15 | P2 | todo | Order/index.tsx 中 parseCsvLine/parseCsv/csvToExcelHtmlBlob/base64ToBlob/downloadBlob/buildExportBlob 共 ~160 行抽离；Order 页面只保留 handleExport 主逻辑 |
+| T234.2 | 提取通用 useKeywordFilter hook 替换页面重复筛选逻辑 | admin | §3.4 | P2 | todo | Order/User/Audit/ShopManage 等页面都有相同 useMemo 筛选模式；抽到 admin/src/hooks/useKeywordFilter.ts |
+| T234.3 | 订单状态操作映射提取到 packages/shared/src/constants | admin/shared | §3.4 / §5.2 | P2 | todo | Order/index.tsx getAvailableActions switch-case 散落 ~40 行；提取 ADMIN_ORDER_ACTIONS 映射表到 shared，与 server 保持一致的流转规则 |
+| T234.4 | Order 页面拆分 hooks 减重（685 行 → 拆服务层） | admin | §3.4 | P2 | todo | 拆分 useOrderDetail/useOrderExport/useReasonModal；主页面回归订单列表 + 状态操作核心逻辑，目标 <400 行 |
+| T234.5 | 页面硬编码 CSS 改为 CSS Variable（--tf-space-*） | admin | §3.4 / §3.12 | P2 | todo | 全量替换 admin 页面内硬编码的 margin/padding 数字（24/16/12/8 等），改用 global.css 中已定义的 --tf-space-* 变量 |
+
+#### 批次 B：共享依赖 shared —— 完成 T234.3 即可开始
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T234.6 | Dashboard 增加自定义日期范围选择 | admin | §3.4 | P2 | todo | Segmented 旁增加 RangePicker，支持任意日期跨度；涉及的 stats/daily/statsStatus 接口传动态 days 参数 |
+| T234.7 | Dashboard 增加营收/订单趋势对比（今日 vs 昨日 / 本周 vs 上周） | admin | §3.4 | P2 | todo | 对比卡片展示变化百分比 + 绿色/红色趋势箭头；数据可从 dailyStats 派生 |
+| T234.8 | 用户管理增加最后登录时间与账号状态字段 | admin/server | §3.4 / §5.1 | P2 | todo | 后端 GET /users 返回 lastLoginAt/status；admin 用户表格增加列展示 |
+| T234.9 | 用户管理分页优化（users/pageSize=200 改为正常分页） | admin | §3.4 | P2 | todo | User/index.tsx 第 69 行 pageSize: 1, pageSize: 200 改为 reader 分页，配合 SearchFilterBar 支持前端筛选+服务端分页取决于 API |
+
+#### 批次 C：需要后端配合
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T234.10 | 多店铺全量数据看板（平台管理员视图） | admin | §3.4 / §3.18 | P2 | todo | PlatformAdmin 在 Dashboard 增加「全店汇总」选项，调用 `shopId=undefined` 兜底拿全店数据；卡片表头标注「当前 / 全店」 |
+| T234.11 | 菜品管理增加批量上架/下架操作 | admin | §3.4 | P2 | todo | 表格增加 rowSelection；Toolbar 增加「批量上架」/「批量下架」按钮；后端再提供一个 PATCH /menu-items/batch-status |
+| T234.12 | 促销管理增加时间冲突检测 | admin | §3.4 | P2 | todo | 创建/编辑时检测同一店铺同类型促销是否有时间段重叠；检测结果弹窗提示并允许用户选择是否继续 |
+| T234.13 | 消息中心通知改为 WebSocket 推送替代轮询 | admin/server | §3.4 | P2 | todo | NotificationBell 从 60s 轮询改为 WebSocket 订阅；后端审批/通知写入时推送未读数/Ws 事件 |
+| T234.14 | 订单详情弹窗增加状态时间线展示 | admin | §3.4 | P2 | todo | 详情 Modal 中根据 order.statusHistory 渲染 StatusTimeline 组件（从 client 迁移到 shared 或 admin 独立实现）；展示各状态进入时间 |
 
 ### P2 — 体验增强（下一迭代）⏳
 
@@ -716,6 +865,27 @@
 | T150 | 沙箱支付渠道化与第三方预留 | payment | §4.5 | P2 | ✅ done 2026-07-24 | PAYMENT_PROVIDER=sandbox/wechat/third_party；沙箱默认开发可用，生产需 ALLOW_SANDBOX_PAYMENT；响应含 provider；wechat/third_party 明确未配置报错；.env.example 补充说明 |
 
 
+## 当前进行中
+
+### P1 — PC 管理后台代码与体验优化（T234）🔧 2026-07-30
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T234.1 | 抽离 CSV/Excel 导出工具到 admin/src/utils/export.ts | admin | §3.4 / §3.15 | P2 | todo | Order/index.tsx 中 parseCsvLine/parseCsv/csvToExcelHtmlBlob/base64ToBlob/downloadBlob/buildExportBlob 共 ~160 行抽离；Order 页面只保留 handleExport |
+| T234.2 | 提取通用 useKeywordFilter hook | admin | §3.4 | P2 | todo | Order/User/Audit/ShopManage 重复 useMemo 筛选模式抽到 hooks/useKeywordFilter.ts |
+| T234.3 | 订单状态操作映射提取到 shared constants | admin/shared | §3.4 / §5.2 | P2 | todo | getAvailableActions 提取 ADMIN_ORDER_ACTIONS 映射表到 shared |
+| T234.4 | Order 页面拆分 hooks 减重 | admin | §3.4 | P2 | todo | 拆分 useOrderDetail/useOrderExport/useReasonModal；680+ 行 → <400 行 |
+| T234.5 | 硬编码 CSS 数字改为 --tf-space-* 变量 | admin | §3.4 / §3.12 | P2 | todo | 全量替换 admin 页面内联 style 的 margin/padding 数字 |
+| T234.6 | Dashboard 增加自定义日期范围选择 | admin | §3.4 | P2 | todo | Segmented 旁增加 RangePicker，支持任意日期跨度 |
+| T234.7 | Dashboard 增加趋势对比（今日 vs 昨日） | admin | §3.4 | P2 | todo | 对比卡片展示变化百分比 + 趋势箭头 |
+| T234.8 | 用户管理增加最后登录时间字段 | admin/server | §3.4 / §5.1 | P2 | todo | GET /users 返回 lastLoginAt；admin 列表展示 |
+| T234.9 | 用户管理分页优化 | admin | §3.4 | P2 | todo | pageSize=200 改为正常分页 |
+| T234.10 | 多店铺全量数据看板（平台管理员） | admin | §3.4 / §3.18 | P2 | todo | 「全店汇总」新增选项，调用跨店数据 |
+| T234.11 | 菜品管理批量上架/下架 | admin | §3.4 | P2 | todo | 表格 rowSelection + 批量按钮；后端 batch-status API |
+| T234.12 | 促销管理时间冲突检测 | admin | §3.4 | P2 | todo | 创建时检测同类型促销时间段重叠并弹窗提示 |
+| T234.13 | 消息通知改 WebSocket 推送 | admin/server | §3.4 | P2 | todo | NotificationBell 取消 60s 轮询；后端事件推送未读数 |
+| T234.14 | 订单详情弹窗增加状态时间线 | admin | §3.4 | P2 | todo | 根据 order.statusHistory 渲染 StatusTimeline 组件 |
+
 ## 将来/暂缓
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
@@ -727,12 +897,12 @@
 
 | 状态 | 数量 |
 |------|------|
-| ⏳ todo | 8 |
+| ⏳ todo | 22 |
 | 🔧 in_progress | 0 |
-| ✅ done | 154 |
+| ✅ done | 168 |
 | 🚫 blocked | 0 |
 | 📋 paused | 2 |
-| **总计** | **162** |
+| **总计** | **185** |
 
 > 说明：T151–T200 已完成；T43 仍为 paused。线上库 schema 落后于 database-init.sql，当前靠服务端兼容回退可演示上线。
 
@@ -740,20 +910,20 @@
 
 | 优先级 | 数量 | 说明 |
 |--------|------|------|
-| P0 | 17 | ✅ 17 完成 |
-| P1 | 51 | ✅ 51 完成（含 T200 全系列） |
-| P2 | 81 | ✅ 80 完成 + 📋 1 暂缓（T43）；体验增强/质量基线 T151–T179 完成 |
+| P0 | 20 | ✅ 20 完成 |
+| P1 | 56 | ✅ 56 完成（含 T200 全系列） |
+| P2 | 96 | ✅ 82 完成 + ⏳ 14 新（T234.1–T234.14 2026-07-30）+ 📋 1 暂缓（T43） |
 
 ### 按模块分布
 
 | 模块 | 数量 | 任务范围 |
 |------|------|----------|
-| server | 52 | 含安全、订单、营业、地址、评价、审计、配送轨迹、下单核价与测试基线、多店铺隔离（T200.5） |
-| client | 46 | 含顾客/商家/骑手小程序体验、性能、测试基线、Sass 模块语法、切换门店（T200.7）与我的页样式打磨（T207） |
-| admin | 24 | 含后台页面、ProComponents、测试与 TypeScript 门禁、SearchFilterBar/店铺上下文/审计中文（T200.1/2/4） |
+| server | 55 | 含安全、订单、营业、地址、评价、审计、配送轨迹、下单核价与测试基线、多店铺隔离（T200.5） |
+| client | 50 | 含顾客/商家/骑手小程序体验、性能、测试基线、Sass 模块语法、切换门店（T200.7）与我的页样式打磨（T207/T229/T230/T231） |
+| admin | 27 | 含后台页面优化 T234.1–T234.14（新增 14） |
 | client/admin | 4 | 小程序与后台共同完成项 |
-| server/client | 4 | 后端与小程序共同完成项（含骑手跨店 T200.6） |
-| database | 3 | 基础数据一致性任务 |
+| server/client | 5 | 后端与小程序共同完成项（含骑手跨店 T200.6、配送负载 T231） |
+| database | 5 | 基础数据一致性任务、索引与测试账号种子 |
 | 部署 | 7 | Docker/CI/依赖、构建配置与统一质量门禁 |
 | docs | 2 | T126、T200.3 多店铺角色 PRD |
 | 全局 | 3 | T136, T145, T149 |
@@ -783,4 +953,4 @@
 
 ---
 
-*最后更新: 2026-07-28（T211 腾讯地图坐标对齐 done）*
+*最后更新: 2026-07-30（T234 PC 管理后台代码与体验优化 14 任务已拆解，并行执行中）*

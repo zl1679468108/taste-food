@@ -9,6 +9,7 @@ import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import ListEndTip from '../../components/ListEndTip';
 import Icon from '../../components/Icon';
+import FooterBar from '../../components/FooterBar';
 import './index.scss';
 
 interface MyReviewItem {
@@ -106,6 +107,9 @@ export default function MyReviewsPage() {
           icon='lock'
           title='请先登录'
           description='登录后就能查看已评价的订单'
+        />
+        <FooterBar
+          actionOnly
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -116,7 +120,7 @@ export default function MyReviewsPage() {
   if (loading) {
     return (
       <View className='my-reviews-page'>
-        <SkeletonLoader mode='card' count={4} />
+        <SkeletonLoader mode='review' count={4} />
       </View>
     );
   }
@@ -128,6 +132,9 @@ export default function MyReviewsPage() {
           icon='warning'
           title='加载失败'
           description={canRetry ? '网络不太稳，点一下再试试' : '评价暂时加载不出来'}
+        />
+        <FooterBar
+          actionOnly
           actionText={canRetry ? '再试一次' : '重新加载'}
           onAction={() => loadReviews(1)}
         />
@@ -142,6 +149,9 @@ export default function MyReviewsPage() {
           icon='star'
           title='还没有评价'
           description='完成订单后去评价，记录会显示在这里'
+        />
+        <FooterBar
+          actionOnly
           actionText='去看看订单'
           onAction={() => Taro.switchTab({ url: '/pages/order-list/index' })}
         />

@@ -16,6 +16,9 @@ export type IconName =
   | 'empty'
   | 'order'
   | 'cart'
+  | 'delivery'
+  | 'pickup'
+  | 'dine-in'
   | 'menu'
   | 'food'
   | 'chat'
@@ -93,6 +96,18 @@ const PATHS: Record<IconName, PathFn> = {
   // 购物袋（购物车语义）
   cart: (c) =>
     `<path ${S(c)} d="M6.2 8.5h11.6l-.9 11.2a1.8 1.8 0 0 1-1.8 1.6H8.9a1.8 1.8 0 0 1-1.8-1.6L6.2 8.5z"/><path ${S(c)} d="M9 8.5V7a3 3 0 0 1 6 0v1.5"/>`,
+
+  // 外卖配送：完整小电驴轮廓，后箱和车身保持在同一视觉重心
+  delivery: (c) =>
+    `<rect x="3" y="5.5" width="6.5" height="6" rx="1.2" ${S(c)}/><path ${S(c)} d="M9.5 13.5h4.2l2.3-4.4h2.5l1.5 3M16 9.1l1.4-2.2h2.2"/><path ${S(c)} d="M11.2 13.5 9.6 16h5.8"/><circle cx="7.5" cy="17.5" r="2.3" ${S(c)}/><circle cx="17" cy="17.5" r="2.3" ${S(c)}/><path ${S(c)} d="M9.8 17.5h4.9"/>`,
+
+  // 到店自取：手提餐袋，直接表达取走已打包的餐品
+  pickup: (c) =>
+    `<path ${S(c)} d="M5.5 8.5h13l1 11H4.5l1-11z"/><path ${S(c)} d="M8 8.5V7a4 4 0 0 1 8 0v1.5M7.5 12h9"/><path ${S(c)} d="M9 15.5h6"/>`,
+
+  // 堂食：盘子配叉勺，盘面稳定落在图标下半部
+  'dine-in': (c) =>
+    `<path ${S(c)} d="M5 15h14c-.7 3-3.4 4.8-7 4.8S5.7 18 5 15z"/><path ${S(c)} d="M4 15h16"/><path ${S(c)} d="M7 4v5.5M9 4v5.5M8 9.5V15M17 4v7.5c0 1.4-.9 2.4-2 2.4"/><ellipse cx="17" cy="6.5" rx="1.4" ry="2.5" ${S(c)}/>`,
 
   // 刀叉（菜单语义）
   menu: (c) =>

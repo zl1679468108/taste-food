@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Table,
   Tag,
@@ -26,7 +26,12 @@ import SearchFilterBar from '@/components/SearchFilterBar';
 import { formatTime, shortOrderId } from '@/utils/format';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
-import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import {
+  DEFAULT_PAGE_SIZE,
+  DEFAULT_TABLE_PAGINATION,
+  DEFAULT_TABLE_LOCALE,
+  filterByKeyword,
+} from '@/utils/table';
 import { brand } from '@/theme';
 
 const { Text } = Typography;
@@ -59,15 +64,22 @@ const UserPage: React.FC = () => {
   const isPlatformAdmin = !!currentUser && currentUser.role === 'admin' && !currentUser.shopId;
   const isMerchantUser = currentUser?.role === 'merchant' || (!!currentUser?.shopId && currentUser?.role === 'admin');
 
-  const [searchText, setSearchText] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string | undefined>();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<User | null>(null);
-  const [form] = Form.useForm();
-  const watchRole = Form.useWatch('role', form);
+const [searchText, setSearchText] = useState('');
+const [roleFilter, setRoleFilter] = useState<string | undefined>();
+const [page, setPage] = useState(1);
+const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+const [modalOpen, setModalOpen] = useState(false);
+const [editing, setEditing] = useState<User | null>(null);
+const [form] = Form.useForm();
+const watchRole = Form.useWatch('role', form);
 
-  const usersQuery = useUsers({ page: 1, pageSize: 200 });
-  const loading = usersQuery.isPending;
+useEffect(() => {
+  setPage(1);
+}, [searchText, roleFilter]);
+
+const usersQuery = useUsers({ page, pageSize });
+const loading = usersQuery.isPending;
+const total = usersQuery.data?.total ?? 0;
   const users = useMemo<User[]>(
     () =>
       (usersQuery.data?.items || []).map((u: any) => ({
@@ -94,21 +106,15 @@ const UserPage: React.FC = () => {
     return map;
   }, [shops]);
 
-  const filteredUsers = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    return users.filter((u) => {
-      const name = (u.nickName || '').toLowerCase();
-      const id = (u.id || '').toLowerCase();
-      const openid = (u.openid || '').toLowerCase();
-      const matchKeyword =
-        !keyword ||
-        name.includes(keyword) ||
-        id.includes(keyword) ||
-        openid.includes(keyword);
-      const matchRole = !roleFilter || u.role === roleFilter;
-      return matchKeyword && matchRole;
-    });
-  }, [users, searchText, roleFilter]);
+const filteredByKeyword = useMemo(
+  () => filterByKeyword(users, searchText, ['nickName', 'id', 'openid']),
+  [users, searchText],
+);
+
+const filteredUsers = useMemo(
+  () => filteredByKeyword.filter((u) => !roleFilter || u.role === roleFilter),
+  [filteredByKeyword, roleFilter],
+);
 
   const openCreate = () => {
     setEditing(null);
@@ -324,7 +330,16 @@ const UserPage: React.FC = () => {
           rowKey="id"
           loading={loading}
           size="small"
-          pagination={DEFAULT_TABLE_PAGINATION}
+          pagination={{
+    ...DEFAULT_TABLE_PAGINATION,
+    current: page,
+    total,
+    pageSize,
+    onChange: (p: number, ps: number) => {
+      setPage(p);
+      setPageSize(ps);
+    },
+  }}
           locale={DEFAULT_TABLE_LOCALE}
           scroll={{ x: 1000 }}
         />

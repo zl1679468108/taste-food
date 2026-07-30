@@ -1,0 +1,36 @@
+- generic [ref=e6]:
+  - generic [ref=e8]:
+    - img "coffee" [ref=e10]:
+      - img [ref=e11]
+    - heading "小买卖管理后台" [level=2] [ref=e13]
+    - text: 账号密码登录 · 多角色入口
+  - separator [ref=e15]
+  - generic [ref=e17]:
+    - generic [ref=e19]:
+      - generic "账号" [ref=e21]
+      - generic [ref=e25]:
+        - img "user" [ref=e27]:
+          - img [ref=e28]
+        - textbox "账号" [ref=e30]:
+          - /placeholder: 用户名
+          - text: admin
+    - generic [ref=e32]:
+      - generic "密码" [ref=e34]
+      - generic [ref=e38]:
+        - img "lock" [ref=e40]:
+          - img [ref=e41]
+        - textbox "密码" [ref=e43]: admin123
+        - img "eye-invisible" [ref=e45] [cursor=pointer]:
+          - img [ref=e46]
+    - button "shop 登录" [ref=e49] [cursor=pointer]:
+      - img "shop" [ref=e51]:
+        - img [ref=e52]
+      - generic [ref=e54]: 登录
+  - generic [ref=e56]:
+    - generic [ref=e57] [cursor=pointer]: 没有账号？去注册
+    - button "填充测试商家" [ref=e58] [cursor=pointer]:
+      - generic [ref=e59]: 填充测试商家
+  - generic [ref=e62]:
+    - img "safety" [ref=e63]:
+      - img [ref=e64]
+    - text: 开发提示：平台管理员 admin / admin123；商家可点「填充测试商家」

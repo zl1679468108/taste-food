@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BadRequestException } from '@nestjs/common';
-import { DeliveryType, ShopStatus } from '../src/common/constants/enums';
+import { DeliveryType, MenuItemStatus, ShopStatus } from '../src/common/constants/enums';
 import { createOrderService } from './helpers/order-service';
 
 test('create order ignores client price and uses server menu price plus spec adjustments', async () => {
@@ -80,6 +80,58 @@ test('create order rejects spec options that do not belong to the menu item', as
     (error: unknown) =>
       error instanceof BadRequestException &&
       error.message === '菜品 牛肉面 不包含规格选项 extra-beef',
+  );
+});
+
+test('create order rejects inactive menu items', async () => {
+  const { service } = createOrderService({
+    menuItems: {
+      'menu-off': {
+        id: 'menu-off',
+        shopId: 'shop-off',
+        name: '已下架菜品',
+        price: 1200,
+        status: MenuItemStatus.INACTIVE,
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.create({
+      shopId: 'shop-off',
+      userId: 'user-off',
+      deliveryType: DeliveryType.PICKUP,
+      items: [{ menuItemId: 'menu-off', name: '已下架菜品', quantity: 1 }],
+    }),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      error.message === '菜品 已下架菜品 不存在或已下架',
+  );
+});
+
+test('create order rejects menu items from another shop', async () => {
+  const { service } = createOrderService({
+    menuItems: {
+      'menu-other-shop': {
+        id: 'menu-other-shop',
+        shopId: 'shop-b',
+        name: '隔壁店菜品',
+        price: 1200,
+        status: MenuItemStatus.ACTIVE,
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.create({
+      shopId: 'shop-a',
+      userId: 'user-shop',
+      deliveryType: DeliveryType.PICKUP,
+      items: [{ menuItemId: 'menu-other-shop', name: '隔壁店菜品', quantity: 1 }],
+    }),
+    (error: unknown) =>
+      error instanceof BadRequestException &&
+      error.message === '菜品 隔壁店菜品 不属于当前店铺',
   );
 });
 
@@ -258,7 +310,7 @@ test('create order allocates meaningful orderNo and export includes xlsx', async
   });
 
   assert.ok(order.orderNo);
-  assert.match(order.orderNo!, /^TF\d{8}00AB\d{4}$/);
+  assert.match(order.orderNo!, /^TF\d{8}P00\d{4}$/);
 
   const exported = await service.exportOrdersCsv(shopId, { format: 'both', maxRows: 10 });
   assert.ok(exported.count >= 1);

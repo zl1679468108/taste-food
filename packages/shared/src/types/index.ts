@@ -129,6 +129,13 @@ export interface DeliveryTrackPoint {
   createdAt: string;
 }
 
+/** 订单状态历史 */
+export interface OrderStatusHistoryItem {
+  status: OrderStatus;
+  time: string;
+  fromStatus?: OrderStatus;
+}
+
 /** 订单 */
 export interface Order {
   id: string;
@@ -137,6 +144,8 @@ export interface Order {
   shopId: string;
   userId: string;
   riderId?: string;
+  /** 当前骑手手上配送中的外送单数量（含当前单） */
+  riderDeliveryCount?: number;
   status: OrderStatus;
   total: number; // 单位：分
   deliveryFee: number; // 单位：分
@@ -150,21 +159,19 @@ export interface Order {
   deliveryLongitude?: number;
   tableNo?: string;
   remark?: string;
+  cancelReason?: string;
+  rejectReason?: string;
   contactName?: string;
   contactPhone?: string;
   invoiceNeeded?: boolean;
   invoiceTitle?: string;
   invoiceTaxNo?: string;
   items: OrderItem[];
+  /** 订单各状态完成时间，按 time 升序 */
+  statusHistory?: OrderStatusHistoryItem[];
   createdAt: string;
   updatedAt: string;
   estimatedCompletion?: string;
-}
-
-/** 订单状态历史 */
-export interface OrderStatusHistoryItem {
-  status: OrderStatus;
-  time: string;
 }
 
 /** 营业日 key */
@@ -231,4 +238,98 @@ export interface OrderStats {
   pendingCount: number;
   preparingCount: number;
   completedCount: number;
+}
+
+
+/** 订单端可执行操作 */
+export interface OrderStatusAction {
+  label: string;
+  status: string;
+  type: 'primary' | 'danger';
+  cancel?: boolean;
+}
+
+/**
+ * 根据订单状态与配送方式返回可用操作列表（与 admin 端状态流转保持一致）
+ * 用于统一维护前后端订单状态操作映射
+ */
+export function getOrderStatusActions(
+  status: string,
+  deliveryType: string,
+): OrderStatusAction[] {
+  switch (status) {
+    case OrderStatus.PENDING_PAYMENT:
+      return [
+        {
+          label: '取消订单',
+          status: OrderStatus.CANCELLED,
+          type: 'danger',
+          cancel: true,
+        },
+      ];
+    case OrderStatus.PAID:
+      return [
+        {
+          label: '接单',
+          status: OrderStatus.ACCEPTED,
+          type: 'primary',
+        },
+        {
+          label: '拒单',
+          status: OrderStatus.REJECTED,
+          type: 'danger',
+        },
+        {
+          label: '取消订单',
+          status: OrderStatus.CANCELLED,
+          type: 'danger',
+          cancel: true,
+        },
+      ];
+    case OrderStatus.ACCEPTED:
+      return [
+        {
+          label: '开始制作',
+          status: OrderStatus.PREPARING,
+          type: 'primary',
+        },
+      ];
+    case OrderStatus.PREPARING:
+      return deliveryType === DeliveryType.DELIVERY
+        ? [
+            {
+              label: '开始配送（商家）',
+              status: OrderStatus.DELIVERING,
+              type: 'primary',
+            },
+          ]
+        : [
+            {
+              label:
+                deliveryType === DeliveryType.DINE_IN
+                  ? '待取餐（制作完成）'
+                  : '待自取（制作完成）',
+              status: OrderStatus.READY_FOR_PICKUP,
+              type: 'primary',
+            },
+          ];
+    case OrderStatus.READY_FOR_PICKUP:
+      return [
+        {
+          label: '确认取餐',
+          status: OrderStatus.COMPLETED,
+          type: 'primary',
+        },
+      ];
+    case OrderStatus.DELIVERING:
+      return [
+        {
+          label: '确认送达',
+          status: OrderStatus.COMPLETED,
+          type: 'primary',
+        },
+      ];
+    default:
+      return [];
+  }
 }

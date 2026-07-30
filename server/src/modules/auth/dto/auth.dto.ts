@@ -77,6 +77,7 @@ export class LoginResponseDto {
   nickName?: string;
   username?: string;
   phone?: string;
+  lastLoginAt?: string;
   roles?: Array<{ role: string; shopId?: string | null; status: string }>;
 }
 

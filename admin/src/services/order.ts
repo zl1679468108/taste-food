@@ -1,6 +1,6 @@
 import request from '@/utils/request';
 
-export interface Order {
+ export interface Order {
   id: string;
   /** 业务订单号（若后端提供则优先展示） */
   orderNo?: string;
@@ -8,6 +8,14 @@ export interface Order {
   shopId: string;
   userId: string;
   riderId?: string;
+  /** 骑手当前同时配送单数 */
+  riderDeliveryCount?: number;
+  /** 店铺坐标（外送订单用于轨迹示意图起点） */
+  shopLatitude?: number;
+  shopLongitude?: number;
+  /** 收货地址坐标（外送订单用于轨迹示意图终点） */
+  deliveryLatitude?: number;
+  deliveryLongitude?: number;
   status: string;
   total: number;
   deliveryFee: number;
@@ -25,6 +33,7 @@ export interface Order {
   items: OrderItem[];
   createdAt: string;
   updatedAt: string;
+  statusHistory?: Array<{ status: string; time: string; fromStatus?: string }>;
 }
 
 export interface OrderItem {
@@ -62,6 +71,28 @@ export const getOrders = (params: { shop_id: string; status?: string; page: numb
 
 export const getOrder = (id: string) =>
   request.get(`/api/orders/${id}`) as Promise<Order>;
+
+/** 配送轨迹点（GET /api/orders/:id/delivery-track，按 recordedAt 升序） */
+export interface DeliveryTrackPoint {
+  id: string;
+  orderId: string;
+  shopId: string;
+  riderId?: string;
+  latitude: number;
+  longitude: number;
+  speed?: number;
+  accuracy?: number;
+  /** 上报来源：rider | rider_auto | rider_location | demo_location */
+  source: string;
+  recordedAt: string;
+  createdAt: string;
+}
+
+/** 拉取配送轨迹（非外送订单返回空数组） */
+export const getDeliveryTrack = (id: string) =>
+  request.get(`/api/orders/${id}/delivery-track`, {
+    skipErrorMessage: true,
+  }) as Promise<DeliveryTrackPoint[]>;
 
 /** 今日统计（优先使用当前店铺上下文 shop_id） */
 export const getOrderStats = (shopId?: string) =>

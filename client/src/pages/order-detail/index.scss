@@ -62,20 +62,38 @@
 
 .order-goods__list {
   &--collapsed {
-    max-height: 168px;
+    max-height: 270px;
     overflow: hidden;
   }
 }
 
 .order-goods__item {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: $space-2;
   padding: $space-2 0;
   border-bottom: 1px solid $divider;
 
   &:last-child {
     border-bottom: none;
+  }
+
+  &-thumb {
+    width: 72px !important;
+    height: auto !important;
+    min-height: 72px;
+    align-self: stretch;
+    flex-shrink: 0;
+    border-radius: $radius-md !important;
+    overflow: hidden;
+    position: relative;
+
+    .food-thumb__img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
   }
 
   &-main {
@@ -348,6 +366,45 @@
     color: $text-secondary;
     font-size: $font-sm;
     line-height: $leading-relaxed;
+  }
+
+  &__rider-panel {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    margin-top: $space-3;
+    padding: $space-2 $space-3;
+    border-radius: $radius-md;
+    background: $bg-muted;
+  }
+
+  &__rider-item {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__rider-label {
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-tertiary;
+  }
+
+  &__rider-value {
+    font-size: $font-base;
+    line-height: $leading-snug;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+  }
+
+  &__rider-divider {
+    width: 1px;
+    height: 28px;
+    margin: 0 $space-3;
+    background: $divider;
+    flex-shrink: 0;
   }
 
 

@@ -3,7 +3,7 @@
 .my-reviews-page {
   min-height: 100vh;
   background: $bg-page;
-  padding: $space-3 $space-3 calc(#{$space-8} + env(safe-area-inset-bottom));
+  padding: $space-3 $space-3 calc(70px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 
   > .empty-state {

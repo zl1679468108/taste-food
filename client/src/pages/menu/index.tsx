@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { flushSync } from 'react-dom';
 import { View, Text, ScrollView, Input } from '@tarojs/components';
-import Taro, { createSelectorQuery } from '@tarojs/taro';
-import { get, post, isRetryableError } from '../../utils/request';
+import Taro, { createSelectorQuery, useDidShow } from '@tarojs/taro';
+import { get, post, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
@@ -22,7 +22,9 @@ import ListEndTip from '../../components/ListEndTip';
 import Icon from '../../components/Icon';
 import BottomSheet from '../../components/BottomSheet';
 import EmptyState from '../../components/EmptyState';
+import FooterBar from '../../components/FooterBar';
 import { usePullRefresh } from '../../hooks/usePullRefresh';
+import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import './index.scss';
 
 import FlyInAnimation from '../../components/FlyInAnimation';
@@ -209,6 +211,8 @@ const MenuItemsPanel = memo(function MenuItemsPanel({
 export default function MenuPage() {
 
   const cartStore = useCartStore();
+  const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const activeRole = useAuthStore((s) => s.user?.role);
 
   const [shop, setShop] = useState<Shop | null>(null);
   const [categories, setCategories] = useState<CategoryItemData[]>([]);
@@ -234,6 +238,7 @@ export default function MenuPage() {
   const [loadingSpecs, setLoadingSpecs] = useState(false);
   const [specExtraPrice, setSpecExtraPrice] = useState(0);
   const [addingToCart, setAddingToCart] = useState(false);
+  const { run: runFavoriteAction } = useKeyedAsyncAction();
   const searchTimerRef = useRef<NodeJS.Timeout | null>(null);
   const categoryOffsetsRef = useRef<number[]>([]);
   const scrollLockRef = useRef(false); // 点击分类滚动时锁定 scroll-spy，避免抖动
@@ -260,6 +265,24 @@ export default function MenuPage() {
   const menuScrollTopRef = useRef(0);
   // 微信 scroll-top 仅在值变化时生效，用 0/1 抖动保证每次恢复都能写回
   const scrollRestoreNonceRef = useRef(0);
+
+  const redirectNonCustomerRole = useCallback(() => {
+    const authState = useAuthStore.getState();
+    if (!authState.isLoggedIn) return;
+    if (authState.user?.role === 'rider') {
+      Taro.switchTab({ url: '/pages/rider/index' });
+    } else if (authState.user?.role === 'merchant') {
+      Taro.switchTab({ url: '/pages/admin/index' });
+    }
+  }, []);
+
+  useDidShow(() => {
+    redirectNonCustomerRole();
+  });
+
+  useEffect(() => {
+    redirectNonCustomerRole();
+  }, [isLoggedIn, activeRole, redirectNonCustomerRole]);
 
   // Refs to avoid stale closures in callbacks
   const categoriesRef = useRef(categories);
@@ -1082,29 +1105,37 @@ export default function MenuPage() {
       return;
     }
 
-    try {
-      const res = await post<{ isFavorite: boolean }>('/favorites/toggle', {
-        menuItemId: item.id,
-        shopId: currentShopId || DEFAULT_SHOP_ID,
-      });
-      const nextFavorite = res.data?.isFavorite ?? !item.isFavorite;
-      Taro.showToast({ title: nextFavorite ? '已收藏' : '已取消收藏', icon: 'success' });
+    // toggle 语义下连点会让最终态与服务端不一致：按 menuItemId 维度互斥，
+    // 请求期间用带 mask 的 loading 阻断心形二次点击。
+    await runFavoriteAction(`fav:${item.id}`, async () => {
+      try {
+        Taro.showLoading({ title: '处理中', mask: true });
+        const res = await post<{ isFavorite: boolean }>('/favorites/toggle', {
+          menuItemId: item.id,
+          shopId: currentShopId || DEFAULT_SHOP_ID,
+        });
+        Taro.hideLoading();
+        const nextFavorite = res.data?.isFavorite ?? !item.isFavorite;
+        Taro.showToast({ title: nextFavorite ? '已收藏' : '已取消收藏', icon: 'success' });
 
-      const patchFavorite = (cats: CategoryItemData[]) =>
-        cats.map((cat) => ({
-          ...cat,
-          items: cat.items.map((i) =>
-            i.id === item.id ? { ...i, isFavorite: nextFavorite } : i,
-          ),
-        }));
-      const nextAll = patchFavorite(allCategoriesRef.current);
-      preserveMenuScrollPosition();
-      setAllCategories(nextAll);
-      setCategories(filterCategoriesByKeyword(nextAll, searchKeywordRef.current));
-    } catch (e) {
-      console.error('收藏操作失败:', e);
-      Taro.showToast({ title: '收藏操作失败', icon: 'none' });
-    }
+        const patchFavorite = (cats: CategoryItemData[]) =>
+          cats.map((cat) => ({
+            ...cat,
+            items: cat.items.map((i) =>
+              i.id === item.id ? { ...i, isFavorite: nextFavorite } : i,
+            ),
+          }));
+        const nextAll = patchFavorite(allCategoriesRef.current);
+        preserveMenuScrollPosition();
+        setAllCategories(nextAll);
+        setCategories(filterCategoriesByKeyword(nextAll, searchKeywordRef.current));
+      } catch (e) {
+        Taro.hideLoading();
+        if (isDuplicateSubmitError(e)) return;
+        console.error('收藏操作失败:', e);
+        Taro.showToast({ title: '收藏操作失败', icon: 'none' });
+      }
+    });
   }
 
   function clearSearch() {
@@ -1274,13 +1305,19 @@ export default function MenuPage() {
       {loading ? (
         <SkeletonLoader mode='list' count={5} />
       ) : loadError ? (
-        <EmptyState
-          icon='warning'
-          title='加载失败'
-          description={canRetry ? '网络不太稳，点一下再试试' : '菜单暂时加载不出来'}
-          actionText={canRetry ? '再试一次' : '重新加载'}
-          onAction={() => loadData()}
-        />
+        <>
+          <EmptyState
+            icon='warning'
+            title='加载失败'
+            description={canRetry ? '网络不太稳，点一下再试试' : '菜单暂时加载不出来'}
+          />
+          <FooterBar
+            actionOnly
+            avoidTabBar
+            actionText={canRetry ? '再试一次' : '重新加载'}
+            onAction={() => loadData()}
+          />
+        </>
       ) : categories.length === 0 ? (
         <EmptyState
           icon={searchKeyword.trim() ? 'search' : 'food'}

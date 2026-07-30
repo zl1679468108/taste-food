@@ -1,7 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  listNotifications, getUnreadCount,
-  markNotificationRead, markAllNotificationsRead,
+  listNotifications,
+  getUnreadCount,
+  markNotificationRead,
+  markAllNotificationsRead,
 } from '@/services/notification';
 import { queryKeys } from './queryKeys';
 import { STALE_TIMES } from '@/lib/queryClient';

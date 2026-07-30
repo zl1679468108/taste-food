@@ -2,6 +2,7 @@ import * as TaroImport from '@tarojs/taro';
 import { API_BASE_URL } from '../env';
 import { ApiResponse } from '../types/api';
 import { getCache, setCache, clearResourceCache } from './cache';
+import { buildMutationKey, runExclusiveMutation } from './mutation-guard';
 import { useAuthStore } from '../stores/authStore';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
@@ -34,6 +35,11 @@ interface RequestOptions {
   retryable?: boolean;
   /** 跳过全局 401 自动登出拦截（用于 /auth/refresh 等认证接口） */
   skipAuthRedirect?: boolean;
+  /**
+   * 跳过写操作全局去重（默认 POST/PUT/PATCH/DELETE 同 method+url+body 互斥）。
+   * 仅用于确实需要并发重复提交的场景（如批量循环调用同一接口）。
+   */
+  skipDuplicateGuard?: boolean;
 }
 
 const RETRYABLE_BUSINESS_CODES = new Set([500, 502, 503, 504, -1, -2]);
@@ -169,8 +175,10 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // 默认：网络类错误重试 1 次；显式 retries 覆盖
-  const defaultRetries = typeof options?.retries === 'number' ? options.retries : 1;
+  // 默认：GET 网络类错误重试 1 次；显式 retries 覆盖
+  // 写操作默认不重试：超时/弱网下服务端可能已落库，重试会造成重复下单、重复状态流转
+  const defaultRetries =
+    typeof options?.retries === 'number' ? options.retries : method === 'GET' ? 1 : 0;
   const retryDelay = options?.retryDelay ?? 800;
 
   let attempt = 0;
@@ -227,7 +235,12 @@ async function request<T>(
           }
           // 刷新失败且 refreshSession 内部未处理登出（token 仍存在但刷新接口返回 1004/401）
           // 若 storage token 已被清空，说明 refreshSession 内部已经 logout，避免重复处理
-          if (!getToken()) break;
+          if (!getToken()) {
+            throw new RequestError(responseData.message || '登录已过期，请重新登录', responseData.code, {
+              retryable: false,
+              isNetworkError: false,
+            });
+          }
           // 刷新后 token 依然存在但再次未认证，走登出流程
           const pages = Taro.getCurrentPages();
           const currentPage = pages[pages.length - 1];
@@ -362,45 +375,67 @@ export function get<T>(
   return request<T>('GET', url, params, options);
 }
 
-/** POST 请求 */
-export async function post<T>(
+/**
+ * 写操作统一包装：
+ * 1. 同 method + url + body 的请求在进行中时直接拒绝（DuplicateSubmitError），
+ *    防止连点 / 事件重入造成重复下单、重复状态流转
+ * 2. 成功后清理该资源的 GET 缓存
+ */
+function mutate<T>(
+  method: Exclude<HttpMethod, 'GET'>,
   url: string,
   data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  const result = await request<T>('POST', url, data, options);
-  clearResourceCache(url);
-  return result;
+  const send = async (): Promise<ApiResponse<T>> => {
+    const result = await request<T>(method, url, data, options);
+    clearResourceCache(url);
+    return result;
+  };
+
+  if (options?.skipDuplicateGuard) {
+    return send();
+  }
+
+  return runExclusiveMutation(buildMutationKey(method, url, data), send);
+}
+
+/** POST 请求 */
+export function post<T>(
+  url: string,
+  data?: RequestData,
+  options?: RequestOptions,
+): Promise<ApiResponse<T>> {
+  return mutate<T>('POST', url, data, options);
 }
 
 /** PUT 请求 */
-export async function put<T>(
+export function put<T>(
   url: string,
   data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  const result = await request<T>('PUT', url, data, options);
-  clearResourceCache(url);
-  return result;
+  return mutate<T>('PUT', url, data, options);
 }
 
 /** DELETE 请求 */
-export async function del<T>(
+export function del<T>(
   url: string,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  const result = await request<T>('DELETE', url, undefined, options);
-  clearResourceCache(url);
-  return result;
+  return mutate<T>('DELETE', url, undefined, options);
 }
 
 /** PATCH 请求 */
-export async function patch<T>(
+export function patch<T>(
   url: string,
   data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
-  const result = await request<T>('PATCH', url, data, options);
-  clearResourceCache(url);
-  return result;
+  return mutate<T>('PATCH', url, data, options);
 }
+
+export {
+  DuplicateSubmitError,
+  isDuplicateSubmitError,
+} from './mutation-guard';

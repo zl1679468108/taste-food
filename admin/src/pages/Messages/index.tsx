@@ -24,17 +24,30 @@ const MessagesPage: React.FC = () => {
 
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
+  /**
+   * 已发起标已读的消息 id 集合。
+   * item.isRead 依赖 refetch 后的数据，失效前可被重复点击，故用本地集合按行守卫。
+   */
+  const [readingIds, setReadingIds] = useState<Set<string>>(new Set());
 
   const handleRead = async (item: InboxNotification) => {
-    if (item.isRead) return;
+    if (item.isRead || readingIds.has(item.id)) return;
+    setReadingIds((prev) => new Set(prev).add(item.id));
     try {
       await markReadMutation.mutateAsync(item.id);
     } catch {
       // toast
+    } finally {
+      setReadingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
     }
   };
 
   const handleReadAll = async () => {
+    if (markAllReadMutation.isPending) return;
     try {
       await markAllReadMutation.mutateAsync();
       message.success('已全部标为已读');
@@ -50,7 +63,13 @@ const MessagesPage: React.FC = () => {
         title="消息中心"
         onRefresh={() => void notificationsQuery.refetch()}
         extra={
-          <Button type="primary" icon={<CheckOutlined />} onClick={() => void handleReadAll()}>
+          <Button
+            type="primary"
+            icon={<CheckOutlined />}
+            loading={markAllReadMutation.isPending}
+            disabled={markAllReadMutation.isPending}
+            onClick={() => void handleReadAll()}
+          >
             全部已读
           </Button>
         }
@@ -85,6 +104,7 @@ const MessagesPage: React.FC = () => {
                         key="read"
                         type="link"
                         size="small"
+                        loading={readingIds.has(item.id)}
                         onClick={(e) => {
                           e.stopPropagation();
                           void handleRead(item);

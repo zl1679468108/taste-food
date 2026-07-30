@@ -10,7 +10,7 @@ import {
   useUpdateCategory,
   useDeleteCategory,
 } from '@/hooks/queries';
-import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE, filterByKeyword } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
@@ -28,6 +28,7 @@ const CategoryPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const categoriesQuery = useCategories(ready && shopId ? shopId : '');
   const categories = categoriesQuery.data ?? [];
@@ -38,6 +39,7 @@ const CategoryPage: React.FC = () => {
   const deleteCategoryMutation = useDeleteCategory();
 
   const handleDelete = async (id: string) => {
+    setDeletingId(id);
     try {
       const items = await getMenuItems({ shop_id: shopId, category_id: id });
       if (items && items.length > 0) {
@@ -48,6 +50,8 @@ const CategoryPage: React.FC = () => {
       message.success('删除成功');
     } catch (error) {
       console.error('删除分类失败:', error);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -97,10 +101,15 @@ const CategoryPage: React.FC = () => {
             description="若分类下仍有菜品将无法删除"
             okText="确认删除"
             cancelText="取消"
-            okButtonProps={{ danger: true }}
+            okButtonProps={{ danger: true, loading: deletingId === record.id }}
             onConfirm={() => handleDelete(record.id)}
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              loading={deletingId === record.id}
+            >
               删除
             </Button>
           </Popconfirm>
@@ -109,11 +118,10 @@ const CategoryPage: React.FC = () => {
     },
   ];
 
-  const filteredCategories = useMemo(() => {
-    const keyword = searchText.trim();
-    if (!keyword) return categories;
-    return categories.filter((c) => c.name?.includes(keyword));
-  }, [categories, searchText]);
+const filteredCategories = useMemo(
+  () => filterByKeyword(categories, searchText, ['name']),
+  [categories, searchText],
+);
 
   return (
     <div className="tf-page">
@@ -167,11 +175,11 @@ const CategoryPage: React.FC = () => {
             if (editing) {
               await updateCategoryMutation.mutateAsync({
                 id: editing.id,
-                data: { ...values, shopId } as any,
+                data: { ...values, shopId } as Record<string, unknown>,
               });
               message.success('更新成功');
             } else {
-              await createCategoryMutation.mutateAsync({ ...values, shopId } as any);
+              await createCategoryMutation.mutateAsync({ ...values, shopId } as Record<string, unknown>);
               message.success('创建成功');
             }
             setModalOpen(false);

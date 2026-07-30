@@ -21,6 +21,11 @@
     justify-content: stretch;
   }
 
+  &--avoid-tab-bar {
+    @include above-tab-bar;
+    padding-bottom: 10px;
+  }
+
   &__left {
     display: flex;
     align-items: baseline;

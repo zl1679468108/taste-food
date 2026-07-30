@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro, { useDidShow, useRouter } from '@tarojs/taro';
-import { get, del, patch, post } from '../../utils/request';
+import { get, del, patch, post, isDuplicateSubmitError } from '../../utils/request';
+import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { useAuthStore } from '../../stores/authStore';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
@@ -33,6 +34,7 @@ const AddressListPage = () => {
   const [loading, setLoading] = useState(true);
   const [list, setList] = useState<AddressItem[]>([]);
   const [loadError, setLoadError] = useState(false);
+  const { isPending: isRowPending, run: runRowAction } = useKeyedAsyncAction();
 
   const loadList = useCallback(async () => {
     if (!useAuthStore.getState().isLoggedIn) {
@@ -84,37 +86,46 @@ const AddressListPage = () => {
     Taro.navigateBack();
   };
 
-  const handleSetDefault = async (item: AddressItem) => {
+  const handleSetDefault = (item: AddressItem) => {
     if (item.isDefault) return;
-    try {
-      await patch(`/addresses/${item.id}/default`);
-      Taro.showToast({ title: '已设为默认', icon: 'success' });
-      loadList();
-    } catch (e) {
-      // 兼容 POST 别名
+    void runRowAction(`default:${item.id}`, async () => {
       try {
-        await post(`/addresses/${item.id}/set-default`);
+        await patch(`/addresses/${item.id}/default`);
         Taro.showToast({ title: '已设为默认', icon: 'success' });
         loadList();
-      } catch (err) {
-        console.error('设默认失败', err);
+      } catch (e) {
+        if (isDuplicateSubmitError(e)) return;
+        // 兼容 POST 别名
+        try {
+          await post(`/addresses/${item.id}/set-default`);
+          Taro.showToast({ title: '已设为默认', icon: 'success' });
+          loadList();
+        } catch (err) {
+          if (isDuplicateSubmitError(err)) return;
+          console.error('设默认失败', err);
+        }
       }
-    }
+    });
   };
 
   const handleDelete = (item: AddressItem) => {
+    const key = `delete:${item.id}`;
+    if (isRowPending(key)) return;
     Taro.showModal({
       title: '删除地址',
       content: `确认删除「${item.detail}」？`,
-      success: async (res) => {
+      success: (res) => {
         if (!res.confirm) return;
-        try {
-          await del(`/addresses/${item.id}`);
-          Taro.showToast({ title: '已删除', icon: 'success' });
-          loadList();
-        } catch (e) {
-          console.error('删除地址失败', e);
-        }
+        void runRowAction(key, async () => {
+          try {
+            await del(`/addresses/${item.id}`);
+            Taro.showToast({ title: '已删除', icon: 'success' });
+            loadList();
+          } catch (e) {
+            if (isDuplicateSubmitError(e)) return;
+            console.error('删除地址失败', e);
+          }
+        });
       },
     });
   };
@@ -134,6 +145,9 @@ const AddressListPage = () => {
           icon='lock'
           title='请先登录'
           description='登录后就能管理收货地址'
+        />
+        <FooterBar
+          actionOnly
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -148,9 +162,8 @@ const AddressListPage = () => {
           icon='warning'
           title='加载失败'
           description='地址暂时加载不出来'
-          actionText='再试一次'
-          onAction={loadList}
         />
+        <FooterBar actionOnly actionText='再试一次' onAction={loadList} />
       </View>
     );
   }
@@ -162,12 +175,13 @@ const AddressListPage = () => {
           icon='location'
           title='还没有地址'
           description='添加后外卖下单会更快捷'
-          actionText='新增地址'
-          onAction={() => goEdit()}
         />
       ) : (
         <View className='address-page__list'>
-          {list.map((item) => (
+          {list.map((item) => {
+            const settingDefault = isRowPending(`default:${item.id}`);
+            const deleting = isRowPending(`delete:${item.id}`);
+            return (
             <View
               key={item.id}
               className={`address-card ${item.isDefault ? 'is-default' : ''}`}
@@ -184,19 +198,26 @@ const AddressListPage = () => {
               </View>
               <View className='address-card__actions' onClick={(e) => e.stopPropagation()}>
                 {!item.isDefault && (
-                  <Text className='address-card__action' onClick={() => handleSetDefault(item)}>
-                    设默认
+                  <Text
+                    className={`address-card__action${settingDefault ? ' is-disabled' : ''}`}
+                    onClick={() => handleSetDefault(item)}
+                  >
+                    {settingDefault ? '设置中...' : '设默认'}
                   </Text>
                 )}
                 <Text className='address-card__action' onClick={() => goEdit(item.id)}>
                   编辑
                 </Text>
-                <Text className='address-card__action danger' onClick={() => handleDelete(item)}>
-                  删除
+                <Text
+                  className={`address-card__action danger${deleting ? ' is-disabled' : ''}`}
+                  onClick={() => handleDelete(item)}
+                >
+                  {deleting ? '删除中...' : '删除'}
                 </Text>
               </View>
             </View>
-          ))}
+            );
+          })}
           <ListEndTip show={list.length > 0} hasMore={false} variant='footer' />
         </View>
       )}

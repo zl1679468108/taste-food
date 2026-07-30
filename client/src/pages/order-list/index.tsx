@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { View } from '@tarojs/components';
+import { ScrollView, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
@@ -11,11 +11,9 @@ import FilterTabs from '../../components/FilterTabs';
 import OrderCard from '../../components/OrderCard';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
-import VirtualList from '../../components/VirtualList';
 import ListEndTip from '../../components/ListEndTip';
+import FooterBar from '../../components/FooterBar';
 import './index.scss';
-
-const ORDER_CARD_HEIGHT = 180;
 
 const FILTER_TABS = [
   { key: '', label: '全部' },
@@ -181,6 +179,10 @@ const OrderListPage = () => {
           icon='lock'
           title='请先登录'
           description='登录后就能查看订单进度'
+        />
+        <FooterBar
+          actionOnly
+          avoidTabBar
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -206,6 +208,10 @@ const OrderListPage = () => {
             icon='warning'
             title='加载失败'
             description={canRetry ? '网络不太稳，点一下再试试' : '订单暂时加载不出来'}
+          />
+          <FooterBar
+            actionOnly
+            avoidTabBar
             actionText={canRetry ? '再试一次' : '去点餐'}
             onAction={() => {
               if (canRetry) {
@@ -226,34 +232,40 @@ const OrderListPage = () => {
             icon='order'
             title={activeFilter ? '这里还没有订单' : '还没有订单'}
             description={activeFilter ? '换个状态看看，或去点一份喜欢的' : '去点一份喜欢的吧'}
+          />
+          <FooterBar
+            actionOnly
+            avoidTabBar
             actionText='去点餐'
             onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
           />
         </View>
       ) : (
         <View className='order-list-page__list'>
-          <VirtualList
+          <ScrollView
             key={`orders-${activeFilter || 'all'}`}
-            data={orders}
-            itemHeight={ORDER_CARD_HEIGHT}
-            height='100%'
-            keyExtractor={(order) => order.id}
-            onScrollToLower={() => loadMore()}
-            renderItem={(order) => (
+            className='order-list-page__scroll'
+            scrollY
+            enhanced
+            showScrollbar={false}
+            lowerThreshold={80}
+            onScrollToLower={loadMore}
+          >
+            {orders.map((order) => (
               <OrderCard
+                key={order.id}
                 order={order}
                 shopName={shopName || '店铺'}
                 onClick={() => goToDetail(order.id)}
               />
-            )}
-            footer={
-              <ListEndTip
-                loading={loadingMore}
-                hasMore={hasMore}
-                show={orders.length > 0}
-              />
-            }
-          />
+            ))}
+            <ListEndTip
+              loading={loadingMore}
+              hasMore={hasMore}
+              show={orders.length > 0}
+              variant='tab'
+            />
+          </ScrollView>
         </View>
       )}
     </View>

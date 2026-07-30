@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { get, patch, isRetryableError } from '../../utils/request';
+import { get, patch, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
+import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { PaginatedData } from '../../types/api';
 import { shortOrderId, formatTime } from '../../utils/format';
 import EmptyState from '../../components/EmptyState';
@@ -9,6 +10,7 @@ import SkeletonLoader from '../../components/SkeletonLoader';
 import './reviews.scss';
 import Icon from '../../components/Icon';
 import ListEndTip from '../../components/ListEndTip';
+import FooterBar from '../../components/FooterBar';
 
 interface ReviewItem {
   id: string;
@@ -30,6 +32,7 @@ export default function AdminReviewsPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const { isPending: isReplyPending, run: runReply } = useKeyedAsyncAction();
   const pageSize = 20;
 
   const loadReviews = useCallback(async (pageNum = 1) => {
@@ -70,35 +73,40 @@ export default function AdminReviewsPage() {
 
 
   const handleReply = (item: ReviewItem) => {
+    const key = `reply:${item.id}`;
+    if (isReplyPending(key)) return;
     Taro.showModal({
       title: '回复评价',
       ...( { editable: true, placeholderText: '请输入回复内容' } as Record<string, unknown>),
-      success: async (res: Taro.showModal.SuccessCallbackResult & { content?: string }) => {
+      success: (res: Taro.showModal.SuccessCallbackResult & { content?: string }) => {
         if (!res.confirm) return;
         const reply = (res.content || '').trim();
         if (!reply) {
           Taro.showToast({ title: '回复不能为空', icon: 'none' });
           return;
         }
-        try {
-          const updated = await patch<ReviewItem>(`/reviews/${item.id}/reply`, { reply });
-          const data = updated.data;
-          setReviews((prev) =>
-            prev.map((r) =>
-              r.id === item.id
-                ? {
-                    ...r,
-                    replyContent: data?.replyContent || reply,
-                    replyAt: data?.replyAt || new Date().toISOString(),
-                  }
-                : r,
-            ),
-          );
-          Taro.showToast({ title: '已回复', icon: 'success' });
-        } catch (e) {
-          console.error('回复失败', e);
-          Taro.showToast({ title: '回复失败', icon: 'none' });
-        }
+        void runReply(key, async () => {
+          try {
+            const updated = await patch<ReviewItem>(`/reviews/${item.id}/reply`, { reply });
+            const data = updated.data;
+            setReviews((prev) =>
+              prev.map((r) =>
+                r.id === item.id
+                  ? {
+                      ...r,
+                      replyContent: data?.replyContent || reply,
+                      replyAt: data?.replyAt || new Date().toISOString(),
+                    }
+                  : r,
+              ),
+            );
+            Taro.showToast({ title: '已回复', icon: 'success' });
+          } catch (e) {
+            if (isDuplicateSubmitError(e)) return;
+            console.error('回复失败', e);
+            Taro.showToast({ title: '回复失败', icon: 'none' });
+          }
+        });
       },
     });
   };
@@ -114,7 +122,7 @@ export default function AdminReviewsPage() {
   if (loading) {
     return (
       <View className='admin-reviews-page'>
-        <SkeletonLoader mode='list' count={5} />
+        <SkeletonLoader mode='review' count={5} />
       </View>
     );
   }
@@ -126,6 +134,9 @@ export default function AdminReviewsPage() {
           icon='warning'
           title='加载失败'
           description={canRetry ? '网络不太稳，点一下再试试' : '评价暂时加载不出来'}
+        />
+        <FooterBar
+          actionOnly
           actionText={canRetry ? '再试一次' : '重新加载'}
           onAction={() => loadReviews(1)}
         />
@@ -179,8 +190,11 @@ export default function AdminReviewsPage() {
               <Text className='review-card__reply-text'>{item.replyContent}</Text>
             </View>
           ) : (
-            <View className='review-card__reply-btn' onClick={() => handleReply(item)}>
-              <Text>回复</Text>
+            <View
+              className={`review-card__reply-btn${isReplyPending(`reply:${item.id}`) ? ' is-disabled' : ''}`}
+              onClick={() => handleReply(item)}
+            >
+              <Text>{isReplyPending(`reply:${item.id}`) ? '回复中...' : '回复'}</Text>
             </View>
           )}
         </View>

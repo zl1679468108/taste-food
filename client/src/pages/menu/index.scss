@@ -437,38 +437,77 @@
 
   &__item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    gap: $space-3;
     padding: $space-3 $space-4;
     border-bottom: 1px solid $gray-50;
   }
 
-  &__item-info {
+  &__item-thumb {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: $radius-sm;
+    overflow: hidden;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  &__item-body {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $space-1;
+  }
+
+  &__item-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: $space-3;
+
+    &--meta {
+      align-items: center;
+      min-height: 24px;
+    }
+  }
+
+  &__item-name-wrap,
+  &__item-spec-wrap {
+    flex: 1;
+    min-width: 0;
   }
 
   &__item-name {
+    display: block;
     font-size: $font-md;
     font-weight: $weight-medium;
     color: $text-primary;
     line-height: $leading-snug;
+    white-space: normal;
+    word-break: break-word;
   }
 
   &__item-spec {
+    display: block;
     font-size: $font-xs;
     line-height: $leading-normal;
     color: $text-tertiary;
-    margin-top: 2px;
+    white-space: normal;
+    word-break: break-word;
   }
 
   &__item-price {
+    flex-shrink: 0;
     font-size: $font-lg;
-    line-height: $leading-tight;
+    line-height: $leading-snug;
     font-weight: $weight-semibold;
     color: $text-price;
-    margin-right: $space-3;
+    padding-top: 1px;
   }
 
   &__item-actions {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -855,22 +894,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-
-/* 购物车行缩略图 */
-.cart-popup__item {
-  display: flex;
-  align-items: center;
-  gap: $space-2;
-}
-
-.cart-popup__item-thumb {
-  width: 44px !important;
-  height: 44px !important;
-  border-radius: $radius-sm;
-  overflow: hidden;
-  flex-shrink: 0;
 }
 
 

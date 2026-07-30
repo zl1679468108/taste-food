@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { View, Text, Input, ScrollView, Picker } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { get, post, patch as httpPatch, del } from '../../utils/request';
+import { get, post, patch as httpPatch, del, isDuplicateSubmitError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
+import { useAsyncAction, useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { getCategoryIcon } from '../../utils/iconMap';
 import Icon from '../../components/Icon';
@@ -51,7 +52,11 @@ const MenuManagePage = () => {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategorySort, setNewCategorySort] = useState('0');
   const [addCategoryVisible, setAddCategoryVisible] = useState(false);
-  const [formSubmitting, setFormSubmitting] = useState(false);
+
+  // 强守卫：单例表单（菜品表单/分类表单）用单一动作互斥
+  const { pending: formSubmitting, run: runFormSubmit } = useAsyncAction();
+  // 强守卫：列表行操作（上下架/删除）按 key 维度互斥
+  const rowAction = useKeyedAsyncAction();
 
   /** 加载数据 */
   const loadData = async () => {
@@ -179,7 +184,6 @@ const MenuManagePage = () => {
 
   /** 保存菜品表单 */
   const saveItemForm = async () => {
-    if (formSubmitting) return;
     if (!formName || !formPrice) {
       Taro.showToast({ title: '请填写名称和价格', icon: 'none' });
       return;
@@ -201,36 +205,40 @@ const MenuManagePage = () => {
       imageUrl: formImageUrl,
     };
 
-    setFormSubmitting(true);
-    try {
-      if (formMode.type === 'create') {
-        await post<any>('/menu-items', data);
-        Taro.showToast({ title: '菜品创建成功', icon: 'success' });
-      } else if (editingItem) {
-        await httpPatch<any>(`/menu-items/${editingItem.id}`, data);
-        Taro.showToast({ title: '菜品更新成功', icon: 'success' });
-      }
+    await runFormSubmit(async () => {
+      try {
+        if (formMode.type === 'create') {
+          await post<any>('/menu-items', data);
+          Taro.showToast({ title: '菜品创建成功', icon: 'success' });
+        } else if (editingItem) {
+          await httpPatch<any>(`/menu-items/${editingItem.id}`, data);
+          Taro.showToast({ title: '菜品更新成功', icon: 'success' });
+        }
 
-      setFormVisible(false);
-      loadData();
-    } catch (error: any) {
-      console.error('保存菜品失败:', error);
-    } finally {
-      setFormSubmitting(false);
-    }
+        setFormVisible(false);
+        loadData();
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('保存菜品失败:', error);
+      }
+    });
   };
 
   /** 切换菜品上下架 */
-  const toggleItemStatus = async (item: MenuItem) => {
-    const newStatus = item.status === 'active' ? 'inactive' : 'active';
-    try {
-      await httpPatch(`/menu-items/${item.id}`, { status: newStatus });
-      Taro.showToast({ title: newStatus === 'active' ? '已上架' : '已下架', icon: 'success' });
-      loadData();
-    } catch (error: any) {
-      console.error('切换状态失败:', error);
-    }
-  };
+  const toggleItemStatus = (item: MenuItem) =>
+    rowAction.run(`toggle:${item.id}`, async () => {
+      const newStatus = item.status === 'active' ? 'inactive' : 'active';
+      try {
+        await httpPatch(`/menu-items/${item.id}`, { status: newStatus });
+        Taro.showToast({ title: newStatus === 'active' ? '已上架' : '已下架', icon: 'success' });
+        loadData();
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('切换状态失败:', error);
+      }
+    });
 
   /** 删除菜品 */
   const deleteItem = (item: MenuItem) => {
@@ -239,13 +247,17 @@ const MenuManagePage = () => {
       content: `确定要删除「${item.name}」吗？`,
       success: async (res) => {
         if (res.confirm) {
-          try {
-            await del(`/menu-items/${item.id}`);
-            Taro.showToast({ title: '删除成功', icon: 'success' });
-            loadData();
-          } catch (error: any) {
-            console.error('删除失败:', error);
-          }
+          await rowAction.run(`delete:${item.id}`, async () => {
+            try {
+              await del(`/menu-items/${item.id}`);
+              Taro.showToast({ title: '删除成功', icon: 'success' });
+              loadData();
+            } catch (error: any) {
+              // 重复提交被请求层拦截，属正常行为，不提示用户
+              if (isDuplicateSubmitError(error)) return;
+              console.error('删除失败:', error);
+            }
+          });
         }
       },
     });
@@ -261,21 +273,22 @@ const MenuManagePage = () => {
 
   /** 保存分类编辑 */
   const saveCategoryEdit = async () => {
-    if (!editCategoryItem || formSubmitting) return;
-    setFormSubmitting(true);
-    try {
-      await httpPatch(`/categories/${editCategoryItem.id}`, {
-        name: editCategoryName,
-        sortOrder: parseInt(editCategorySort, 10) || 0,
-      });
-      Taro.showToast({ title: '分类更新成功', icon: 'success' });
-      setEditCategoryVisible(false);
-      loadData();
-    } catch (error: any) {
-      console.error('更新分类失败:', error);
-    } finally {
-      setFormSubmitting(false);
-    }
+    if (!editCategoryItem) return;
+    await runFormSubmit(async () => {
+      try {
+        await httpPatch(`/categories/${editCategoryItem.id}`, {
+          name: editCategoryName,
+          sortOrder: parseInt(editCategorySort, 10) || 0,
+        });
+        Taro.showToast({ title: '分类更新成功', icon: 'success' });
+        setEditCategoryVisible(false);
+        loadData();
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('更新分类失败:', error);
+      }
+    });
   };
 
   /** 删除分类 */
@@ -285,14 +298,18 @@ const MenuManagePage = () => {
       content: `确定要删除「${category.name}」及其所有菜品吗？`,
       success: async (res) => {
         if (res.confirm) {
-          try {
-            await del(`/categories/${category.id}`);
-            Taro.showToast({ title: '分类删除成功', icon: 'success' });
-            setEditCategoryVisible(false);
-            loadData();
-          } catch (error: any) {
-            console.error('删除分类失败:', error);
-          }
+          await rowAction.run(`delete-category:${category.id}`, async () => {
+            try {
+              await del(`/categories/${category.id}`);
+              Taro.showToast({ title: '分类删除成功', icon: 'success' });
+              setEditCategoryVisible(false);
+              loadData();
+            } catch (error: any) {
+              // 重复提交被请求层拦截，属正常行为，不提示用户
+              if (isDuplicateSubmitError(error)) return;
+              console.error('删除分类失败:', error);
+            }
+          });
         }
       },
     });
@@ -300,29 +317,29 @@ const MenuManagePage = () => {
 
   /** 添加分类 */
   const addCategory = async () => {
-    if (formSubmitting) return;
     if (!newCategoryName) {
       Taro.showToast({ title: '请输入分类名称', icon: 'none' });
       return;
     }
 
-    setFormSubmitting(true);
-    try {
-      await post<any>('/categories', {
-        name: newCategoryName,
-        shopId: DEFAULT_SHOP_ID,
-        sortOrder: parseInt(newCategorySort, 10) || 0,
-      });
-      Taro.showToast({ title: '分类创建成功', icon: 'success' });
-      setAddCategoryVisible(false);
-      setNewCategoryName('');
-      setNewCategorySort('0');
-      loadData();
-    } catch (error: any) {
-      console.error('创建分类失败:', error);
-    } finally {
-      setFormSubmitting(false);
-    }
+    await runFormSubmit(async () => {
+      try {
+        await post<any>('/categories', {
+          name: newCategoryName,
+          shopId: DEFAULT_SHOP_ID,
+          sortOrder: parseInt(newCategorySort, 10) || 0,
+        });
+        Taro.showToast({ title: '分类创建成功', icon: 'success' });
+        setAddCategoryVisible(false);
+        setNewCategoryName('');
+        setNewCategorySort('0');
+        loadData();
+      } catch (error: any) {
+        // 重复提交被请求层拦截，属正常行为，不提示用户
+        if (isDuplicateSubmitError(error)) return;
+        console.error('创建分类失败:', error);
+      }
+    });
   };
 
   const filteredItems = getFilteredItems();

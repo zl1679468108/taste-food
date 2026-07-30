@@ -61,6 +61,7 @@
 |------|--------|------|------|
 | ✅ 微信登录 | P0 | T01 | done |
 | ✅ 我的页 / 退出登录 | P1 | T188 | done 2026-07-26 |
+| ✅ 页面级主按钮底部统一 | P2 | T232 | done 2026-07-30 |
 | ✅ 多角色切换 | P0 | T201.7 | 顾客/商家/骑手可在端内切换，小程序禁用管理员视角 |
 | ✅ 菜单浏览 | P0 | T02, T03, T26, T210.3 | done | 店铺头像支持自定义 Logo，失败回退默认图 |
 | ✅ 搜索菜品 | P1 | T15 / T212 | done | 小程序端本地过滤（单店菜单量小，不走后端 search） |
@@ -68,7 +69,7 @@
 | ✅ 确认订单 | P0 | T05 | done |
 | ✅ 促销活动 | P1 | T19 | done |
 | ✅ 模拟/沙箱支付 | P0 | T06, T150 | done |
-| ✅ 订单管理 | P0 | T07, T21, T23 / T214 / T219 | done | 待支付/已支付顾客可自主取消；商家接单后不可自行取消（T214）；取消/拒单原因必填（T219） |
+| ✅ 订单管理 | P0 | T07, T21, T23 / T214 / T219 / T228 | done | 待支付/已支付顾客可自主取消；商家接单后不可自行取消（T214）；取消/拒单原因必填（T219）；订单详情进度展示各状态完成时间（T228） |
 
 ### 3.2 商家端（小程序）✅ 全部完成
 
@@ -231,8 +232,10 @@
 |------|--------|------|------|------|
 | ✅ 配送轨迹持久化 | P2 | T164.1 | ✅ 2026-07-24 | 记录骑手经纬度、速度、精度与上报时间 |
 | ✅ 顾客订单详情地图 | P2 | T164.2 | ✅ 2026-07-24 | 外卖订单展示地图、路线、骑手当前位置与更新时间 |
-| ✅ 骑手位置上报 | P2 | T164.3 | ✅ 2026-07-24 | 骑手配送中可上报位置；开发环境支持演示坐标兜底 |
+| ✅ 骑手位置上报 | P2 | T164.3 | ✅ 2026-07-24 | 已由 T232 的实时无感定位取代手动上报按钮 |
 | ✅ 腾讯地图坐标对齐 | P1 | T211 | ✅ 2026-07-28 | 店铺/地址/订单存 GCJ-02；选点+服务端 geocode；详情地图用真实坐标，无坐标降级 |
+| ✅ 骑手配送负载展示 | P1 | T231 | ✅ 2026-07-30 | 顾客在订单完成前可看到骑手实时位置更新时间，以及骑手手上配送中单量 |
+| ✅ 骑手实时无感定位 | P1 | T232 | ✅ 2026-07-30 | 骑手端移除手动上报按钮，前台自动持续定位并批量同步；PC 后台 / 小程序商家端 / 顾客端三端实时可见。个人主体无后台定位权限，锁屏或切走小程序即停更 |
 
 ### 3.18 多店铺运营与 PC 统一体验 ✅ 2026-07-26 进行中
 
@@ -353,7 +356,7 @@
 |------|------|------|------|
 | GET | `/api/orders` | 订单列表（分页+筛选；支持 `shop_id`；平台跨店 / 商家本店 / 骑手可配送范围） | 是 |
 | GET | `/api/orders/stats/:shopId` | 今日营收统计（商家仅本店；平台可指定店） | 是（Admin） |
-| GET | `/api/orders/:id` | 订单详情 | 是 |
+| GET | `/api/orders/:id` | 订单详情（含 `statusHistory` 状态完成时间） | 是 |
 | POST | `/api/orders` | 创建订单 | 是 |
 | POST | `/api/orders/:id/status` | 更新订单状态（`rejected` 时 `reason` 必填） | 是（Admin） |
 | POST | `/api/orders/:id/cancel` | 取消订单（顾客本人：pending_payment/paid；商家/管理员：本店同状态；`reason` 必填） | 是 |
@@ -433,6 +436,9 @@
 |------|------|------|------|
 | GET | `/api/orders/:id/delivery-track` | 查询订单配送轨迹点 | 是（订单本人/本店商家/接单骑手） |
 | POST | `/api/orders/:id/delivery-track` | 上报配送位置 | 是（Rider/Admin） |
+| POST | `/api/orders/rider/location` | 骑手批量同步定位到全部配送中订单 | 是（Rider） |
+
+> 配送中外送订单详情 `GET /api/orders/:id` 返回 `riderDeliveryCount`（同一骑手配送中外送单数，含当前单）；`delivery:track` WebSocket 推送同步携带该字段，供顾客端实时刷新。
 
 ---
 
@@ -448,6 +454,7 @@
 | `tf_spec_groups` | 规格组 | id, shop_id, name, is_required, max_select |
 | `tf_spec_options` | 规格选项 | id, spec_group_id, name, price_adjust |
 | `tf_orders` | 订单 | id, order_no, shop_id, user_id, rider_id, status, total, delivery_fee, delivery_type, address, shop_latitude, shop_longitude, delivery_latitude, delivery_longitude, table_no, contact_name, contact_phone, remark, invoice_needed, invoice_title, invoice_tax_no |
+| `tf_order_status_history` | 订单状态历史 | id, order_id, shop_id, status, from_status, recorded_at（UNIQUE(order_id,status)；用于订单进度各状态完成时间） |
 | `tf_order_items` | 订单项 | id, order_id, shop_id, menu_item_id, name, quantity, price, spec_desc, image_url |
 | `tf_delivery_info` | 配送信息 | id, order_id, shop_id, courier_name, courier_phone, estimated_delivery_at, delivered_at |
 | `tf_delivery_tracks` | 配送轨迹点 | id, order_id, shop_id, rider_id, latitude, longitude, speed, accuracy, source, recorded_at |

@@ -30,6 +30,8 @@ export interface CartState {
   addItem: (item: Omit<CartItem, 'key'>) => void;
   /** 移除商品 */
   removeItem: (key: string) => void;
+  /** 批量移除商品 */
+  removeItems: (keys: string[]) => void;
   /** 更新商品数量（delta = +1 或 -1） */
   updateQuantity: (key: string, delta: number) => void;
   /** 直接设置商品数量 */

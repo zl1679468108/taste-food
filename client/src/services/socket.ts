@@ -42,6 +42,7 @@ export interface DeliveryTrackEvent {
   shopId: string;
   userId: string;
   riderId?: string;
+  riderDeliveryCount?: number;
   latitude: number;
   longitude: number;
   recordedAt: string;

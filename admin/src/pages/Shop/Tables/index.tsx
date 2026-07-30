@@ -14,6 +14,7 @@ import {
   Image,
   Tag,
 } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { QrcodeOutlined, TableOutlined } from '@ant-design/icons';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -29,7 +30,7 @@ import {
   useSeedTables,
 } from '@/hooks/queries';
 import { useShopContext } from '@/hooks/useShopContext';
-import { DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, filterByKeyword } from '@/utils/table';
 
 const { Text } = Typography;
 
@@ -40,6 +41,7 @@ export default function ShopTablesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ShopTable | null>(null);
   const [qrTable, setQrTable] = useState<ShopTable | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   const activeShopId = ready && shopId ? shopId : '';
@@ -55,6 +57,7 @@ export default function ShopTablesPage() {
   const deleteMutation = useDeleteTable();
   const seedMutation = useSeedTables();
   const seeding = seedMutation.isPending;
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   const onSubmit = async () => {
     const values = await form.validateFields();
@@ -90,20 +93,21 @@ export default function ShopTablesPage() {
     setOpen(true);
   };
 
-  const filteredTables = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    return tables.filter((t) => {
-      const matchKeyword =
-        !keyword ||
-        (t.tableNo || '').toLowerCase().includes(keyword) ||
-        (t.label || '').toLowerCase().includes(keyword);
-      const matchActive =
+const filteredByKeyword = useMemo(
+  () => filterByKeyword(tables, searchText, ['tableNo', 'label']),
+  [tables, searchText],
+);
+
+const filteredTables = useMemo(
+  () =>
+    filteredByKeyword.filter(
+      (t) =>
         !activeFilter ||
         (activeFilter === 'active' && t.active) ||
-        (activeFilter === 'inactive' && !t.active);
-      return matchKeyword && matchActive;
-    });
-  }, [tables, searchText, activeFilter]);
+        (activeFilter === 'inactive' && !t.active),
+    ),
+  [filteredByKeyword, activeFilter],
+);
 
   const columns = useMemo(
     () => [
@@ -168,16 +172,20 @@ export default function ShopTablesPage() {
             </Button>
             <Popconfirm
               title="确认删除该桌台？"
+              okButtonProps={{ danger: true, loading: deletingId === row.id }}
               onConfirm={async () => {
+                setDeletingId(row.id);
                 try {
                   await deleteMutation.mutateAsync({ shopId, tableId: row.id });
                   message.success('已删除');
                 } catch (e) {
                   console.error('删除桌台失败:', e);
+                } finally {
+                  setDeletingId(null);
                 }
               }}
             >
-              <Button type="link" size="small" danger>
+              <Button type="link" size="small" danger loading={deletingId === row.id}>
                 删除
               </Button>
             </Popconfirm>
@@ -185,7 +193,7 @@ export default function ShopTablesPage() {
         ),
       },
     ],
-    [form, deleteMutation, shopId],
+    [form, deleteMutation, shopId, deletingId],
   );
 
   return (
@@ -238,7 +246,7 @@ export default function ShopTablesPage() {
         <Table
           rowKey="id"
           loading={loading}
-          columns={columns as any}
+          columns={columns as ColumnsType<ShopTable>}
           dataSource={filteredTables}
           size="small"
           pagination={DEFAULT_TABLE_PAGINATION}
@@ -263,6 +271,9 @@ export default function ShopTablesPage() {
           setEditing(null);
         }}
         onOk={onSubmit}
+        confirmLoading={saving}
+        cancelButtonProps={{ disabled: saving }}
+        maskClosable={!saving}
         destroyOnClose
         okText="保存"
       >

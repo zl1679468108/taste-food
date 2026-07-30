@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { get, del, isRetryableError } from '../../utils/request';
+import { get, del, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
+import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { useAuthStore } from '../../stores/authStore';
 import { useCartStore } from '../../stores/cartStore';
 import { DEFAULT_SHOP_ID } from '../../env';
@@ -11,6 +12,7 @@ import SkeletonLoader from '../../components/SkeletonLoader';
 import FoodThumb from '../../components/FoodThumb';
 import Icon from '../../components/Icon';
 import ListEndTip from '../../components/ListEndTip';
+import FooterBar from '../../components/FooterBar';
 import './index.scss';
 
 interface FavoriteMenuItem {
@@ -39,6 +41,7 @@ export default function FavoritesPage() {
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
+  const { isPending: isRowPending, run: runRowAction } = useKeyedAsyncAction();
 
   const loadFavorites = useCallback(async () => {
     if (!useAuthStore.getState().isLoggedIn) {
@@ -76,15 +79,18 @@ export default function FavoritesPage() {
     });
   });
 
-  const handleRemove = async (item: FavoriteItem) => {
-    try {
-      await del(`/favorites/${item.menuItemId}`);
-      setFavorites((prev) => prev.filter((f) => f.menuItemId !== item.menuItemId));
-      Taro.showToast({ title: '已取消收藏', icon: 'success' });
-    } catch (error) {
-      console.error('取消收藏失败:', error);
-      Taro.showToast({ title: '取消收藏失败', icon: 'none' });
-    }
+  const handleRemove = (item: FavoriteItem) => {
+    void runRowAction(`fav:${item.menuItemId}`, async () => {
+      try {
+        await del(`/favorites/${item.menuItemId}`);
+        setFavorites((prev) => prev.filter((f) => f.menuItemId !== item.menuItemId));
+        Taro.showToast({ title: '已取消收藏', icon: 'success' });
+      } catch (error) {
+        if (isDuplicateSubmitError(error)) return;
+        console.error('取消收藏失败:', error);
+        Taro.showToast({ title: '取消收藏失败', icon: 'none' });
+      }
+    });
   };
 
   const handleAddToCart = (item: FavoriteItem) => {
@@ -107,12 +113,19 @@ export default function FavoritesPage() {
       });
       Taro.showToast({ title: '已加入购物车', icon: 'success' });
     } catch (error) {
+      if (isDuplicateSubmitError(error)) {
+        setAddingId(null);
+        return;
+      }
       console.error('加购失败:', error);
       Taro.showToast({ title: '加购失败', icon: 'none' });
     } finally {
       setAddingId(null);
     }
   };
+
+  const goMenu = () => Taro.switchTab({ url: '/pages/menu/index' });
+  const goLogin = () => Taro.navigateTo({ url: '/pages/auth/login' });
 
   if (loading) {
     return (
@@ -129,9 +142,8 @@ export default function FavoritesPage() {
           icon='lock'
           title='请先登录'
           description='登录后就能查看收藏的菜'
-          actionText='去登录'
-          onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
+        <FooterBar actionOnly actionText='去登录' onAction={goLogin} />
       </View>
     );
   }
@@ -143,6 +155,9 @@ export default function FavoritesPage() {
           icon='warning'
           title='加载失败'
           description={canRetry ? '网络不太稳，点一下再试试' : '收藏暂时加载不出来'}
+        />
+        <FooterBar
+          actionOnly
           actionText={canRetry ? '再试一次' : '重新加载'}
           onAction={loadFavorites}
         />
@@ -157,9 +172,8 @@ export default function FavoritesPage() {
           icon='heart'
           title='还没有收藏'
           description='在菜单里点亮心形，收藏常点的菜'
-          actionText='去点餐'
-          onAction={() => Taro.switchTab({ url: '/pages/menu/index' })}
         />
+        <FooterBar actionOnly actionText='去点餐' onAction={goMenu} />
       </View>
     );
   }
@@ -176,6 +190,7 @@ export default function FavoritesPage() {
               : '-';
           const salesCount =
             typeof item.menuItem?.salesCount === 'number' ? item.menuItem.salesCount : 0;
+          const removing = isRowPending(`fav:${item.menuItemId}`);
 
           return (
             <View
@@ -210,11 +225,15 @@ export default function FavoritesPage() {
                   </View>
                   <View className='favorite-card__actions'>
                     <View
-                      className='favorite-card__favorite is-active'
+                      className={`favorite-card__favorite is-active${removing ? ' is-pending' : ''}`}
                       onClick={() => handleRemove(item)}
                       aria-label={`取消收藏 ${name}`}
                     >
-                      <Icon name='heart-filled' size={16} color='#FF4D4F' />
+                      {removing ? (
+                        <Text className='favorite-card__favorite-pending'>···</Text>
+                      ) : (
+                        <Icon name='heart-filled' size={16} color='#FF4D4F' />
+                      )}
                     </View>
                     <View
                       className={`favorite-card__add-btn${available ? '' : ' is-disabled'}`}
@@ -233,13 +252,7 @@ export default function FavoritesPage() {
         })}
         <ListEndTip show={favorites.length > 0} hasMore={false} />
       </View>
-      <View
-        className='favorites-page__cta'
-        onClick={() => Taro.switchTab({ url: '/pages/menu/index' })}
-        aria-label='去点餐'
-      >
-        <Text>去点餐</Text>
-      </View>
+      <FooterBar actionOnly actionText='去点餐' onAction={goMenu} />
     </View>
   );
 }

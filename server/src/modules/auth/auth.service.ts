@@ -1,8 +1,8 @@
-import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
-import { supabase, hasSupabase } from '../../database/supabase.client';
+import { supabase, hasSupabase, isSupabaseConfigured, isSupabaseConnectivityError, reconnectSupabase } from '../../database/supabase.client';
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { hashPassword, verifyPassword } from '../../common/utils/password';
@@ -20,6 +20,7 @@ interface UserRecord {
   passwordHash?: string;
   phone?: string;
   createdAt: string;
+  lastLoginAt?: string;
 }
 
 interface SessionRecord {
@@ -91,6 +92,9 @@ const MAX_SESSIONS_PER_USER = 5;
 const DEMO_MERCHANT_USER_ID = 'b0000000-0000-0000-0000-000000000001';
 const DEMO_MERCHANT_OPENID = 'pwd_merchant_demo';
 const DEMO_MERCHANT_USERNAME = 'merchant';
+const DEMO_RIDER_USER_ID = 'c0000000-0000-0000-0000-000000000001';
+const DEMO_RIDER_OPENID = 'mock_rider_openid_001';
+const DEMO_RIDER_USERNAME = 'rider';
 
 const initMemoryUsers = () => {
   if (memoryUsers.size > 0) return;
@@ -139,18 +143,19 @@ const initMemoryUsers = () => {
   memoryUsers.set(customerId, customer);
   openidToUser.set(customerOpenid, customer);
 
-  const riderId = uuidv4();
-  const riderOpenid = 'mock_rider_openid_001';
   const rider: UserRecord = {
-    id: riderId,
-    openid: riderOpenid,
+    id: DEMO_RIDER_USER_ID,
+    openid: DEMO_RIDER_OPENID,
     role: UserRole.RIDER,
     nickName: '测试骑手',
     avatarUrl: '',
+    username: DEMO_RIDER_USERNAME,
+    passwordHash: 'SEED_PENDING',
+    phone: '13800000002',
     createdAt: '2025-06-01T00:00:00Z',
   };
-  memoryUsers.set(riderId, rider);
-  openidToUser.set(riderOpenid, rider);
+  memoryUsers.set(DEMO_RIDER_USER_ID, rider);
+  openidToUser.set(DEMO_RIDER_OPENID, rider);
 };
 
 @Injectable()
@@ -211,6 +216,7 @@ export class AuthService {
     shop_id?: string | null;
     nick_name?: string;
     avatar_url?: string;
+    last_login_at?: string;
     created_at?: string;
   }): UserRecord {
     const role = data.role as UserRole;
@@ -224,6 +230,7 @@ export class AuthService {
       username: (data as any).username || undefined,
       passwordHash: (data as any).password_hash || undefined,
       phone: (data as any).phone || undefined,
+      lastLoginAt: data.last_login_at || undefined,
       createdAt: data.created_at || new Date().toISOString(),
     };
   }
@@ -261,9 +268,44 @@ export class AuthService {
   }
 
   private rememberMemorySession(session: SessionRecord) {
+    const prev = memorySessions.get(session.id);
+    if (prev) {
+      if (memoryAccessIndex.get(prev.tokenHash) === session.id) {
+        memoryAccessIndex.delete(prev.tokenHash);
+      }
+      if (
+        prev.refreshTokenHash !== session.refreshTokenHash &&
+        memoryRefreshIndex.get(prev.refreshTokenHash) === session.id
+      ) {
+        memoryRefreshIndex.delete(prev.refreshTokenHash);
+      }
+    }
     memorySessions.set(session.id, session);
     memoryAccessIndex.set(session.tokenHash, session.id);
     memoryRefreshIndex.set(session.refreshTokenHash, session.id);
+  }
+
+  private async updateLastLoginAt(userId: string): Promise<void> {
+    const nowIso = new Date().toISOString();
+    if (hasSupabase() && supabase) {
+      try {
+        await supabase
+          .from('tf_users')
+          .update({ last_login_at: nowIso })
+          .eq('id', userId);
+      } catch (e) {
+        this.logger.warn(
+          `[Auth] 更新 last_login_at 异常: ${
+            e instanceof Error ? e.message : e
+          }`,
+        );
+      }
+    }
+    const mem = memoryUsers.get(userId);
+    if (mem) {
+      mem.lastLoginAt = nowIso;
+      memoryUsers.set(userId, mem);
+    }
   }
 
   private forgetMemorySession(session: SessionRecord) {
@@ -349,6 +391,17 @@ export class AuthService {
         this.trimMemorySessions(userId);
       } else {
         await this.trimDbSessions(userId);
+        // 双写内存：健康检查抖动时 refresh 仍可命中本进程会话
+        this.rememberMemorySession({
+          id: sessionId,
+          userId,
+          tokenHash: accessHash,
+          expiresAt,
+          refreshTokenHash: refreshHash,
+          refreshExpiresAt,
+          createdAt: now,
+        });
+        this.trimMemorySessions(userId);
       }
     } else {
       assertMemoryFallbackAllowed('AuthService.createSession');
@@ -369,6 +422,7 @@ export class AuthService {
 
   private async issueLoginResponse(user: UserRecord): Promise<LoginResponseDto> {
     const bound = await this.ensureAdminShopBinding(user);
+    await this.updateLastLoginAt(bound.id);
     const payload = this.toPayload(bound);
     const tokens = await this.createSession(bound.id);
     const roles = await this.listUserRoles(bound.id, bound);
@@ -382,6 +436,7 @@ export class AuthService {
       nickName: bound.nickName,
       username: bound.username,
       phone: bound.phone,
+      lastLoginAt: bound.lastLoginAt,
       roles,
     };
   }
@@ -424,6 +479,14 @@ export class AuthService {
       user.username === DEMO_MERCHANT_USERNAME
     ) {
       addRole(UserRole.MERCHANT, DEFAULT_SHOP_ID);
+    }
+
+    if (
+      user.id === DEMO_RIDER_USER_ID ||
+      user.openid === DEMO_RIDER_OPENID ||
+      user.username === DEMO_RIDER_USERNAME
+    ) {
+      addRole(UserRole.RIDER, null);
     }
 
     if (user.role !== UserRole.CUSTOMER) {
@@ -601,6 +664,7 @@ export class AuthService {
       const seedDefaults: Record<string, string> = {
         admin: 'admin123',
         merchant: 'merchant123',
+        rider: 'rider123',
       };
       if (
         user &&
@@ -895,22 +959,29 @@ export class AuthService {
         return this.toPayload(user);
       }
 
-      // 表不存在等错误：尝试内存回退（开发）
-      if (error && !/does not exist|PGRST/i.test(error.message)) {
+      if (error && isSupabaseConnectivityError(error)) {
+        this.logger.warn(`[Auth] 校验 access 会话网络失败: ${error.message}`);
+      } else if (error && !/does not exist|PGRST/i.test(error.message || '')) {
         this.logger.warn(`[Auth] 校验 access 会话失败: ${error.message}`);
       }
     }
 
     const sessionId = memoryAccessIndex.get(accessHash);
     const session = sessionId ? memorySessions.get(sessionId) : undefined;
-    if (!session || new Date(session.expiresAt).getTime() <= now) {
-      throw new UnauthorizedException('无效的 token 或已过期');
+    if (session && new Date(session.expiresAt).getTime() > now) {
+      const memUser = await this.getUserById(session.userId);
+      if (!memUser) {
+        throw new UnauthorizedException('用户不存在');
+      }
+      return this.toPayload(memUser);
     }
-    const user = await this.getUserById(session.userId);
-    if (!user) {
-      throw new UnauthorizedException('用户不存在');
+
+    // 已配置 Supabase 但当前不可用，且内存无会话：不要误报 token 过期
+    if (isSupabaseConfigured() && !hasSupabase()) {
+      throw new ServiceUnavailableException('认证服务暂不可用，请稍后重试');
     }
-    return this.toPayload(user);
+
+    throw new UnauthorizedException('无效的 token 或已过期');
   }
 
   /**
@@ -926,54 +997,112 @@ export class AuthService {
     const refreshHash = this.tokenService.hashToken(refreshToken.trim());
     const nowIso = new Date().toISOString();
 
-    // DB 优先
-    if (hasSupabase() && supabase) {
-      const { data: session, error } = await supabase
-        .from('tf_user_sessions')
-        .select('id, user_id, refresh_expires_at')
-        .eq('refresh_token_hash', refreshHash)
-        .gt('refresh_expires_at', nowIso)
-        .maybeSingle();
+    // 1) 内存优先：双写缓存可在 Supabase 健康检查抖动时继续刷新
+    const memResult = await this.refreshFromMemory(refreshHash, refreshToken);
+    if (memResult) {
+      return memResult;
+    }
 
-      if (!error && session?.user_id) {
-        const user = await this.getUserById(String(session.user_id));
-        if (!user) {
-          throw new UnauthorizedException('用户不存在');
-        }
-        const accessToken = this.tokenService.generateAccessToken();
-        const accessHash = this.tokenService.hashToken(accessToken);
-        const expiresAt = this.tokenService.getAccessExpiresAt();
-        const { error: updateError } = await supabase
-          .from('tf_user_sessions')
-          .update({
-            token_hash: accessHash,
-            expires_at: expiresAt,
-          })
-          .eq('id', session.id);
-        if (updateError) {
-          this.logger.error(`[Auth] 刷新 access 失败: ${updateError.message}`);
-          throw new UnauthorizedException('刷新令牌失败，请重新登录');
-        }
-        return { token: accessToken, refreshToken };
-      }
-
-      if (error && !/does not exist|PGRST/i.test(error.message || '')) {
-        this.logger.warn(`[Auth] 查询 refresh 会话失败: ${error.message}`);
+    // 2) DB：健康时直接查；不健康但已配置时尝试重连后再查
+    let dbClient = hasSupabase() ? supabase : null;
+    if (!dbClient && isSupabaseConfigured()) {
+      try {
+        dbClient = await reconnectSupabase();
+      } catch (e) {
+        this.logger.warn(
+          `[Auth] 刷新前重连 Supabase 失败: ${e instanceof Error ? e.message : e}`,
+        );
       }
     }
 
-    // 内存回退
+    if (dbClient) {
+      try {
+        const { data: session, error } = await dbClient
+          .from('tf_user_sessions')
+          .select('id, user_id, refresh_expires_at, token_hash, expires_at, created_at')
+          .eq('refresh_token_hash', refreshHash)
+          .gt('refresh_expires_at', nowIso)
+          .maybeSingle();
+
+        if (error) {
+          if (isSupabaseConnectivityError(error)) {
+            this.logger.warn(`[Auth] 查询 refresh 会话网络失败: ${error.message}`);
+            throw new ServiceUnavailableException('认证服务暂不可用，请稍后重试');
+          }
+          if (!/does not exist|PGRST/i.test(error.message || '')) {
+            this.logger.warn(`[Auth] 查询 refresh 会话失败: ${error.message}`);
+          }
+        } else if (session?.user_id) {
+          const user = await this.getUserById(String(session.user_id));
+          if (!user) {
+            throw new UnauthorizedException('用户不存在');
+          }
+          const accessToken = this.tokenService.generateAccessToken();
+          const accessHash = this.tokenService.hashToken(accessToken);
+          const expiresAt = this.tokenService.getAccessExpiresAt();
+          const { error: updateError } = await dbClient
+            .from('tf_user_sessions')
+            .update({
+              token_hash: accessHash,
+              expires_at: expiresAt,
+            })
+            .eq('id', session.id);
+          if (updateError) {
+            if (isSupabaseConnectivityError(updateError)) {
+              throw new ServiceUnavailableException('认证服务暂不可用，请稍后重试');
+            }
+            this.logger.error(`[Auth] 刷新 access 失败: ${updateError.message}`);
+            throw new UnauthorizedException('刷新令牌失败，请重新登录');
+          }
+
+          // 同步内存缓存，避免后续健康检查失败再次 miss
+          this.rememberMemorySession({
+            id: String(session.id),
+            userId: String(session.user_id),
+            tokenHash: accessHash,
+            expiresAt,
+            refreshTokenHash: refreshHash,
+            refreshExpiresAt: String(session.refresh_expires_at),
+            createdAt: String(session.created_at || nowIso),
+          });
+
+          return { token: accessToken, refreshToken };
+        }
+      } catch (e) {
+        if (e instanceof ServiceUnavailableException || e instanceof UnauthorizedException) {
+          throw e;
+        }
+        if (isSupabaseConnectivityError(e)) {
+          this.logger.warn(
+            `[Auth] refresh 访问 Supabase 异常: ${e instanceof Error ? e.message : e}`,
+          );
+          throw new ServiceUnavailableException('认证服务暂不可用，请稍后重试');
+        }
+        throw e;
+      }
+    } else if (isSupabaseConfigured()) {
+      // 已配置但连不上，且内存没有会话：不能判定 refresh 真过期
+      throw new ServiceUnavailableException('认证服务暂不可用，请稍后重试');
+    }
+
+    throw new UnauthorizedException('刷新令牌无效或已过期，请重新登录');
+  }
+
+  /** 从内存会话刷新 access；命中返回 tokens，未命中返回 null */
+  private async refreshFromMemory(
+    refreshHash: string,
+    refreshToken: string,
+  ): Promise<{ token: string; refreshToken: string } | null> {
     const sessionId = memoryRefreshIndex.get(refreshHash);
     const session = sessionId ? memorySessions.get(sessionId) : undefined;
     if (!session || new Date(session.refreshExpiresAt).getTime() <= Date.now()) {
-      throw new UnauthorizedException('刷新令牌无效或已过期，请重新登录');
+      return null;
     }
     const user = await this.getUserById(session.userId);
     if (!user) {
-      throw new UnauthorizedException('用户不存在');
+      return null;
     }
 
-    // 更新 access hash 索引
     if (memoryAccessIndex.get(session.tokenHash) === session.id) {
       memoryAccessIndex.delete(session.tokenHash);
     }
@@ -983,7 +1112,6 @@ export class AuthService {
     session.expiresAt = this.tokenService.getAccessExpiresAt();
     memorySessions.set(session.id, session);
     memoryAccessIndex.set(accessHash, session.id);
-
     return { token: accessToken, refreshToken };
   }
 

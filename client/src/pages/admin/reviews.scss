@@ -3,7 +3,7 @@
 .admin-reviews-page {
   min-height: 100vh;
   background: $bg-page;
-  padding: $space-3 $space-3 $space-5;
+  padding: $space-3 $space-3 calc(70px + env(safe-area-inset-bottom));
   box-sizing: border-box;
 
   > .empty-state {
@@ -101,4 +101,9 @@
   background: $primary;
   color: $text-inverse;
   font-size: $font-xs;
+
+  &.is-disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
 }

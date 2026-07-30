@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { View, Text, Input } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useAuthStore, navigateByRole } from '../../stores/authStore';
+import FooterBar from '../../components/FooterBar';
 import './register.scss';
 
 export default function RegisterPage() {
@@ -92,19 +93,19 @@ export default function RegisterPage() {
         />
       </View>
 
-      <View
-        className={`register-page__btn${loading ? ' is-loading' : ''}`}
-        onClick={() => !loading && handleSubmit()}
-      >
-        <Text>{loading ? '提交中...' : '注册并登录'}</Text>
-      </View>
-
       <Text
         className='register-page__back'
         onClick={() => Taro.navigateBack({ fail: () => Taro.redirectTo({ url: '/pages/auth/login' }) })}
       >
         已有账号？去登录
       </Text>
+
+      <FooterBar
+        actionOnly
+        actionText={loading ? '提交中...' : '注册并登录'}
+        actionDisabled={loading}
+        onAction={handleSubmit}
+      />
     </View>
   );
 }

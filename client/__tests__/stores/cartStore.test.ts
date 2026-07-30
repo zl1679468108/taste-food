@@ -78,6 +78,44 @@ describe('cartStore persist debounce', () => {
     });
   });
 
+  test('removeItems drops selected entries and persists immediately', () => {
+    const { useCartStore } = require('../../src/stores/cartStore');
+    const store = useCartStore.getState();
+
+    store.addItem({
+      menuItemId: '1',
+      name: 'Burger',
+      price: 1200,
+      quantity: 1,
+      imageUrl: '',
+      specDesc: '',
+    });
+    store.addItem({
+      menuItemId: '2',
+      name: 'Tea',
+      price: 500,
+      quantity: 1,
+      imageUrl: '',
+      specDesc: '',
+    });
+
+    jest.advanceTimersByTime(1000);
+    taroMock.setStorageSync.mockClear();
+
+    const firstKey = useCartStore.getState().items[0].key;
+    store.removeItems([firstKey]);
+
+    expect(useCartStore.getState().items).toHaveLength(1);
+    expect(useCartStore.getState().items[0].menuItemId).toBe('2');
+    expect(taroMock.setStorageSync).toHaveBeenCalledTimes(1);
+    expect(taroMock.setStorageSync).toHaveBeenCalledWith(
+      'taste_food_cart',
+      expect.objectContaining({
+        items: [expect.objectContaining({ menuItemId: '2' })],
+      }),
+    );
+  });
+
   test('updates, removes, totals and clears cart by shop switch', () => {
     const { useCartStore } = require('../../src/stores/cartStore');
     const store = useCartStore.getState();

@@ -4,7 +4,7 @@
 .favorites-page {
   min-height: 100vh;
   background: $bg-page;
-  padding-bottom: calc(28px + env(safe-area-inset-bottom));
+  padding-bottom: calc(70px + env(safe-area-inset-bottom));
 }
 
 .favorites-page__list {
@@ -142,6 +142,17 @@
     &.is-active {
       background: rgba($danger, 0.08);
     }
+
+    &.is-pending {
+      pointer-events: none;
+      opacity: 0.6;
+    }
+  }
+
+  &__favorite-pending {
+    font-size: $font-2xs;
+    line-height: $leading-tight;
+    color: $text-disabled;
   }
 
   &__add-btn {
@@ -170,28 +181,5 @@
     font-size: $font-xl;
     line-height: $leading-none;
     font-weight: $weight-regular;
-  }
-}
-
-.favorites-page__cta {
-  margin: $space-1 $space-3 $space-2;
-  height: 44px;
-  border-radius: 22px;
-  background: $bg-card;
-  border: 1px solid $primary;
-  color: $text-price;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: $font-md;
-  font-weight: $weight-semibold;
-  line-height: $leading-tight;
-  transition: transform $duration-fast $ease-out, opacity $duration-fast $ease-out,
-    background $duration-fast $ease-out;
-
-  &:active {
-    opacity: 0.9;
-    transform: scale(0.98);
-    background: $primary-light;
   }
 }

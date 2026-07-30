@@ -1,5 +1,6 @@
 import axios, { AxiosRequestConfig, AxiosError } from 'axios';
 import { message } from 'antd';
+import { buildMutationKey, runExclusiveMutation } from './mutation-guard';
 
 interface CacheEntry<T> {
   data: T;
@@ -26,6 +27,11 @@ export interface RequestConfig extends AxiosRequestConfig {
    * 注意：401 登录过期提示也会被跳过（仍会清登录态并跳转）。
    */
   skipErrorMessage?: boolean;
+  /**
+   * 跳过写操作全局去重（默认 POST/PUT/PATCH/DELETE 同 method+url+body 互斥）。
+   * 仅用于确实需要并发重复提交的场景。
+   */
+  skipDuplicateGuard?: boolean;
 }
 
 // 缓存仅用于显式声明 useCache 的请求，管理后台数据默认不缓存
@@ -155,6 +161,11 @@ declare module 'axios' {
      * 页面 catch 中也不要再 toast，除非自行实现完整错误 UI。
      */
     skipErrorMessage?: boolean;
+    /**
+     * 跳过写操作全局去重（默认 POST/PUT/PATCH/DELETE 同 method+url+body 互斥）。
+     * 仅用于确实需要并发重复提交的场景。
+     */
+    skipDuplicateGuard?: boolean;
   }
 }
 
@@ -325,6 +336,62 @@ request.interceptors.response.use(
   },
 );
 
+/**
+ * 写操作全局去重：同 method + url + body 进行中时直接拒绝，
+ * 防止连点 / 重复提交造成重复下单、重复审批、重复状态流转。
+ *
+ * 说明：
+ * - FormData / Blob 等非普通对象 body 无法稳定序列化，跳过去重（由上传组件自身管控）
+ * - 需要并发重复调用同一接口时传 { skipDuplicateGuard: true }
+ */
+function isPlainBody(data: unknown): data is Record<string, unknown> {
+  if (data == null) return true;
+  if (typeof data !== 'object') return false;
+  if (Array.isArray(data)) return true;
+  return Object.getPrototypeOf(data) === Object.prototype;
+}
+
+type MutationMethod = 'post' | 'put' | 'patch' | 'delete';
+
+function guardMutation<T>(
+  method: MutationMethod,
+  url: string,
+  data: unknown,
+  config: RequestConfig | undefined,
+  send: () => Promise<T>,
+): Promise<T> {
+  if (config?.skipDuplicateGuard || !isPlainBody(data)) {
+    return send();
+  }
+  const key = buildMutationKey(method, url, data as Record<string, unknown> | undefined);
+  return runExclusiveMutation(key, send);
+}
+
+const rawPost = request.post.bind(request);
+const rawPut = request.put.bind(request);
+const rawPatch = request.patch.bind(request);
+const rawDelete = request.delete.bind(request);
+
+request.post = ((url: string, data?: unknown, config?: RequestConfig) =>
+  guardMutation('post', url, data, config, () =>
+    rawPost(url, data, config),
+  )) as typeof request.post;
+
+request.put = ((url: string, data?: unknown, config?: RequestConfig) =>
+  guardMutation('put', url, data, config, () =>
+    rawPut(url, data, config),
+  )) as typeof request.put;
+
+request.patch = ((url: string, data?: unknown, config?: RequestConfig) =>
+  guardMutation('patch', url, data, config, () =>
+    rawPatch(url, data, config),
+  )) as typeof request.patch;
+
+request.delete = ((url: string, config?: RequestConfig) =>
+  guardMutation('delete', url, undefined, config, () =>
+    rawDelete(url, config),
+  )) as typeof request.delete;
+
 export function isRequestErrorHandled(error: unknown): boolean {
   return Boolean(
     error &&
@@ -334,4 +401,5 @@ export function isRequestErrorHandled(error: unknown): boolean {
 }
 
 export { clearCache, createHandledError };
+export { DuplicateSubmitError, isDuplicateSubmitError } from './mutation-guard';
 export default request;

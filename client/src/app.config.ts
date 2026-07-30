@@ -31,7 +31,8 @@ export default defineAppConfig({
       desc: '用于选择配送地址、展示配送轨迹与骑手位置上报',
     },
   },
-  requiredPrivateInfos: ['getLocation', 'chooseLocation'],
+  // startLocationUpdate / onLocationChange 用于骑手配送中的实时无感定位
+  requiredPrivateInfos: ['getLocation', 'chooseLocation', 'startLocationUpdate', 'onLocationChange'],
   tabBar: {
     custom: true,
     color: '#999999',

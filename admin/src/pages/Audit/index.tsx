@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Table, Tag, Typography } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { AuditOutlined } from '@ant-design/icons';
 import { AuditLog } from '@/services/audit';
 import { useAuditLogs } from '@/hooks/queries';
@@ -43,6 +44,10 @@ export default function AuditPage() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [method, setMethod] = useState<string | undefined>();
   const [searchText, setSearchText] = useState('');
+  // 搜索变化时重置页码，避免空白页
+  useEffect(() => {
+    setPage(1);
+  }, [searchText]);
 
   const auditQuery = useAuditLogs({ page, pageSize, method });
   const logs = auditQuery.data?.items ?? [];
@@ -112,7 +117,7 @@ export default function AuditPage() {
       width: 140,
       render: (v: string, row: AuditLog) =>
         v ? (
-          <Text style={{ fontSize: 12 }}>
+          <Text style={{ fontSize: 'var(--tf-font-xs)' }}>
             {getAuditResourceLabel(v)}
             {row.resourceId ? ` / ${shortOrderId(String(row.resourceId))}` : ''}
           </Text>
@@ -126,9 +131,9 @@ export default function AuditPage() {
       width: 110,
       render: (v: string, row: AuditLog) => (
         <div>
-          <div style={{ fontFamily: 'monospace', fontSize: 12 }}>{v ? shortOrderId(v) : '-'}</div>
+          <div style={{ fontFamily: 'monospace', fontSize: 'var(--tf-font-xs)' }}>{v ? shortOrderId(v) : '-'}</div>
           {row.role ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
+            <Text type="secondary" style={{ fontSize: 'var(--tf-font-xs)' }}>
               {getAuditRoleLabel(row.role)}
             </Text>
           ) : null}
@@ -181,7 +186,7 @@ export default function AuditPage() {
         <Table
           rowKey="id"
           loading={loading}
-          columns={columns as any}
+          columns={columns as ColumnsType<AuditLog>}
           dataSource={filteredLogs}
           size="small"
           scroll={{ x: 1200 }}

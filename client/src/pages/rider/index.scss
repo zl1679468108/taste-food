@@ -5,7 +5,8 @@
   flex-direction: column;
   height: 100vh;
   background: $bg-page;
-  @include tab-bar-spacer;
+  overflow: hidden;
+  @include tab-bar-spacer(0);
   box-sizing: border-box;
 
   &__mine-entry {
@@ -42,42 +43,11 @@
     }
   }
 
-  .tab-bar {
-    display: flex;
-    background: $bg-card;
-    padding: 10px 0;
-    border-bottom: 1px solid $border-color;
-
-    .tab-item {
-      flex: 1;
-      text-align: center;
-      font-size: $font-lg;
-      color: $text-secondary;
-      padding: $space-2 0;
-      position: relative;
-
-      &.active {
-        color: $primary;
-        font-weight: $weight-bold;
-
-        &::after {
-          content: '';
-          position: absolute;
-          bottom: 0;
-          left: 50%;
-          transform: translateX(-50%);
-          width: $space-5;
-          height: 3px;
-          background: $primary;
-          border-radius: 2px;
-        }
-      }
-    }
-  }
-
   .order-list {
     flex: 1;
-    padding: $space-3 $space-3 $space-5;
+    min-height: 0;
+    height: 0;
+    padding: $section-gap 0 $section-gap;
     box-sizing: border-box;
 
     .loading, .empty {
@@ -91,95 +61,112 @@
       padding-top: $space-6;
       padding-bottom: $space-6;
     }
+  }
 
-    .order-card {
-      background: $bg-card;
-      border-radius: $radius-lg;
-      padding: 15px; // 无精确 space token
-      margin-bottom: $space-3;
-      box-shadow: $shadow-sm;
+  .rider-tracker {
+    margin: $space-3 $space-3 0;
+    padding: $space-3 14px;
+    background: $bg-card;
+    border-radius: $radius-md;
+    box-shadow: $shadow-sm;
+    display: flex;
+    align-items: center;
+    gap: $space-3;
 
-      .card-header {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: $space-3;
-        border-bottom: 1px solid $border-color;
-        padding-bottom: $space-2;
+    &__dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: $success;
+      flex-shrink: 0;
+      animation: rider-tracker-pulse 1.6s ease-in-out infinite;
+    }
 
-        .order-no {
-          font-weight: $weight-bold;
-          font-size: $font-lg;
-          color: $text-primary;
-        }
+    &__body {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
 
-        .status {
-          font-size: $font-base;
-        }
+    &__title {
+      color: $text-primary;
+      font-size: $font-base;
+      font-weight: $weight-semibold;
+    }
+
+    &__desc {
+      color: $text-tertiary;
+      font-size: $font-xs;
+    }
+
+    &__count {
+      color: $text-secondary;
+      font-size: $font-xs;
+      flex-shrink: 0;
+    }
+
+    &__action {
+      color: $primary;
+      font-size: $font-sm;
+      font-weight: $weight-medium;
+      flex-shrink: 0;
+    }
+
+    // 定位异常时用警示色替换呼吸点，骑手一眼能看出没在上报
+    &--denied &__dot,
+    &--error &__dot {
+      background: $warning;
+      animation: none;
+    }
+  }
+
+  @keyframes rider-tracker-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+
+  .tf-order-card__actions {
+    .rider-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: $list-item-gap;
+    }
+
+    .btn {
+      min-width: 76px;
+      height: 34px;
+      padding: 0 $space-4;
+      border-radius: $radius-pill;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: $font-base;
+      font-weight: $weight-semibold;
+      line-height: $leading-tight;
+
+      &.disabled {
+        opacity: 0.6;
+        pointer-events: none;
       }
+    }
 
-      .card-body {
-        .info-item {
-          margin-bottom: 6px;
-          font-size: $font-base;
-          display: flex;
+    .grab-btn {
+      background: $primary;
+      color: $text-inverse;
+    }
 
-          .label {
-            color: $text-tertiary;
-            width: 60px;
-          }
-
-          .value {
-            color: $text-primary;
-            flex: 1;
-          }
-
-          .price {
-            color: $primary;
-            font-weight: $weight-bold;
-          }
-        }
-      }
-
-      .card-footer {
-        margin-top: 15px; // 无精确 space token
-        display: flex;
-        justify-content: flex-end;
-
-        .btn {
-          padding: $space-2 25px;
-          border-radius: $radius-2xl;
-          font-size: $font-base;
-          font-weight: $weight-bold;
-
-          &.btn.disabled {
-            opacity: 0.6;
-            pointer-events: none;
-          }
-
-          .rider-actions {
-            display: flex;
-            align-items: center;
-            gap: $space-2;
-            flex-wrap: wrap;
-            justify-content: flex-end;
-          }
-
-          .track-btn {
-            background: $primary-light;
-            color: $primary;
-          }
-
-          .grab-btn {
-            background: $primary;
-            color: $text-inverse;
-          }
-
-          &.deliver-btn {
-            background: $success;
-            color: $text-inverse;
-          }
-        }
-      }
+    .deliver-btn {
+      background: $success;
+      color: $text-inverse;
     }
   }
 }

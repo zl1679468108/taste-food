@@ -1,0 +1,281 @@
+@use '../../styles/design-tokens' as *;
+
+/* ========== 骑手实时位置地图 ========== */
+
+.rider-track-map {
+  background: $bg-card;
+  border-radius: $radius-lg;
+  padding: $space-3;
+  overflow: hidden;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $space-3;
+    margin-bottom: $space-2;
+  }
+
+  &__title {
+    font-size: $font-subtitle;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-snug;
+  }
+
+  &__header-right {
+    display: flex;
+    align-items: center;
+    gap: $space-2;
+    flex-shrink: 0;
+    max-width: 70%;
+  }
+
+  &__status {
+    flex-shrink: 1;
+    min-width: 0;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $primary;
+    text-align: right;
+    padding: $space-1 $space-2;
+    border-radius: $radius-pill;
+    background: $primary-light;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__expand {
+    flex-shrink: 0;
+    padding: $space-1 $space-2;
+    border-radius: $radius-pill;
+    background: $bg-muted;
+    border: 1px solid $divider;
+
+    &:active {
+      opacity: 0.75;
+    }
+  }
+
+  &__expand-text {
+    font-size: $font-xs;
+    color: $text-secondary;
+    line-height: $leading-normal;
+  }
+
+  &__map-wrap {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    border-radius: $radius-md;
+    overflow: hidden;
+    background: $bg-map;
+  }
+
+  &__map {
+    width: 100%;
+    height: 200px;
+    border-radius: $radius-md;
+    overflow: hidden;
+    background: $bg-map;
+
+    &--placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: $bg-muted;
+    }
+  }
+
+  &__placeholder-text {
+    font-size: $font-xs;
+    color: $text-tertiary;
+    line-height: $leading-normal;
+  }
+
+  &__empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: $space-1;
+    padding: $space-6 $space-4;
+    border-radius: $radius-md;
+    background: $bg-muted;
+    text-align: center;
+  }
+
+  &__empty-text {
+    font-size: $font-sm;
+    color: $text-secondary;
+    line-height: $leading-relaxed;
+  }
+
+  &__empty-hint {
+    font-size: $font-xs;
+    color: $text-tertiary;
+    line-height: $leading-relaxed;
+  }
+
+  &__rider-panel {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    margin-top: $space-3;
+    padding: $space-2 $space-3;
+    border-radius: $radius-md;
+    background: $bg-muted;
+  }
+
+  &__rider-item {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: $space-1;
+  }
+
+  &__rider-label {
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-tertiary;
+  }
+
+  &__rider-value {
+    font-size: $font-base;
+    line-height: $leading-snug;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+  }
+
+  &__rider-divider {
+    width: 1px;
+    height: 28px;
+    margin: 0 $space-3;
+    background: $divider;
+    flex-shrink: 0;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $space-2;
+    margin-top: $space-3;
+    padding: $space-2 $space-1 0;
+    border-top: 1px solid $divider;
+  }
+
+  &__meta-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: $space-1;
+    min-width: 0;
+  }
+
+  &__meta-text {
+    font-size: $font-xs;
+    color: $text-secondary;
+    line-height: $leading-snug;
+  }
+
+  &__meta-line {
+    width: 20px;
+    height: 2px;
+    border-radius: $radius-xs;
+    background: linear-gradient(90deg, rgba($primary, 0.25), $primary);
+    flex-shrink: 0;
+  }
+
+  &__legend-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: $radius-full;
+    flex-shrink: 0;
+
+    &--shop {
+      background: $primary;
+      box-shadow: 0 0 0 3px $primary-soft;
+    }
+
+    &--route {
+      background: $info;
+      box-shadow: 0 0 0 3px rgba($info, 0.16);
+    }
+
+    &--dest {
+      background: $success;
+      box-shadow: 0 0 0 3px rgba($success, 0.16);
+    }
+  }
+
+  /* ---------- 全屏查看 ---------- */
+  &__fullscreen {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1000;
+    background: $bg-page;
+    display: flex;
+    flex-direction: column;
+  }
+
+  &__fullscreen-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $space-2;
+    padding: $space-3 $page-padding-x;
+    padding-top: calc(#{$space-3} + env(safe-area-inset-top));
+    background: $bg-card;
+    border-bottom: 1px solid $divider;
+    box-shadow: $shadow-sm;
+  }
+
+  &__fullscreen-close {
+    display: flex;
+    align-items: center;
+    gap: $space-1;
+    min-width: 64px;
+    padding: $space-1 0;
+
+    &:active {
+      opacity: 0.7;
+    }
+  }
+
+  &__fullscreen-close-text {
+    font-size: $font-sm;
+    color: $text-primary;
+    line-height: $leading-normal;
+  }
+
+  &__fullscreen-title {
+    flex: 1;
+    text-align: center;
+    font-size: $font-lg;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-snug;
+  }
+
+  &__fullscreen-status {
+    min-width: 64px;
+    text-align: right;
+    font-size: $font-xs;
+    color: $primary;
+    line-height: $leading-normal;
+  }
+
+  &__fullscreen-map {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    background: $bg-map;
+  }
+}

@@ -379,6 +379,12 @@
     color: $success;
     border: 1px solid $success;
   }
+
+  // 提交中：置灰并屏蔽点击，杜绝连点重复提交
+  &--disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
 }
 
 /* 空状态 */
@@ -512,6 +518,12 @@
 
     &--solid {
       background: $white;
+    }
+
+    // 接单中：置灰并屏蔽点击（横幅可重复出现，最易连点）
+    &--disabled {
+      opacity: 0.6;
+      pointer-events: none;
     }
 
     &:active {
@@ -654,4 +666,12 @@
     opacity: 0.5;
     pointer-events: none;
   }
+}
+
+/* 商家订单详情内的骑手实时位置地图 */
+.action-modal__rider-map {
+  margin-top: $space-3;
+  padding: $space-3 0 0;
+  border-top: 1px solid $border-color;
+  border-radius: 0;
 }

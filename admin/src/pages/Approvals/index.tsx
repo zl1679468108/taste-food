@@ -17,6 +17,7 @@ import { formatTime } from '@/utils/format';
 import { DEFAULT_TABLE_LOCALE, DEFAULT_TABLE_PAGINATION } from '@/utils/table';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
+import { isRequestErrorHandled } from '@/utils/request';
 
 const { Title, Text } = Typography;
 
@@ -43,8 +44,11 @@ const ApprovalsPage: React.FC = () => {
 
   const reviewMutation = useReviewApplication();
   const submitting = reviewMutation.isPending;
+  /** 正在审批的申请 id：只锁当前行，其余行保持可用 */
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const handleApprove = (row: RoleApplication) => {
+    if (submitting) return;
     Modal.confirm({
       title: '确认通过该申请？',
       content:
@@ -52,12 +56,18 @@ const ApprovalsPage: React.FC = () => {
           ? `将创建/绑定商家店铺：${row.shopName || '未命名'}`
           : '将为用户开通骑手角色',
       okText: '通过',
+      // 返回 Promise，antd 会自动给确认按钮加 loading 并阻止重复点击
       onOk: async () => {
+        setReviewingId(row.id);
         try {
           await reviewMutation.mutateAsync({ id: row.id, params: { status: 'approved' } });
           message.success('已通过');
-        } catch {
-          // toast
+        } catch (error) {
+          // 重复提交被请求层拦截，不视为失败
+          if (isRequestErrorHandled(error)) return;
+          throw error;
+        } finally {
+          setReviewingId(null);
         }
       },
     });
@@ -158,6 +168,8 @@ const ApprovalsPage: React.FC = () => {
               type="link"
               size="small"
               icon={<CheckOutlined />}
+              loading={reviewingId === row.id}
+              disabled={submitting}
               onClick={() => handleApprove(row)}
             >
               通过
@@ -167,6 +179,7 @@ const ApprovalsPage: React.FC = () => {
               size="small"
               danger
               icon={<CloseOutlined />}
+              disabled={submitting}
               onClick={() => openReject(row)}
             >
               驳回

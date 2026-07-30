@@ -1,11 +1,13 @@
 import { useCallback, useState } from 'react';
 import { View, Text } from '@tarojs/components';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
-import { get, patch } from '../../utils/request';
+import { get, patch, isDuplicateSubmitError } from '../../utils/request';
+import { useAsyncAction, useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { useAuthStore } from '../../stores/authStore';
 import { formatRelativeTime } from '../../utils/format';
 import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
+import FooterBar from '../../components/FooterBar';
 import './notifications.scss';
 
 interface InboxItem {
@@ -28,7 +30,8 @@ export default function NotificationsPage() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<InboxItem[]>([]);
-  const [marking, setMarking] = useState(false);
+  const { pending: marking, run: runMarkAll } = useAsyncAction();
+  const { isPending: isRowPending, run: runRowAction } = useKeyedAsyncAction();
 
   const loadList = useCallback(async () => {
     if (!useAuthStore.getState().isLoggedIn) {
@@ -56,27 +59,29 @@ export default function NotificationsPage() {
     Taro.stopPullDownRefresh();
   });
 
-  const markRead = async (id: string) => {
-    try {
-      await patch(`/notifications/${id}/read`, {}, { showError: false });
-      setItems((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
-    } catch {
-      // ignore
-    }
+  const markRead = (id: string) => {
+    void runRowAction(`read:${id}`, async () => {
+      try {
+        await patch(`/notifications/${id}/read`, {}, { showError: false });
+        setItems((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+      } catch (error) {
+        if (isDuplicateSubmitError(error)) return;
+        // ignore
+      }
+    });
   };
 
-  const markAll = async () => {
-    if (marking) return;
-    setMarking(true);
-    try {
-      await patch('/notifications/read-all', {}, { showError: true });
-      setItems((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      Taro.showToast({ title: '已全部已读', icon: 'success' });
-    } catch {
-      // handled
-    } finally {
-      setMarking(false);
-    }
+  const markAll = () => {
+    void runMarkAll(async () => {
+      try {
+        await patch('/notifications/read-all', {}, { showError: true });
+        setItems((prev) => prev.map((n) => ({ ...n, isRead: true })));
+        Taro.showToast({ title: '已全部已读', icon: 'success' });
+      } catch (error) {
+        if (isDuplicateSubmitError(error)) return;
+        // handled
+      }
+    });
   };
 
   if (!isLoggedIn) {
@@ -85,6 +90,9 @@ export default function NotificationsPage() {
         <EmptyState
           icon='lock'
           title='请先登录'
+        />
+        <FooterBar
+          actionOnly
           actionText='去登录'
           onAction={() => Taro.navigateTo({ url: '/pages/auth/login' })}
         />
@@ -101,32 +109,44 @@ export default function NotificationsPage() {
           {unread > 0 ? `${unread} 条未读` : '全部已读'}
         </Text>
         {unread > 0 && (
-          <Text className='notif-page__action' onClick={() => !marking && markAll()}>
+          <Text
+            className={`notif-page__action${marking ? ' is-disabled' : ''}`}
+            onClick={markAll}
+          >
             {marking ? '处理中...' : '全部已读'}
           </Text>
         )}
       </View>
 
       {loading ? (
-        <SkeletonLoader mode='list' count={4} />
+        <SkeletonLoader mode='notification' count={4} />
       ) : items.length === 0 ? (
         <EmptyState icon='bell' title='暂无消息' description='审批结果与系统通知会出现在这里' />
       ) : (
         <View className='notif-page__list'>
-          {items.map((item) => (
+          {items.map((item) => {
+            const readPending = isRowPending(`read:${item.id}`);
+            return (
             <View
               key={item.id}
-              className={`notif-page__item${item.isRead ? '' : ' is-unread'}`}
-              onClick={() => !item.isRead && markRead(item.id)}
+              className={`notif-page__item${item.isRead ? '' : ' is-unread'}${readPending ? ' is-pending' : ''}`}
+              onClick={() => {
+                if (item.isRead) return;
+                markRead(item.id);
+              }}
             >
               <View className='notif-page__item-head'>
                 <Text className='notif-page__title'>{item.title}</Text>
-                {!item.isRead && <View className='notif-page__dot' />}
+                {readPending ? (
+                  <Text className='notif-page__marking'>标记中...</Text>
+                ) : null}
+                {!item.isRead && !readPending && <View className='notif-page__dot' />}
               </View>
               <Text className='notif-page__content'>{item.content}</Text>
               <Text className='notif-page__time'>{formatRelativeTime(item.createdAt)}</Text>
             </View>
-          ))}
+            );
+          })}
         </View>
       )}
     </View>

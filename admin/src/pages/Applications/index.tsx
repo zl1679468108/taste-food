@@ -67,7 +67,12 @@ const ApplicationsPage: React.FC = () => {
   const loading = myApplicationsQuery.isPending;
 
   const createMutation = useCreateRoleApplication();
-  const submitting = createMutation.isPending;
+  /**
+   * 本地提交锁：资格校验（fetchQuery）期间 createMutation.isPending 仍为 false，
+   * 存在 confirmLoading 不亮的穿透窗口，故在 handler 最开始就上锁。
+   */
+  const [localSubmitting, setLocalSubmitting] = useState(false);
+  const submitting = localSubmitting || createMutation.isPending;
 
   const eligibilityQuery = useRoleApplicationEligibility(
     open ? applyRole : undefined,
@@ -88,6 +93,8 @@ const ApplicationsPage: React.FC = () => {
   }, [shopName]);
 
   const handleSubmit = async () => {
+    if (submitting) return;
+    setLocalSubmitting(true);
     try {
       const values = await form.validateFields();
       // 提交前用最新数据再校验一次，避免读到缓存里的过期结论
@@ -115,6 +122,8 @@ const ApplicationsPage: React.FC = () => {
       form.resetFields();
     } catch {
       // validation or interceptor
+    } finally {
+      setLocalSubmitting(false);
     }
   };
 
@@ -192,10 +201,14 @@ const ApplicationsPage: React.FC = () => {
       <Modal
         title="提交身份申请"
         open={open}
-        onCancel={() => setOpen(false)}
+        onCancel={() => {
+          if (submitting) return;
+          setOpen(false);
+        }}
         onOk={() => void handleSubmit()}
         confirmLoading={submitting}
-        okButtonProps={{ disabled: eligibility?.eligible === false }}
+        okButtonProps={{ disabled: eligibility?.eligible === false || submitting }}
+        cancelButtonProps={{ disabled: submitting }}
         destroyOnClose
         width={560}
       >

@@ -71,6 +71,7 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
   const [assets, setAssets] = useState<MenuImageAsset[]>([]);
   const [filter, setFilter] = useState<MediaPickerFilter>('all');
   const [selectedUrl, setSelectedUrl] = useState<string | undefined>(value);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const batchInputRef = useRef<HTMLInputElement>(null);
 
   const loadAssets = useCallback(async () => {
@@ -156,6 +157,7 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
       message.warning('该图片已被菜品使用，请先解绑后再删除');
       return;
     }
+    setDeletingId(asset.id);
     try {
       await deleteMenuImage(asset.id);
       message.success('已删除');
@@ -168,6 +170,8 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
       if (!isRequestErrorHandled(error)) {
         message.error('删除失败');
       }
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -317,11 +321,20 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
                       description={used ? '图片仍被菜品引用，删除可能失败' : undefined}
                       okText="删除"
                       cancelText="取消"
-                      okButtonProps={{ danger: true }}
+                      okButtonProps={{
+                        danger: true,
+                        loading: !!asset.id && deletingId === asset.id,
+                      }}
                       onConfirm={() => handleDelete(asset)}
                     >
                       <Tooltip title="删除">
-                        <Button size="small" danger shape="circle" icon={<DeleteOutlined />} />
+                        <Button
+                          size="small"
+                          danger
+                          shape="circle"
+                          icon={<DeleteOutlined />}
+                          loading={!!asset.id && deletingId === asset.id}
+                        />
                       </Tooltip>
                     </Popconfirm>
                   </div>

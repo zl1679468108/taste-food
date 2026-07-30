@@ -1,11 +1,13 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: 1.0.3 (与代码实现同步)
+-- 版本: 1.0.4 (与代码实现同步)
 -- 更新日期: 2026-07-28
 -- 版本策略: 语义化小版本迭代（MAJOR.MINOR.PATCH），避免虚高主版本号
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
 --
+-- 1.0.4
+-- 1. tf_users 补充 last_login_at 字段记录最后登录/刷新时间
 -- 1.0.3
 --   1. 店铺/地址/订单补充腾讯地图坐标（latitude/longitude）用于配送轨迹对齐
 -- 1.0.2
@@ -169,6 +171,22 @@ ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_latitude" numeric(10,
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_longitude" numeric(10, 7);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_no_unique ON tf_orders(order_no) WHERE order_no IS NOT NULL;
 
+-- 6.1 订单状态历史表
+-- 记录每个状态的进入/完成时间，用于顾客端订单进度时间轴展示
+CREATE TABLE IF NOT EXISTS "tf_order_status_history" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "order_id" uuid NOT NULL REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE RESTRICT,
+  "status" text NOT NULL CHECK (status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'ready_for_pickup', 'completed', 'cancelled', 'rejected')),
+  "from_status" text CHECK (from_status IS NULL OR from_status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'ready_for_pickup', 'completed', 'cancelled', 'rejected')),
+  "recorded_at" timestamptz DEFAULT now(),
+  "created_at" timestamptz DEFAULT now(),
+  UNIQUE ("order_id", "status")
+);
+ALTER TABLE "tf_order_status_history" DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_order_status_history_order_time ON tf_order_status_history(order_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_order_status_history_shop_time ON tf_order_status_history(shop_id, recorded_at DESC);
+
 -- 7. 订单明细表
 -- shop_id 多租户字段，便于按店铺维度统计订单明细
 -- menu_item_id 不设外键（历史快照，菜品删除后订单记录保留）
@@ -245,9 +263,11 @@ CREATE TABLE IF NOT EXISTS "tf_users" (
   "shop_id" uuid REFERENCES tf_shops(id) ON DELETE SET NULL, -- 多租户：admin 必填，绑定管理的店铺；customer/rider 可空
   "nick_name" text,
   "avatar_url" text,
+  "last_login_at" timestamptz, -- 最后登录时间（由服务端在登录/刷新令牌时更新）
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
+COMMENT ON TABLE "tf_users" IS '系统用户账号（微信 OpenID / 密码账号通用）；平台管理员/商家/骑手/顾客共表。last_login_at 记录最后登录或刷新令牌时间。';
 ALTER TABLE "tf_users" DISABLE ROW LEVEL SECURITY;
 
 -- 10.1 [Legacy] 旧 JWT refresh 持久化表（1.0.1 起主路径改用 tf_user_sessions）
@@ -380,6 +400,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_shop_id ON tf_orders(shop_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON tf_orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON tf_orders(created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_rider_id ON tf_orders(rider_id);
+CREATE INDEX IF NOT EXISTS idx_orders_rider_active_delivery
+  ON tf_orders(rider_id, status, delivery_type)
+  WHERE rider_id IS NOT NULL;
 
 -- 订单明细查询索引（order_id 高频关联查询，原缺失致全表扫描）
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON tf_order_items(order_id);
@@ -533,6 +556,10 @@ BEGIN
   VALUES (p_order_id, p_order_no, p_shop_id, p_user_id, 'pending_payment', p_total, p_delivery_fee, p_delivery_type, p_address, p_table_no, p_remark, p_contact_name, p_contact_phone, COALESCE(p_invoice_needed, false), p_invoice_title, p_invoice_tax_no, now(), now())
   RETURNING id INTO v_order_id;
 
+  INSERT INTO tf_order_status_history (order_id, shop_id, status, recorded_at)
+  VALUES (v_order_id, p_shop_id, 'pending_payment', now())
+  ON CONFLICT (order_id, status) DO NOTHING;
+
   -- Step 2: Insert order items and increment sales atomically
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
   LOOP
@@ -610,6 +637,10 @@ BEGIN
   UPDATE tf_orders
   SET status = p_to_status, updated_at = now()
   WHERE id = p_order_id;
+
+  INSERT INTO tf_order_status_history (order_id, shop_id, status, from_status, recorded_at)
+  VALUES (p_order_id, v_order.shop_id, p_to_status, p_from_status, now())
+  ON CONFLICT (order_id, status) DO NOTHING;
 
   v_order_date := (v_order.created_at AT TIME ZONE 'Asia/Shanghai')::date;
 
@@ -1037,6 +1068,35 @@ VALUES
   ('b0000000-0000-0000-0000-000000000001', 'customer', NULL, 'active')
 ON CONFLICT DO NOTHING;
 
+-- 种子：测试骑手（跨店抢单，不绑定店铺）
+-- 密码明文 rider123（仅开发）；SEED_PENDING 由服务端首次登录以 scrypt 写入
+INSERT INTO tf_users (id, openid, username, password_hash, role, shop_id, nick_name, phone)
+VALUES (
+  'c0000000-0000-0000-0000-000000000001',
+  'mock_rider_openid_001',
+  'rider',
+  'SEED_PENDING',
+  'rider',
+  NULL,
+  '测试骑手',
+  '13800000002'
+) ON CONFLICT (openid) DO UPDATE SET
+  openid = EXCLUDED.openid,
+  role = EXCLUDED.role,
+  shop_id = EXCLUDED.shop_id,
+  nick_name = EXCLUDED.nick_name,
+  phone = EXCLUDED.phone,
+  username = COALESCE(tf_users.username, EXCLUDED.username);
+
+INSERT INTO tf_user_roles (user_id, role, shop_id, status)
+SELECT id, 'rider', NULL, 'active'
+FROM tf_users
+WHERE openid = 'mock_rider_openid_001'
+UNION ALL
+SELECT id, 'customer', NULL, 'active'
+FROM tf_users
+WHERE openid = 'mock_rider_openid_001'
+ON CONFLICT DO NOTHING;
+
 -- 平台管理员保持 shop_id 空（若历史数据误绑了店，可手工清空）
 -- UPDATE tf_users SET shop_id = NULL WHERE role = 'admin' AND openid LIKE 'mock_admin%';
-

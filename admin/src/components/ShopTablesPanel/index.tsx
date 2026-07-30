@@ -13,6 +13,7 @@ import {
   Typography,
   message,
 } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import { QrcodeOutlined } from '@ant-design/icons';
 import { ShopTable, buildTableQrImageUrl } from '@/services/table';
 import {
@@ -42,6 +43,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ShopTable | null>(null);
   const [qrTable, setQrTable] = useState<ShopTable | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   const tablesQuery = useTables(shopId);
@@ -53,6 +55,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
   const deleteMutation = useDeleteTable();
   const seedMutation = useSeedTables();
   const seeding = seedMutation.isPending;
+  const saving = createMutation.isPending || updateMutation.isPending;
 
   const filteredTables = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -163,16 +166,20 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
             </Button>
             <Popconfirm
               title="确认删除该桌台？"
+              okButtonProps={{ danger: true, loading: deletingId === row.id }}
               onConfirm={async () => {
+                setDeletingId(row.id);
                 try {
                   await deleteMutation.mutateAsync({ shopId, tableId: row.id });
                   message.success('已删除');
                 } catch (e) {
                   console.error('删除桌台失败:', e);
+                } finally {
+                  setDeletingId(null);
                 }
               }}
             >
-              <Button type="link" size="small" danger>
+              <Button type="link" size="small" danger loading={deletingId === row.id}>
                 删除
               </Button>
             </Popconfirm>
@@ -180,7 +187,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
         ),
       },
     ],
-    [form, deleteMutation, shopId],
+    [form, deleteMutation, shopId, deletingId],
   );
 
   return (
@@ -188,6 +195,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
       <Space wrap style={{ marginBottom: 12 }} size={8}>
         <Button
           type="primary"
+          disabled={saving}
           onClick={() => {
             setEditing(null);
             form.resetFields();
@@ -227,7 +235,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
       <Table
         rowKey="id"
         loading={loading}
-        columns={columns as any}
+        columns={columns as ColumnsType<ShopTable>}
         dataSource={filteredTables}
         size="small"
         pagination={DEFAULT_TABLE_PAGINATION}
@@ -251,6 +259,9 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
           setEditing(null);
         }}
         onOk={onSubmit}
+        confirmLoading={saving}
+        cancelButtonProps={{ disabled: saving }}
+        maskClosable={!saving}
         destroyOnClose
         okText="保存"
       >

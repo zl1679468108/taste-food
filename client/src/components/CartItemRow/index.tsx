@@ -22,15 +22,25 @@ function CartItemRowInner({ item, onUpdateQuantity }: CartItemRowProps) {
         size='sm'
         round
       />
-      <View className='cart-popup__item-info'>
-        <Text className='cart-popup__item-name'>{item.name}</Text>
-        {item.specDesc && <Text className='cart-popup__item-spec'>{item.specDesc}</Text>}
-      </View>
-      <Text className='cart-popup__item-price'>{formatPriceWithSymbol(item.price)}</Text>
-      <View className='cart-popup__item-actions'>
-        <View className='cart-popup__qty-btn' onClick={handleDecrease}>−</View>
-        <Text className='cart-popup__qty'>{item.quantity}</Text>
-        <View className='cart-popup__qty-btn' onClick={handleIncrease}>+</View>
+      <View className='cart-popup__item-body'>
+        <View className='cart-popup__item-row'>
+          <View className='cart-popup__item-name-wrap'>
+            <Text className='cart-popup__item-name'>{item.name}</Text>
+          </View>
+          <Text className='cart-popup__item-price'>{formatPriceWithSymbol(item.price)}</Text>
+        </View>
+        <View className='cart-popup__item-row cart-popup__item-row--meta'>
+          <View className='cart-popup__item-spec-wrap'>
+            {item.specDesc ? (
+              <Text className='cart-popup__item-spec'>{item.specDesc}</Text>
+            ) : null}
+          </View>
+          <View className='cart-popup__item-actions'>
+            <View className='cart-popup__qty-btn' onClick={handleDecrease}>−</View>
+            <Text className='cart-popup__qty'>{item.quantity}</Text>
+            <View className='cart-popup__qty-btn' onClick={handleIncrease}>+</View>
+          </View>
+        </View>
       </View>
     </View>
   );

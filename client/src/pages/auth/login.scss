@@ -200,7 +200,9 @@
 }
 
 .login-page__hint-text {
+  display: block;
   font-size: $font-xs;
+  line-height: $leading-relaxed;
   color: $text-hint;
 }
 
