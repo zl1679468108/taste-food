@@ -9,6 +9,32 @@
 
 ## 当前待办
 
+### T235 — 全局写请求防重复提交（防抖 / 按钮 loading）— ✅ 2026-07-30
+
+> **来源**: 骑手端「我的配送」出现 3 条完全相同订单（同店同菜品同金额），定位为重复提交
+> **根因**: ① `client/src/utils/request.ts` 对 POST 等写方法也默认 `retries=1`，弱网超时重试导致服务端二次落库；② `mutation-guard.ts` 两端均存在但从未被引用；③ 页面层普遍用 state/闭包弱守卫，挡不住同 tick 连点
+> **策略**: 请求层全局互斥（治本）+ 按钮 loading/disabled（治表，防误触与体验反馈）
+
+| ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
+|----|------|------|----------|--------|------|------|
+| T235.1 | 请求层接线 mutation-guard：写请求同参互斥去重 | client/admin | §4 | P0 | ✅ done 2026-07-30 | 两端 `utils/request.ts` 包装 post/put/patch/del，走 `runExclusiveMutation` |
+| T235.2 | 写请求默认不自动重试（仅 GET 保留 retries=1） | client | §4 | P0 | ✅ done 2026-07-30 | 消除重试造成的重复落库，即本次 3 条重复订单主因 |
+| T235.3 | 重复提交静默化：`DuplicateSubmitError` 标记已处理 | client/admin | §4 | P0 | ✅ done 2026-07-30 | 加 `__tfErrorHandled`，admin 自动识别；client 页面用 `isDuplicateSubmitError` 早返回 |
+| T235.4 | 新增 `useKeyedAsyncAction`（列表按 key 维度强守卫） | client | §3.1 / §3.3 | P0 | ✅ done 2026-07-30 | `useRef<Set>` 判定，配合已有 `useAsyncAction` |
+| T235.5 | 切换身份并发防护（authStore + 我的页） | client | §3.5 | P0 | ✅ done 2026-07-30 | 模块级 in-flight 标志 + 按钮「切换中...」+ `is-disabled` |
+| T235.6 | 商家端订单状态流转 / 一键接单 / 取消拒单守卫 | client | §3.2 | P0 | ✅ done 2026-07-30 | `admin/index.tsx` 按 `orderId:status` keyed 守卫 + 按钮 loading |
+| T235.7 | 顾客端支付 / 取消退款 / 评价 / 再来一单守卫 | client | §3.1 | P1 | ✅ done 2026-07-30 | `order-detail` 四个 `useAsyncAction`，微信取消支付语义保留 |
+| T235.8 | 骑手端抢单 / 确认送达按行守卫 | client | §3.3 | P1 | ✅ done 2026-07-30 | `rider/index.tsx` 改用 keyed 守卫，替换原 `actingId` 弱守卫 |
+| T235.9 | 菜品管理上下架 / 增删改按钮 loading | client | §3.2 | P2 | ✅ done 2026-07-30 | `menu-manage.tsx` 表单 + 行级双守卫 |
+| T235.10 | 收藏 toggle / 地址设为默认与删除 / 通知已读 / 回复评价 | client | §3.1 / §3.5 | P2 | ✅ done 2026-07-30 | 地址 PATCH→POST 兼容回退语义保留 |
+| T235.11 | admin 订单行内状态流转按钮 loading | admin | §3.4 | P0 | ✅ done 2026-07-30 | `pendingKeys` Set，仅锁同行不锁全表 |
+| T235.12 | admin 桌台弹窗 confirmLoading + 营业状态 Switch loading | admin | §3.4 | P0 | ✅ done 2026-07-30 | 桌台重复创建、营业状态 UI 与实际不一致两个高危点 |
+| T235.13 | admin 审批 / 申请 / 消息按钮守卫 | admin | §3.4 | P1 | ✅ done 2026-07-30 | 「通过」建店+改角色副作用；资格校验期穿透窗口 |
+| T235.14 | admin 7 处 Popconfirm 删除补 okButtonProps.loading | admin | §3.4 | P2 | ✅ done 2026-07-30 | 行级 `deletingId`，仅当前行 spin |
+| T235.15 | `useCrudModal` 上锁提前到表单校验之前 | admin | §3.4 | P1 | ✅ done 2026-07-30 | 收口 Promotion / Menu-Item / ShopManage 创建路径穿透窗口 |
+| T235.16 | 修复 admin 既有编译破损（非本任务引入） | admin | §3.4 | P0 | ✅ done 2026-07-30 | Promotion/ShopManage 缺 `}}`、Order 多余 `};`、User `pageSize` 类型、NotificationBell import |
+| T235.17 | 双端 tsc 验证零报错 | client/admin | §4 | P0 | ✅ done 2026-07-30 | `client` / `admin` 均 `npx tsc --noEmit` exit 0 |
+
 ### T234 — PC 管理后台体验与代码优化 — 2026-07-30
 
 > **来源**: 代码审查发现 15 处可优化点
@@ -576,14 +602,14 @@
 | T164.2 | 顾客订单详情地图 | client | §3.17 | P2 | ✅ done 2026-07-24 | 外卖订单展示 Taro Map、路线、骑手当前位置与最后更新时间 |
 | T164.3 | 骑手位置上报 | client | §3.17 | P2 | ✅ done 2026-07-24 | 配送中订单可上报定位；定位失败使用演示坐标兜底 |
 
-### P1 — 骑手实时无感定位（T232）— ✅ 2026-07-30
+### P1 — 骑手实时无感定位（T235）— ✅ 2026-07-30
 
 | ID | 任务 | 模块 | PRD 关联 | 优先级 | 状态 | 备注 |
 |----|------|------|----------|--------|------|------|
-| T232.1 | 骑手定位批量上报接口 | server | §3.17 / §4.12 | P1 | ✅ done 2026-07-30 | `POST /orders/rider/location`；一次定位 fan-out 到该骑手全部配送中外卖单，共享同一 recordedAt，仅 2 次 DB 往返；source 默认 `rider_auto` |
-| T232.2 | 骑手端自动定位 hook | client | §3.17 | P1 | ✅ done 2026-07-30 | `useRiderLocationTracker`：startLocationUpdate + onLocationChange，10s/30m 节流、60s 心跳，失败降级 getLocation 轮询；移除「上报位置」按钮，改为实时定位状态条 |
-| T232.3 | PC 后台骑手位置面板 | admin | §3.17 | P1 | ✅ done 2026-07-30 | 新增 socket.io 接入 + `RiderLocationPanel`（SVG 示意图 + 轨迹时间轴 + 地图外链）；补 nginx `/socket.io` 升级代理 |
-| T232.4 | 小程序商家端骑手位置 | client | §3.17 | P1 | ✅ done 2026-07-30 | 抽出 `RiderTrackMap` 公共组件，商家端订单详情接入 Taro Map + `delivery:track` 实时刷新；顾客端原有链路无需改动 |
+| T235.1 | 骑手定位批量上报接口 | server | §3.17 / §4.12 | P1 | ✅ done 2026-07-30 | `POST /orders/rider/location`；一次定位 fan-out 到该骑手全部配送中外卖单，共享同一 recordedAt，仅 2 次 DB 往返；source 默认 `rider_auto` |
+| T235.2 | 骑手端自动定位 hook | client | §3.17 | P1 | ✅ done 2026-07-30 | `useRiderLocationTracker`：startLocationUpdate + onLocationChange，10s/30m 节流、60s 心跳，失败降级 getLocation 轮询；移除「上报位置」按钮，改为实时定位状态条 |
+| T235.3 | PC 后台骑手位置面板 | admin | §3.17 | P1 | ✅ done 2026-07-30 | 新增 socket.io 接入 + `RiderLocationPanel`（SVG 示意图 + 轨迹时间轴 + 地图外链）；补 nginx `/socket.io` 升级代理 |
+| T235.4 | 小程序商家端骑手位置 | client | §3.17 | P1 | ✅ done 2026-07-30 | 抽出 `RiderTrackMap` 公共组件，商家端订单详情接入 Taro Map + `delivery:track` 实时刷新；顾客端原有链路无需改动 |
 
 
 ### P2 — 操作审计日志（T163）— ✅ 2026-07-24
@@ -953,4 +979,4 @@
 
 ---
 
-*最后更新: 2026-07-30（T234 PC 管理后台代码与体验优化 14 任务已拆解，并行执行中）*
+*最后更新: 2026-07-30（T235 全局写请求防重复提交 17 子任务全部 done；T234 PC 后台优化并行执行中）*
