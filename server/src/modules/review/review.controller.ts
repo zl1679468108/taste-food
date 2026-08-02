@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
@@ -11,9 +12,9 @@ import {
   Query,
 } from '@nestjs/common';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { MerchantOnly } from '../../common/decorators/shop-scope.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
-import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
 import { CreateReviewDto } from './dto/create-review.dto';
@@ -92,27 +93,45 @@ export class ReviewController {
     return success(result);
   }
 
+  /**
+   * 店铺评价列表。
+   * 商家锁定本店；平台管理员属治理视角，必须显式指定 shopId，
+   * 不再静默回退 DEFAULT_SHOP_ID（否则会把「看某店」误当成「看默认店」）。
+   */
   @Get()
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async listReviews(
     @Query() query: ReviewQueryDto,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<PaginatedData<ReviewRecord>>> {
-    // 多租户：强制使用 JWT shopId，忽略客户端伪造
-    const shopId = user.shopId || query.shopId || DEFAULT_SHOP_ID;
+    // 多租户：商家强制用 JWT shopId，忽略客户端伪造
+    const shopId = user.shopId || query.shopId?.trim();
+    if (!shopId) {
+      throw new BadRequestException('缺少 shopId 参数');
+    }
     const page = parseInt(query.page || '1', 10) || 1;
     const pageSize = parseInt(query.pageSize || '20', 10) || 20;
     const result = await this.reviewService.listByShop(shopId, page, pageSize);
     return success(result);
   }
+
+  /**
+   * 商家回复评价。
+   * 路由保持中性前缀：client/ 小程序管理页直接调用 PATCH /reviews/:id/reply。
+   * 平台管理员无本店上下文，直接按 @MerchantOnly 拦截，不再回退 DEFAULT_SHOP_ID 代答。
+   */
   @Patch(':id/reply')
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  @MerchantOnly()
   async replyReview(
     @Param('id') id: string,
     @Body() dto: ReplyReviewDto,
     @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<ReviewRecord>> {
-    const shopId = userShopId || DEFAULT_SHOP_ID;
+    const shopId = userShopId?.trim();
+    if (!shopId) {
+      throw new ForbiddenException('当前账号未绑定店铺');
+    }
     const review = await this.reviewService.replyToReview(id, shopId, dto.reply);
     return success(review, '回复成功');
   }

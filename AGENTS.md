@@ -113,6 +113,15 @@ admin/           PC 管理后台 (React + Ant Design Pro + UMI)
 │   └── access.ts    权限控制
 ├── config/          UMI 编译配置
 
+shared/          三端共享代码（@taste-food/shared）
+├── src/
+│   ├── format/      金额/时间等格式化
+│   ├── constants/   订单状态、动作映射等常量
+│   ├── types/       共享类型
+│   └── index.ts     统一导出
+├── package.json
+└── tsconfig.json
+
 server/          NestJS 后端
 ├── src/
 │   ├── modules/     auth, shop, menu, order, payment
@@ -195,8 +204,8 @@ shops, categories, menu_items, spec_groups, spec_options, orders, order_items, d
 ## 运行命令
 
 ```bash
-# 后端（端口 3010，自动清理旧进程）
-cd server && npm run start:dev
+# 后端（端口 3010，防重复拉起：已运行时再执行会跳过）
+cd server && npm run start
 
 # 前端小程序（端口 3011，自动清理旧进程）
 cd client && npm run start

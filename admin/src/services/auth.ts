@@ -1,4 +1,4 @@
-import request from '@/utils/request';
+import request, { ensureTokenRefreshLoop } from '@/utils/request';
 
 export type UserRole = 'admin' | 'merchant' | 'rider' | 'customer';
 
@@ -100,6 +100,8 @@ export function persistAuthSession(result: LoginResult) {
     localStorage.setItem('refreshToken', result.refreshToken);
   }
   localStorage.setItem('user', JSON.stringify(result));
+  // 登录成功后启动主动刷新循环，保证 token 常驻新鲜（无感刷新，不依赖被动 401）
+  ensureTokenRefreshLoop();
 }
 
 /** 登录结果 → 布局用 CurrentUser */
@@ -118,9 +120,10 @@ export function toCurrentUser(raw: LoginResult | ProfileResult | null | undefine
   };
 }
 
-/** 运营角色（admin / merchant）默认进看板，其余进轻量中心 */
-export function homePathForRole(role?: string): string {
-  if (role === 'admin' || role === 'merchant') return '/dashboard';
+/** 按角色分流落地页（T300.2）：平台管理员进 /platform/dashboard，商家进 /merchant/dashboard */
+export function homePathForRole(role?: string | null, shopId?: string | null): string {
+  if (role === 'admin' && !shopId) return '/platform/dashboard';
+  if (role === 'merchant' || (role === 'admin' && !!shopId)) return '/merchant/dashboard';
   return '/account';
 }
 

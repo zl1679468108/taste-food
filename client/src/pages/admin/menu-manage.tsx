@@ -457,6 +457,10 @@ const MenuManagePage = () => {
                               item.status === 'active'
                                 ? 'menu-item-admin-card__action-btn--toggle'
                                 : 'menu-item-admin-card__action-btn--toggle-off'
+                            }${
+                              rowAction.isPending(`toggle:${item.id}`)
+                                ? ' menu-item-admin-card__action-btn--disabled'
+                                : ''
                             }`}
                             onClick={() => toggleItemStatus(item)}
                           >
@@ -469,7 +473,11 @@ const MenuManagePage = () => {
                             <Icon name='edit' size={14} color='#1677FF' />
                           </View>
                           <View
-                            className='menu-item-admin-card__action-btn menu-item-admin-card__action-btn--delete'
+                            className={`menu-item-admin-card__action-btn menu-item-admin-card__action-btn--delete${
+                              rowAction.isPending(`delete:${item.id}`)
+                                ? ' menu-item-admin-card__action-btn--disabled'
+                                : ''
+                            }`}
                             onClick={() => deleteItem(item)}
                           >
                             <Icon name='trash' size={14} color='#FF4D4F' />

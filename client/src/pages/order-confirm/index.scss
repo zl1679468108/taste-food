@@ -460,3 +460,29 @@
     }
   }
 }
+
+
+.address-coord-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-2;
+  margin-bottom: $space-2;
+  padding: $space-2 $space-3;
+  border-radius: $radius-md;
+  background: $primary-light;
+
+  &__text {
+    flex: 1;
+    color: $text-price;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+  }
+
+  &__action {
+    flex-shrink: 0;
+    color: $primary;
+    font-size: $font-sm;
+    font-weight: $weight-semibold;
+  }
+}

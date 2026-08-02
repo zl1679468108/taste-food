@@ -81,6 +81,10 @@ function hasChinese(text: string): boolean {
 function resourceFromPath(path: string): string | undefined {
   const clean = path.split('?')[0].replace(/^\/api\/?/, '/');
   const parts = clean.split('/').filter(Boolean);
+  // 双入口前缀（/merchant、/platform）只表示入口，不是资源本身
+  if (parts.length > 1 && (parts[0] === 'merchant' || parts[0] === 'platform')) {
+    parts.shift();
+  }
   if (parts.length === 0) return undefined;
   if (parts[0] === 'shops' && parts.includes('tables')) return 'tables';
   if (parts[0] === 'orders' && parts.includes('reviews')) return 'reviews';

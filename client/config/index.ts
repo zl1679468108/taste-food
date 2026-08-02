@@ -9,7 +9,7 @@ const engineIOClientPath = path.dirname(
 );
 
 // 共享包源码路径（monorepo workspace，源码直接引用，无需构建）
-const sharedPath = path.resolve(__dirname, '../../packages/shared/src');
+const sharedPath = path.resolve(__dirname, '../../shared/src');
 
 /**
  * 注意：必须用函数形式 merge dev/prod，

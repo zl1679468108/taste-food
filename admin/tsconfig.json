@@ -18,8 +18,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@taste-food/shared": ["../packages/shared/src/index.ts"],
-      "@taste-food/shared/*": ["../packages/shared/src/*"]
+      "@taste-food/shared": ["../shared/src/index.ts"],
+      "@taste-food/shared/*": ["../shared/src/*"]
     },
     "types": ["jest", "node", "react", "react-dom"],
     "ignoreDeprecations": "6.0",

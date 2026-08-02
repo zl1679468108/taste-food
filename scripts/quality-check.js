@@ -8,9 +8,9 @@ const root = path.resolve(__dirname, '..');
 const steps = [
   {
     name: 'shared typecheck',
-    cwd: path.join(root, 'packages/shared'),
-    command: '../../client/node_modules/.bin/tsc',
-    args: ['--noEmit', '--pretty', 'false', '-p', 'tsconfig.json'],
+    cwd: root,
+    command: './node_modules/.bin/tsc',
+    args: ['--noEmit', '--pretty', 'false', '-p', 'shared'],
   },
   {
     name: 'server tests',

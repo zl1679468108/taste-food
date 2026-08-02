@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ModalForm, ProFormText, ProFormDigit, ProFormSelect } from '@ant-design/pro-components';
-import { Button, Popconfirm, Space, Table, message } from 'antd';
+import { Button, Popconfirm, Space, Table } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { getMenuItems, Category } from '@/services/menu';
 import { useShopContext } from '@/hooks/useShopContext';
@@ -12,6 +13,7 @@ import {
 } from '@/hooks/queries';
 import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE, filterByKeyword } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
+import AllShopsScopeAlert from '@/components/AllShopsScopeAlert';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 
@@ -126,7 +128,7 @@ const filteredCategories = useMemo(
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<AppstoreOutlined style={{ marginRight: 8 }} />}
+        icon={<AppstoreOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
         title={currentShop?.name ? `分类管理 · ${currentShop.name}` : '分类管理'}
         onRefresh={() => categoriesQuery.refetch()}
         addText="新增分类"
@@ -135,6 +137,8 @@ const filteredCategories = useMemo(
           setModalOpen(true);
         }}
       />
+
+      <AllShopsScopeAlert />
 
       <TableCard className="tf-table-card">
         <SearchFilterBar
@@ -158,7 +162,7 @@ const filteredCategories = useMemo(
         title={editing ? '编辑分类' : '新增分类'}
         open={modalOpen}
         modalProps={{
-          destroyOnClose: true,
+          destroyOnHidden: true,
           onCancel: () => setModalOpen(false),
         }}
         initialValues={

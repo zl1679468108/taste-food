@@ -32,7 +32,7 @@ const PageHeaderActions: React.FC<PageHeaderActionsProps> = ({
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 16,
+      marginBottom: 'var(--tf-space-4)',
       color: brand.textPrimary,
     }}
   >

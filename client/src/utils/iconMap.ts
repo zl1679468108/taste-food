@@ -30,6 +30,7 @@ export function getOrderStatusIcon(status?: string): IconName {
     case 'paid':
     case 'accepted':
     case 'preparing':
+    case 'ready_for_delivery':
     case 'delivering':
     case 'ready_for_pickup':
       return 'order';

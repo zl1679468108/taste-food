@@ -20,7 +20,7 @@ const StatisticCard: React.FC<StatisticCardProps> = ({
   bgColor = brand.primaryLight,
 }) => (
   <Card
-    bordered={false}
+    variant="borderless"
     style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
   >
     <Statistic

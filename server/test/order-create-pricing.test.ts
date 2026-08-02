@@ -155,13 +155,16 @@ test('delivery order uses shop delivery fee and enforces min order amount', asyn
     userId: 'user-delivery',
     deliveryType: DeliveryType.DELIVERY,
     address: '杭州市西湖区测试地址 2 号',
+    // 外卖订单要求收货地址带 GCJ-02 坐标（地址簿地图选点）
+    deliveryLatitude: 30.2741,
+    deliveryLongitude: 120.1551,
     items: [{
       menuItemId: 'menu-rice',
       name: '盖饭',
       quantity: 1,
       price: 1,
     }],
-  });
+  } as any);
 
   assert.equal(order.deliveryFee, 500);
   assert.equal(order.total, 3700);

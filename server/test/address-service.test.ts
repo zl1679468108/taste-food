@@ -22,6 +22,8 @@ type AddressDtoInput = {
   detail: string;
   tag: string;
   isDefault: boolean;
+  latitude: number;
+  longitude: number;
 };
 
 function addressDto(overrides: Partial<AddressDtoInput> = {}) {
@@ -30,6 +32,9 @@ function addressDto(overrides: Partial<AddressDtoInput> = {}) {
     contactPhone: ' 13800138000 ',
     detail: ' 杭州市西湖区测试地址 ',
     tag: ' 家 ',
+    // 地址坐标为地图选点必填项（GCJ-02），此处取杭州西湖区参考坐标
+    latitude: 30.259244,
+    longitude: 120.130229,
     ...overrides,
   };
 }

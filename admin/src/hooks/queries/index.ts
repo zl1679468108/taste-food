@@ -7,4 +7,5 @@ export * from './useUserQueries';
 export * from './useNotificationQueries';
 export * from './useRoleApplicationQueries';
 export * from './useAuditQueries';
+export * from './useExportQueries';
 export * from './useTableQueries';

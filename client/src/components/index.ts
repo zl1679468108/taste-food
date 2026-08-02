@@ -6,6 +6,7 @@ export { default as SectionCard } from './SectionCard';
 export { default as FooterBar } from './FooterBar';
 export { default as FilterTabs } from './FilterTabs';
 export { default as OrderCard } from './OrderCard';
+export { default as AfterSalePanel } from './AfterSalePanel';
 export type { FilterTabItem } from './FilterTabs';
 export { default as VirtualList } from './VirtualList';
 export { default as ListEndTip } from './ListEndTip';

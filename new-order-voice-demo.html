@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>新订单语音播报 · 试听</title>
+  <style>
+    :root { --brand: #2D9D8A; --bg: #f5f7f6; --card: #fff; --text: #1f2329; --muted: #8a9099; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p.sub { color: var(--muted); margin: 0 0 20px; font-size: 13px; }
+    .group { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+    .group h2 { font-size: 14px; margin: 0 0 10px; color: var(--brand); }
+    button { font: inherit; border: none; background: #eef6f4; color: var(--brand); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin: 4px 6px 4px 0; transition: .15s; }
+    button:hover { background: var(--brand); color: #fff; }
+    button.compare { background: #fff3e6; color: #c8741a; }
+    button.compare:hover { background: #c8741a; color: #fff; }
+    button.doubao { background: #f3eefe; color: #6b3fd6; }
+    button.doubao:hover { background: #6b3fd6; color: #fff; }
+    select { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid #d9dee2; background: #fff; color: var(--text); max-width: 100%; }
+    input[type=text], input[type=password] { font: inherit; padding: 7px 10px; border-radius: 8px; border: 1px solid #d9dee2; background: #fff; color: var(--text); }
+    .status { margin-top: 8px; font-size: 12px; color: var(--muted); min-height: 16px; }
+    .tip { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .voice-grid { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .keyrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>🔔 新订单语音播报 · 试听</h1>
+  <p class="sub">✅ 生产方案 = <b>豆包温柔桃子 2.0 预生成 MP3</b>（已落地 <code>admin/public/sounds/alert/</code>，离线播放、随包部署、浏览器自动播报）。下方「真实生成语音」可直接试听与后台<b>同款</b>音频；本地 speechSynthesis / Edge / 豆包在线仅作对比参考。</p>
+
+  <!-- 豆包云端女声试听区 -->
+  <div class="group">
+    <h2>🔊 真实生成语音（温柔桃子 2.0 MP3，与后台同款）</h2>
+    <p class="tip">直接播放 <code>admin/public/sounds/alert/</code> 下实际生成的 MP3（文件名由 djb2 哈希得到，与生成脚本一致）。浏览器自动播放策略可能拦截，若无声请先点击页面任意处。</p>
+    <div style="display:flex;gap:18px;flex-wrap:wrap">
+      <div style="min-width:260px">
+        <div style="font-size:13px;color:var(--brand);margin:6px 0 4px">新订单已支付</div>
+        <div class="voice-grid" id="real-paid"></div>
+        <div class="status" id="st-real-paid"></div>
+      </div>
+      <div style="min-width:260px">
+        <div style="font-size:13px;color:var(--brand);margin:6px 0 4px">取消/退款申请</div>
+        <div class="voice-grid" id="real-cancel"></div>
+        <div class="status" id="st-real-cancel"></div>
+      </div>
+      <div style="min-width:260px">
+        <div style="font-size:13px;color:var(--brand);margin:6px 0 4px">顾客催单</div>
+        <div class="voice-grid" id="real-reminder"></div>
+        <div class="status" id="st-real-reminder"></div>
+      </div>
+      <div style="min-width:260px">
+        <div style="font-size:13px;color:var(--brand);margin:6px 0 4px">骑手接单/取餐</div>
+        <div class="voice-grid" id="real-rider"></div>
+        <div class="status" id="st-real-rider"></div>
+      </div>
+      <div style="min-width:260px">
+        <div style="font-size:13px;color:var(--brand);margin:6px 0 4px">新评价</div>
+        <div class="voice-grid" id="real-review"></div>
+        <div class="status" id="st-real-review"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="group">
+    <h2>🌐 豆包（火山引擎）云端女声试听</h2>
+    <div class="keyrow">
+      <input type="password" id="apiKeyInput" placeholder="火山引擎 API Key（X-Api-Key）" style="min-width:260px" />
+      <button onclick="saveKey()">保存 Key</button>
+      <span id="keyState" class="tip"></span>
+    </div>
+    <p class="tip">Key 仅存浏览器 localStorage，不会写进文件或上传。火山引擎控制台 → API Key 管理 获取；需已开通「语音合成」并可用 seed-tts-2.0 资源。</p>
+    <div>
+      <span class="tip">试听文本：</span>
+      <input type="text" id="doubaoText" value="主人，来新订单啦，快接单叭～" style="min-width:320px" />
+    </div>
+    <div class="voice-grid" id="doubaoVoices"></div>
+    <div class="status" id="st-doubao"></div>
+  </div>
+
+  <!-- Edge TTS 免费女声区 -->
+  <div class="group">
+    <h2>🌟 Edge TTS 免费女声（微软在线神经，无需 Key）</h2>
+    <p class="tip">完全免费、无需 API Key，中文女声自然度远超系统自带。浏览器直连微软端点会被 CORS/网络限制拦截，现改为走本机后端无密钥代理转发（需先启动后端：<code>cd server && npm run start</code>，端口 3010）。</p>
+    <div>
+      <span class="tip">试听文本：</span>
+      <input type="text" id="edgeText" value="主人，来新订单啦，快接单叭～" style="min-width:320px" />
+    </div>
+    <div class="voice-grid" id="edgeVoices"></div>
+    <div class="status" id="st-edge"></div>
+  </div>
+
+  <!-- 本地语音对比区 -->
+  <div class="group">
+    <h2>🎙 本地语音包（speechSynthesis 对比）</h2>
+    <select id="voiceSelect"></select>
+    <p class="tip">⭐=自动推荐（女声+高质量优先）；♀=推断女声。本地语音偏机械，主要作对比参考。</p>
+  </div>
+
+  <div class="group">
+    <h2>清晰度对比（本地语音，同一句话，不同参数）</h2>
+    <div id="compare"></div>
+    <div class="status" id="st-compare"></div>
+    <p class="tip">推荐「清晰版」（rate 0.95 / pitch 1.0）。原版语速音调偏高、易吞音；慢速版更稳但偏慢。</p>
+  </div>
+
+  <div class="group">
+    <h2>新订单话术（本地语音试听）</h2>
+    <div id="paid"></div>
+    <div class="status" id="st-paid"></div>
+  </div>
+
+  <div class="group">
+    <h2>取消/退款申请话术（本地语音试听）</h2>
+    <div id="cancel"></div>
+    <div class="status" id="st-cancel"></div>
+  </div>
+
+  <div class="group">
+    <h2>顾客催单话术（本地语音试听）</h2>
+    <div id="reminder"></div>
+    <div class="status" id="st-reminder"></div>
+  </div>
+
+  <div class="group">
+    <h2>骑手接单/取餐话术（本地语音试听）</h2>
+    <div id="rider"></div>
+    <div class="status" id="st-rider"></div>
+  </div>
+
+  <div class="group">
+    <h2>新评价话术（本地语音试听）</h2>
+    <div id="review"></div>
+    <div class="status" id="st-review"></div>
+  </div>
+
+  <script>
+    const PHRASE_POOL = {
+      order_paid: [
+        '您有一笔新订单，请及时处理',
+        '新订单已支付，请尽快接单',
+        '有新的待接订单，请关注处理',
+        '订单已支付成功，等待商家接单',
+        '顾客已下单，请尽快确认订单',
+      ],
+      order_cancel_request: [
+        '有顾客发起取消申请，请尽快审核',
+        '收到一笔取消申请，请及时处理',
+        '顾客申请取消订单，请确认',
+      ],
+      order_reminder: [
+        '温馨提示，有顾客正在催单，请加快出餐',
+        '顾客催单提醒，请尽快处理当前订单',
+        '订单催单通知，顾客已等待较久，请关注',
+        '您有一笔订单被催单，请及时处理',
+      ],
+      rider_assigned: [
+        '骑手已接单，外卖订单正在配送途中',
+        '骑手已取餐出发，请关注配送进度',
+        '外卖订单骑手已接单，即将送达顾客',
+      ],
+      new_review: [
+        '您收到一条新的顾客评价，请查看',
+        '有顾客完成评价，感谢您的用心',
+        '新的评价来啦，快看看顾客的反馈',
+      ],
+    };
+    // 与 admin/src/utils/alertPhrases.ts / scripts/gen-alert-voice.mjs 完全一致的哈希与清洗
+    function sanitizeForHash(text) { return text.replace(/[~～]/g, '').trim(); }
+    function djb2(str) { let h = 5381; for (let i = 0; i < str.length; i++) { h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; } return h.toString(16); }
+    // 播放真实生成的温柔桃子 MP3（相对路径指向 admin/public/sounds/alert/）
+    function playRealMp3(phrase, statusId) {
+      const st = document.getElementById(statusId);
+      const file = 'admin/public/sounds/alert/alert-' + djb2(sanitizeForHash(phrase)) + '.mp3';
+      const audio = new Audio(file);
+      st.textContent = '▶ ' + phrase;
+      audio.onended = () => { st.textContent = '✔ ' + phrase; };
+      audio.onerror = () => { st.textContent = '❌ 文件缺失：' + file; };
+      audio.play().catch(() => { st.textContent = '⚠ 自动播放被拦截，请先点击页面任意处再试'; });
+    }
+
+    const femaleRe = /(xiaoxiao|xiaoyi|ting[- ]?ting|mei|yaoyao|huihui|yan|sin[- ]?ji|female|女)/;
+    const maleRe = /(yunxi|yunyang|kangkang|云希|云扬|康康|male|男)/;
+
+    // ===== 豆包（火山引擎）云端 TTS =====
+    const DOUBAO_FEMALE = [
+      { id: 'zh_female_peiqi_uranus_bigtts', name: '佩奇猪 2.0（豆包同款）' },
+      { id: 'zh_female_linjianvhai_uranus_bigtts', name: '邻家女孩 2.0' },
+      { id: 'zh_female_wenroumama_uranus_bigtts', name: '温柔妈妈 2.0' },
+      { id: 'zh_female_tianmeitaozi_uranus_bigtts', name: '甜美桃子 2.0' },
+      { id: 'zh_female_tianmeixiaoyuan_uranus_bigtts', name: '甜美小源 2.0' },
+      { id: 'zh_female_sajiaoxuemei_uranus_bigtts', name: '撒娇学妹 2.0' },
+      { id: 'zh_female_qingxinnvsheng_uranus_bigtts', name: '清新女声 2.0' },
+      { id: 'zh_female_cancan_uranus_bigtts', name: '知性灿灿 2.0' },
+      { id: 'zh_female_sophie_uranus_bigtts', name: '魅力苏菲 2.0' },
+      { id: 'zh_female_vv_uranus_bigtts', name: 'Vivi 2.0' },
+      { id: 'zh_female_xiaohe_uranus_bigtts', name: '小何 2.0' },
+      { id: 'zh_female_xiaoxue_uranus_bigtts', name: '儿童绘本 2.0' },
+      { id: 'zh_female_kefunvsheng_uranus_bigtts', name: '暖阳女声 2.0' },
+      { id: 'zh_female_mizai_uranus_bigtts', name: '黑猫咪仔 2.0' },
+      { id: 'zh_female_jitangnv_uranus_bigtts', name: '鸡汤女 2.0' },
+      { id: 'zh_female_meilinvyou_uranus_bigtts', name: '魅力女友 2.0' },
+      { id: 'zh_female_liuchangnv_uranus_bigtts', name: '流畅女声 2.0' },
+      { id: 'zh_female_yingyujiaoxue_uranus_bigtts', name: 'Tina老师 2.0' },
+    ];
+    const LS_KEY = 'tf_volc_api_key';
+
+    function saveKey() {
+      const v = document.getElementById('apiKeyInput').value.trim();
+      if (v) { localStorage.setItem(LS_KEY, v); document.getElementById('keyState').textContent = '✅ 已保存（本机）'; }
+      else { localStorage.removeItem(LS_KEY); document.getElementById('keyState').textContent = '已清除'; }
+    }
+    // 初始化
+    (function initKey() {
+      const saved = localStorage.getItem(LS_KEY);
+      if (saved) { document.getElementById('apiKeyInput').value = saved; document.getElementById('keyState').textContent = '✅ 已加载本机 Key'; }
+    })();
+
+    let doubaoPlaying = false;
+    async function doubaoTTS(voiceId, voiceName) {
+      const st = document.getElementById('st-doubao');
+      const apiKey = localStorage.getItem(LS_KEY);
+      if (!apiKey) { st.textContent = '⚠ 请先填写并保存火山引擎 API Key'; return; }
+      if (doubaoPlaying) { st.textContent = '⏳ 正在播放中，稍候…'; return; }
+      const text = document.getElementById('doubaoText').value.trim();
+      if (!text) { st.textContent = '⚠ 试听文本为空'; return; }
+
+      st.textContent = '⏳ 合成中…「' + voiceName + '」';
+      doubaoPlaying = true;
+      try {
+        const resp = await fetch('https://openspeech.bytedance.com/api/v3/tts/unidirectional', {
+          method: 'POST',
+          headers: {
+            'X-Api-Key': apiKey,
+            'X-Api-Resource-Id': 'seed-tts-2.0',
+            'X-Api-Request-Id': (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            req_params: {
+              text: text,
+              speaker: voiceId,
+              audio_params: { format: 'mp3' },
+            },
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.text().catch(() => '');
+          st.textContent = '❌ ' + resp.status + '：' + err.slice(0, 200);
+          doubaoPlaying = false;
+          return;
+        }
+        const ct = resp.headers.get('content-type') || '';
+        let audioUrl;
+        if (ct.includes('application/json')) {
+          const j = await resp.json();
+          const b64 = j.data || j.base64_audio || j.audio || '';
+          audioUrl = 'data:audio/mp3;base64,' + b64;
+        } else {
+          const blob = await resp.blob();
+          audioUrl = URL.createObjectURL(blob);
+        }
+        const audio = new Audio(audioUrl);
+        audio.onended = () => { st.textContent = '✔ 已播报「' + voiceName + '」：' + text; doubaoPlaying = false; };
+        audio.onerror = () => { st.textContent = '❌ 播放失败'; doubaoPlaying = false; };
+        await audio.play();
+        st.textContent = '▶ 「' + voiceName + '」：' + text;
+      } catch (e) {
+        st.textContent = '❌ 异常：' + (e && e.message ? e.message : e) + '（若提示 CORS/跨域，需走后端代理，告诉我即可）';
+        doubaoPlaying = false;
+      }
+    }
+
+    (function buildDoubao() {
+      const mount = document.getElementById('doubaoVoices');
+      DOUBAO_FEMALE.forEach(v => {
+        const b = document.createElement('button');
+        b.className = 'doubao';
+        b.textContent = v.name;
+        b.onclick = () => doubaoTTS(v.id, v.name);
+        mount.appendChild(b);
+      });
+    })();
+
+    // ===== Edge TTS（微软在线神经，免费无 Key） =====
+    const EDGE_FEMALE = [
+      { id: 'zh-CN-XiaoxiaoNeural', name: '晓晓（温暖自然）' },
+      { id: 'zh-CN-XiaoyiNeural', name: '晓伊（活泼俏皮）' },
+      { id: 'zh-CN-XiaochenNeural', name: '晓辰（知性优雅）' },
+      { id: 'zh-CN-XiaomengNeural', name: '晓梦（少女可爱）' },
+      { id: 'zh-CN-XiaoruiNeural', name: '晓睿（平和自然）' },
+      { id: 'zh-CN-XiaoxuanNeural', name: '晓萱（温柔细腻）' },
+      { id: 'zh-CN-XiaoyanNeural', name: '晓妍（新闻播音）' },
+      { id: 'zh-CN-liaoning-XiaobeiNeural', name: '辽宁晓贝（东北话）' },
+      { id: 'zh-CN-shaanxi-XiaoniNeural', name: '陕西晓妮（陕西话）' },
+    ];
+    let edgeBusy = false;
+    function edgeTTS(voiceId, voiceName) {
+      const st = document.getElementById('st-edge');
+      let text = document.getElementById('edgeText').value.trim();
+      // 过滤会被念出的装饰符号（～ 读作「波/浪」）
+      text = text.replace(/[~～]/g, '').trim();
+      if (!text) { st.textContent = '⚠ 试听文本为空'; return; }
+      if (edgeBusy) { st.textContent = '⏳ 正在合成，稍候…'; return; }
+      edgeBusy = true;
+      st.textContent = '⏳ 合成中…「' + voiceName + '」';
+      fetch('http://127.0.0.1:3010/api/tts/edge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: voiceId }),
+      })
+      .then(resp => {
+        if (!resp.ok) {
+          return resp.text().then(err => { throw new Error(resp.status + '：' + err.slice(0, 200)); });
+        }
+        return resp.blob();
+      })
+      .then(blob => {
+        const aurl = URL.createObjectURL(blob);
+        const audio = new Audio(aurl);
+        audio.onended = () => { st.textContent = '✔ 已播报「' + voiceName + '」：' + text; edgeBusy = false; };
+        audio.onerror = () => { st.textContent = '❌ 播放失败'; edgeBusy = false; };
+        audio.play().catch(() => { st.textContent = '❌ 自动播放被拦截，请先点击页面任意处再试'; edgeBusy = false; });
+        st.textContent = '▶ 「' + voiceName + '」：' + text;
+      })
+      .catch(e => {
+        st.textContent = '❌ 请求后端失败：' + (e && e.message ? e.message : e) + '（请确保后端 http://127.0.0.1:3010 已启动）';
+        edgeBusy = false;
+      });
+    }
+    (function buildEdge() {
+      const mount = document.getElementById('edgeVoices');
+      EDGE_FEMALE.forEach(v => {
+        const b = document.createElement('button');
+        b.className = 'doubao';
+        b.textContent = v.name;
+        b.onclick = () => edgeTTS(v.id, v.name);
+        mount.appendChild(b);
+      });
+    })();
+
+    // ===== 本地语音（speechSynthesis）对比 =====
+    function scoreVoice(v) {
+      const name = v.name.toLowerCase();
+      let s = 0;
+      if (/neural/.test(name)) s += 100;
+      else if (/online|natural/.test(name)) s += 80;
+      if (/premium|enhanced|hq/.test(name)) s += 30;
+      if (femaleRe.test(name)) s += 50;
+      else if (maleRe.test(name)) s -= 20;
+      if (/(xiaoxiao|ting[- ]?ting|mei|huihui|yaoyao|kangkang|yan|xiaoyi|yunxi)/.test(name)) s += 20;
+      if (/zh|chinese|中文|普通话/i.test(v.lang + v.name)) s += 10;
+      if (v.lang.toLowerCase() === 'zh-cn') s += 5;
+      return s;
+    }
+    function pickChineseVoice() {
+      const vs = window.speechSynthesis.getVoices();
+      const zh = vs.filter(v => /^zh/i.test(v.lang) || /chinese|china|中文|普通话/i.test(v.name));
+      if (zh.length === 0) return null;
+      zh.sort((a, b) => scoreVoice(b) - scoreVoice(a));
+      return zh[0];
+    }
+    const allVoices = () => window.speechSynthesis.getVoices();
+    const zhVoices = () => allVoices().filter(v => /^zh/i.test(v.lang) || /chinese|china|中文|普通话/i.test(v.name));
+
+    function refreshVoiceUI() {
+      const vs = allVoices();
+      const zh = zhVoices();
+      const best = pickChineseVoice();
+      const sel = document.getElementById('voiceSelect');
+      const prev = sel.value;
+      sel.innerHTML = '';
+      if (zh.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = '（无中文语音包可用）';
+        sel.appendChild(opt);
+        return;
+      }
+      zh.forEach(v => {
+        const idx = vs.indexOf(v);
+        const opt = document.createElement('option');
+        opt.value = String(idx);
+        const mark = (v === best) ? ' ⭐自动推荐' : (femaleRe.test(v.name.toLowerCase()) ? ' ♀' : (maleRe.test(v.name.toLowerCase()) ? ' ♂' : ''));
+        opt.textContent = v.name + ' (' + v.lang + ')' + mark;
+        sel.appendChild(opt);
+      });
+      if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+      else if (best) sel.value = String(vs.indexOf(best));
+    }
+    refreshVoiceUI();
+    if ('speechSynthesis' in window && window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = refreshVoiceUI;
+    }
+
+    function sanitizeForSpeech(text) { return text.replace(/[~～]/g, '').trim(); }
+    function speak(text, statusId, rate = 0.95, pitch = 1.0, voiceOverride) {
+      const st = document.getElementById(statusId);
+      if (!('speechSynthesis' in window)) { st.textContent = '当前浏览器不支持语音合成'; return; }
+      if (window.speechSynthesis.speaking) { st.textContent = '正在朗读中…'; return; }
+      const u = new SpeechSynthesisUtterance(sanitizeForSpeech(text));
+      u.lang = 'zh-CN'; u.rate = rate; u.pitch = pitch; u.volume = 1;
+      const v = voiceOverride || pickChineseVoice();
+      if (v) u.voice = v;
+      u.onstart = () => st.textContent = '▶ ' + text;
+      u.onend = () => st.textContent = '✔ 已播报：' + text;
+      window.speechSynthesis.speak(u);
+    }
+    function speakSelected(text, statusId, rate = 0.95, pitch = 1.0) {
+      const sel = document.getElementById('voiceSelect');
+      const idx = parseInt(sel.value, 10);
+      const vs = allVoices();
+      const v = (Number.isInteger(idx) && vs[idx]) ? vs[idx] : pickChineseVoice();
+      speak(text, statusId, rate, pitch, v);
+    }
+
+    const compareText = PHRASE_POOL.order_paid[0];
+    const comparePresets = [
+      { label: '清晰版 0.95/1.0', rate: 0.95, pitch: 1.0 },
+      { label: '原版 1.08/1.15', rate: 1.08, pitch: 1.15 },
+      { label: '慢速版 0.9/1.0', rate: 0.9, pitch: 1.0 },
+    ];
+    const cmpMount = document.getElementById('compare');
+    comparePresets.forEach(p => {
+      const b = document.createElement('button');
+      b.className = 'compare';
+      b.textContent = p.label;
+      b.onclick = () => speakSelected(compareText, 'st-compare', p.rate, p.pitch);
+      cmpMount.appendChild(b);
+    });
+
+    const STATUS_ID = {
+      order_paid: 'st-paid',
+      order_cancel_request: 'st-cancel',
+      order_reminder: 'st-reminder',
+      rider_assigned: 'st-rider',
+      new_review: 'st-review',
+    };
+    function buildButtons(kind, mountId) {
+      const mount = document.getElementById(mountId);
+      const stId = STATUS_ID[kind] || 'st-paid';
+      PHRASE_POOL[kind].forEach(text => {
+        const b = document.createElement('button');
+        b.textContent = text;
+        b.onclick = () => speakSelected(text, stId);
+        mount.appendChild(b);
+      });
+    }
+    // 真实生成 MP3 试听按钮
+    function buildRealMp3(kind, mountId, statusId) {
+      const mount = document.getElementById(mountId);
+      PHRASE_POOL[kind].forEach(text => {
+        const b = document.createElement('button');
+        b.className = 'doubao';
+        b.textContent = text;
+        b.onclick = () => playRealMp3(text, statusId);
+        mount.appendChild(b);
+      });
+    }
+    buildRealMp3('order_paid', 'real-paid', 'st-real-paid');
+    buildRealMp3('order_cancel_request', 'real-cancel', 'st-real-cancel');
+    buildRealMp3('order_reminder', 'real-reminder', 'st-real-reminder');
+    buildRealMp3('rider_assigned', 'real-rider', 'st-real-rider');
+    buildRealMp3('new_review', 'real-review', 'st-real-review');
+
+    buildButtons('order_paid', 'paid');
+    buildButtons('order_cancel_request', 'cancel');
+    buildButtons('order_reminder', 'reminder');
+    buildButtons('rider_assigned', 'rider');
+    buildButtons('new_review', 'review');
+  </script>
+</body>
+</html>

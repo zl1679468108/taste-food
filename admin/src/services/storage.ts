@@ -81,29 +81,28 @@ function normalizeList(data: unknown): MenuImageAsset[] {
 
 /**
  * 图库列表
- * GET /api/storage/images/menu?shop_id=
+ * GET /api/storage/images/menu
+ *
+ * 注意：目标店铺一律由服务端从 JWT 取（@MerchantOnly + req.user.shopId），
+ * 前端传 shop_id 不再生效，保留入参只为不改动调用方签名。
  */
-export async function listMenuImages(shopId: string): Promise<MenuImageAsset[]> {
-  const data = (await request.get('/api/storage/images/menu', {
-    params: { shop_id: shopId },
-  })) as unknown;
+export async function listMenuImages(_shopId?: string): Promise<MenuImageAsset[]> {
+  const data = (await request.get('/api/storage/images/menu')) as unknown;
   return normalizeList(data);
 }
 
 /**
  * 单张上传菜品图
- * POST /api/storage/images/menu  FormData: image + shop_id + originalName
+ * POST /api/storage/images/menu  FormData: image + originalName
+ * 店铺归属由服务端按 JWT 判定。
  */
 export async function uploadMenuImage(
   file: File,
-  shopId?: string,
+  _shopId?: string,
 ): Promise<UploadImageResult> {
   const formData = new FormData();
   formData.append('image', file);
   formData.append('originalName', file.name || 'image.jpg');
-  if (shopId) {
-    formData.append('shop_id', shopId);
-  }
 
   return request.post('/api/storage/images/menu', formData, {
     timeout: 30000,
@@ -112,12 +111,12 @@ export async function uploadMenuImage(
 
 /**
  * 批量导入图库
- * POST /api/storage/images/menu/batch  FormData: images + shop_id
- * 后端 FilesInterceptor('images', 30)
+ * POST /api/storage/images/menu/batch  FormData: images
+ * 后端 FilesInterceptor('images', 30)；店铺归属由服务端按 JWT 判定。
  */
 export async function batchUploadMenuImages(
   files: File[],
-  shopId: string,
+  _shopId?: string,
 ): Promise<BatchUploadResult> {
   if (!files.length) {
     return { items: [], failed: [], successCount: 0, failCount: 0 };
@@ -127,7 +126,6 @@ export async function batchUploadMenuImages(
   files.forEach((file) => {
     formData.append('images', file);
   });
-  formData.append('shop_id', shopId);
 
   const data = (await request.post('/api/storage/images/menu/batch', formData, {
     timeout: 120000,

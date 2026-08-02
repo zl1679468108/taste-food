@@ -23,21 +23,53 @@ export interface DeliveryTrackEvent {
   recordedAt: string;
 }
 
+/** 商家新待处理订单（服务端 order.gateway 的 order:new / order:paid） */
+export interface OrderNewEvent {
+  orderId?: string;
+  shopId?: string;
+  total?: number;
+  deliveryType?: string;
+  status?: string;
+  itemCount?: number;
+  contactName?: string;
+  contactPhone?: string;
+  tableNo?: string;
+  address?: string;
+  previousStatus?: string;
+  event?: string;
+  order: Record<string, unknown>;
+}
+
+/**
+ * 站内通知推送（服务端 order.gateway 的 notification:new）。
+ * 服务端会附带权威 unreadCount，前端优先采信它而不是本地 +1，
+ * 避免多标签页/多设备场景下角标漂移；老版本服务端不带该字段时回退本地累加。
+ */
+export type NotificationNewEvent = InboxNotification & { unreadCount?: number };
+
 export type DeliveryTrackCallback = (data: DeliveryTrackEvent) => void;
-export type NotificationCallback = (data: InboxNotification) => void;
+export type NotificationCallback = (data: NotificationNewEvent) => void;
+export type OrderNewCallback = (data: OrderNewEvent) => void;
+/** WS （重）连成功回调：用于断线重连后重新拉取数据做对齐 */
+export type ReconnectCallback = () => void;
 
 const ORDERS_NAMESPACE = '/orders';
 const DELIVERY_TRACK_EVENT = 'delivery:track';
 const NOTIFICATION_NEW_EVENT = 'notification:new';
+const ORDER_NEW_EVENT = 'order:new';
 
 let current: Socket | null = null;
 let connected = false;
 /** 引用计数：connectSocket 累加，disconnectSocket 递减，归零才断开 */
 let refCount = 0;
 let bound = false;
+/** 区分「首次连接」与「断线重连」，只有后者需要触发数据对齐 */
+let hasConnectedOnce = false;
 
 const deliveryTrackCbs = new Set<DeliveryTrackCallback>();
 const notificationCbs = new Set<NotificationCallback>();
+const orderNewCbs = new Set<OrderNewCallback>();
+const reconnectCbs = new Set<ReconnectCallback>();
 
 function readToken(): string {
   if (typeof window === 'undefined') return '';
@@ -65,7 +97,17 @@ function emitDeliveryTrack(data: DeliveryTrackEvent): void {
   });
 }
 
-function emitNotification(data: InboxNotification): void {
+function emitReconnected(): void {
+  reconnectCbs.forEach((cb) => {
+    try {
+      cb();
+    } catch (e) {
+      console.error('[Socket] reconnect 回调执行失败:', e);
+    }
+  });
+}
+
+function emitNotification(data: NotificationNewEvent): void {
   notificationCbs.forEach((cb) => {
     try {
       cb(data);
@@ -75,11 +117,22 @@ function emitNotification(data: InboxNotification): void {
   });
 }
 
+function emitOrderNew(data: OrderNewEvent): void {
+  orderNewCbs.forEach((cb) => {
+    try {
+      cb(data);
+    } catch (e) {
+      console.error('[Socket] order:new/paid 回调执行失败:', e);
+    }
+  });
+}
+
 function bind(target: Socket): void {
   if (bound) return;
   bound = true;
   target.on(DELIVERY_TRACK_EVENT, emitDeliveryTrack);
   target.on(NOTIFICATION_NEW_EVENT, emitNotification);
+  target.on(ORDER_NEW_EVENT, emitOrderNew);
 }
 
 export function isSocketConnected(): boolean {
@@ -118,7 +171,12 @@ export function connectSocket(): Socket | null {
   }
 
   current.on('connect', () => {
+    const isReconnect = hasConnectedOnce;
     connected = true;
+    hasConnectedOnce = true;
+    // 断线期间服务端推送的事件已经丢了，通知订阅方重新拉一次数据做对齐。
+    // 首次连接不触发：此时组件自己的初始化请求已经在跑，重复拉取没有意义。
+    if (isReconnect) emitReconnected();
   });
 
   current.on('disconnect', () => {
@@ -146,6 +204,7 @@ export function disconnectSocket(): void {
   try {
     current.off(DELIVERY_TRACK_EVENT, emitDeliveryTrack);
     current.off(NOTIFICATION_NEW_EVENT, emitNotification);
+    current.off(ORDER_NEW_EVENT, emitOrderNew);
     current.removeAllListeners();
     current.io.off('reconnect_attempt');
     current.disconnect();
@@ -155,8 +214,11 @@ export function disconnectSocket(): void {
     current = null;
     connected = false;
     bound = false;
+    hasConnectedOnce = false;
     deliveryTrackCbs.clear();
     notificationCbs.clear();
+    orderNewCbs.clear();
+    reconnectCbs.clear();
   }
 }
 
@@ -180,6 +242,30 @@ export function onNotificationNew(cb: NotificationCallback): void {
 /** 取消订阅站内通知推送 */
 export function offNotificationNew(cb: NotificationCallback): void {
   notificationCbs.delete(cb);
+}
+
+/**
+ * 订阅「断线重连成功」事件。
+ * 重连期间的推送已丢失，订阅方应在回调里重新拉取一次数据做对齐。
+ */
+export function onSocketReconnect(cb: ReconnectCallback): void {
+  reconnectCbs.add(cb);
+}
+
+/** 取消订阅断线重连事件 */
+export function offSocketReconnect(cb: ReconnectCallback): void {
+  reconnectCbs.delete(cb);
+}
+
+/** 订阅商家新待处理订单推送（order:new / order:paid） */
+export function onOrderNew(cb: OrderNewCallback): void {
+  orderNewCbs.add(cb);
+  if (current) bind(current);
+}
+
+/** 取消订阅商家新待处理订单推送 */
+export function offOrderNew(cb: OrderNewCallback): void {
+  orderNewCbs.delete(cb);
 }
 
 export function getSocket(): Socket | null {

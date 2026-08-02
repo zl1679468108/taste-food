@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Map as TaroMap } from '@tarojs/components';
+import Taro from '@tarojs/taro';
 import { DeliveryTrackPoint } from '../../types/order';
 import Icon from '../Icon';
 import orderActiveIcon from '../../assets/icons/order-active.png';
@@ -45,6 +46,8 @@ const COLOR_ICON = '#333333';
 
 /** 相对时间刷新间隔 */
 const AGE_TICK_MS = 10000;
+const FULLSCREEN_MAP_ID = 'rider-track-fullscreen-map';
+const MAP_FIT_PADDING = [120, 64, 100, 64];
 
 type MapCallout = {
   content: string;
@@ -146,8 +149,29 @@ const RiderTrackMap = ({
 }: RiderTrackMapProps) => {
   const [fullscreen, setFullscreen] = useState(false);
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const includePointsRef = useRef<MapPoint[]>([]);
+  const fullscreenCenterRef = useRef<MapPoint>(FALLBACK_CENTER);
+  const [fullscreenCenter, setFullscreenCenter] = useState<MapPoint>(FALLBACK_CENTER);
 
   const lastTrackPoint = track.length > 0 ? track[track.length - 1] : undefined;
+
+  const fitFullscreenRoute = useCallback((retry = 0) => {
+    const points = includePointsRef.current;
+    if (!points.length) return;
+    try {
+      const ctx = Taro.createMapContext(FULLSCREEN_MAP_ID);
+      ctx.includePoints({
+        points,
+        padding: MAP_FIT_PADDING,
+      });
+    } catch (error) {
+      if (retry < 3) {
+        setTimeout(() => fitFullscreenRoute(retry + 1), 180);
+        return;
+      }
+      console.warn('骑手地图适配路线失败:', error);
+    }
+  }, []);
 
   // 相对时间定时刷新：仅在有上报点时启动，卸载/无点时清理
   useEffect(() => {
@@ -157,6 +181,13 @@ const RiderTrackMap = ({
     const timer = setInterval(() => setNowTs(Date.now()), AGE_TICK_MS);
     return () => clearInterval(timer);
   }, [lastTrackPoint?.recordedAt]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    setFullscreenCenter(fullscreenCenterRef.current);
+    const timer = setTimeout(() => fitFullscreenRoute(), 320);
+    return () => clearTimeout(timer);
+  }, [fullscreen, fitFullscreenRoute]);
 
   const hasMapPoints = requireTrack
     ? !!lastTrackPoint
@@ -246,6 +277,12 @@ const RiderTrackMap = ({
 
   const trackAge = lastTrackPoint ? formatTrackAge(lastTrackPoint.recordedAt, nowTs) : '';
   const statusText = loading ? '更新中' : lastTrackPoint ? `更新于 ${trackAge}` : pendingText;
+  const fitActionText = lastTrackPoint ? '全览轨迹' : '预估路线';
+
+  includePointsRef.current = includePoints;
+  if (!fullscreen) {
+    fullscreenCenterRef.current = mapCenter;
+  }
 
   return (
     <View className={`rider-track-map ${className}`}>
@@ -253,11 +290,6 @@ const RiderTrackMap = ({
         <Text className='rider-track-map__title'>{title}</Text>
         <View className='rider-track-map__header-right'>
           <Text className='rider-track-map__status'>{statusText}</Text>
-          {hasMapPoints ? (
-            <View className='rider-track-map__expand' onClick={() => setFullscreen(true)}>
-              <Text className='rider-track-map__expand-text'>全屏</Text>
-            </View>
-          ) : null}
         </View>
       </View>
 
@@ -312,25 +344,6 @@ const RiderTrackMap = ({
         </View>
       ) : null}
 
-      <View className='rider-track-map__meta'>
-        <View className='rider-track-map__meta-item'>
-          <View className='rider-track-map__legend-dot rider-track-map__legend-dot--shop' />
-          <Text className='rider-track-map__meta-text'>商家</Text>
-        </View>
-        <View className='rider-track-map__meta-line' />
-        <View className='rider-track-map__meta-item'>
-          <View className='rider-track-map__legend-dot rider-track-map__legend-dot--route' />
-          <Text className='rider-track-map__meta-text'>
-            {lastTrackPoint ? '骑手' : '预估路线'}
-          </Text>
-        </View>
-        <View className='rider-track-map__meta-line' />
-        <View className='rider-track-map__meta-item'>
-          <View className='rider-track-map__legend-dot rider-track-map__legend-dot--dest' />
-          <Text className='rider-track-map__meta-text'>送达</Text>
-        </View>
-      </View>
-
       {fullscreen && hasMapPoints ? (
         <View className='rider-track-map__fullscreen'>
           <View className='rider-track-map__fullscreen-header'>
@@ -342,16 +355,21 @@ const RiderTrackMap = ({
               <Text className='rider-track-map__fullscreen-close-text'>关闭</Text>
             </View>
             <Text className='rider-track-map__fullscreen-title'>{title}</Text>
-            <Text className='rider-track-map__fullscreen-status'>{statusText}</Text>
+            <View
+              className='rider-track-map__fullscreen-action'
+              onClick={() => fitFullscreenRoute()}
+            >
+              <Text className='rider-track-map__fullscreen-action-text'>{fitActionText}</Text>
+            </View>
           </View>
           <TaroMap
+            id={FULLSCREEN_MAP_ID}
             className='rider-track-map__fullscreen-map'
-            latitude={mapCenter.latitude}
-            longitude={mapCenter.longitude}
+            latitude={fullscreenCenter.latitude}
+            longitude={fullscreenCenter.longitude}
             scale={15}
             markers={markers}
             polyline={polyline}
-            includePoints={includePoints}
             showLocation={false}
             enableScroll
             enableZoom

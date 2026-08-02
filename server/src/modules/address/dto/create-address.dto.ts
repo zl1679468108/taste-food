@@ -30,21 +30,19 @@ export class CreateAddressDto {
   @MaxLength(200)
   detail!: string;
 
-  /** 腾讯地图 GCJ-02 纬度（选点/定位优先；缺省可由服务端 geocode） */
-  @IsOptional()
+  /** 腾讯地图 GCJ-02 纬度（地图选点必填） */
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({}, { message: '请通过地图选点获取地址坐标' })
   @Min(-90)
   @Max(90)
-  latitude?: number;
+  latitude!: number;
 
-  /** 腾讯地图 GCJ-02 经度 */
-  @IsOptional()
+  /** 腾讯地图 GCJ-02 经度（地图选点必填） */
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({}, { message: '请通过地图选点获取地址坐标' })
   @Min(-180)
   @Max(180)
-  longitude?: number;
+  longitude!: number;
 
   @IsString()
   @IsOptional()

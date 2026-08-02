@@ -8,11 +8,13 @@
 taste-food/
 ├── client/          # Taro 微信小程序（顾客端/商家端/骑手端）
 ├── admin/           # PC 管理后台（React + Ant Design Pro + UMI）
+├── shared/          # 三端共享代码（@taste-food/shared）
 ├── server/          # NestJS 后端服务
 ├── docs/            # 项目文档
 │   ├── prd.md       # 产品需求文档
-│   ├── tasks.md     # 任务看板
-│   └── database-init.sql  # 数据库初始化脚本
+│   ├── tasks.md     # 任务看板（仅含待办/进行中/暂缓计划）
+│   ├── database-init.sql  # 数据库初始化脚本
+│   └── archive/     # 历史归档（已完成任务的快照，如 tasks-archive-YYYY-MM-DD.md，供追溯）
 └── tests/           # 集成测试
 ```
 
@@ -45,7 +47,7 @@ cd taste-food
 ```bash
 cd server
 npm install
-npm run start:dev
+npm run start
 # 后端运行在 http://localhost:3010
 ```
 

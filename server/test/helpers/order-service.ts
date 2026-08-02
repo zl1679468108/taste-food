@@ -103,6 +103,14 @@ export function createOrderService(options: TestOrderServiceOptions = {}) {
   const addressService = {
     findByUserId: async () => [],
   };
+  // 站内消息：记录写入内容供断言，失败不应影响订单主流程
+  const inboxMessages: Array<Record<string, unknown>> = [];
+  const inboxService = {
+    create: async (payload: Record<string, unknown>) => {
+      inboxMessages.push(payload);
+      return payload;
+    },
+  };
 
   const service = new OrderService(
     gateway as never,
@@ -110,6 +118,7 @@ export function createOrderService(options: TestOrderServiceOptions = {}) {
     shopService as never,
     menuService as never,
     addressService as never,
+    inboxService as never,
   );
 
   return {
@@ -118,6 +127,7 @@ export function createOrderService(options: TestOrderServiceOptions = {}) {
     orderUpdatedEvents,
     orderNewEvents,
     deliveryTrackEvents,
+    inboxMessages,
   };
 }
 
@@ -127,8 +137,12 @@ export async function createDeliveryOrder(service: OrderService) {
     userId: `user-${Date.now()}-${Math.random()}`,
     deliveryType: DeliveryType.DELIVERY,
     address: '杭州市西湖区测试地址 1 号',
+    deliveryLatitude: 30.2741,
+    deliveryLongitude: 120.1551,
+    contactName: '测试用户',
+    contactPhone: '13800138000',
     items: [{ menuItemId: 'menu-1', name: '测试菜品', quantity: 1 }],
-  });
+  } as any);
 }
 
 export async function createPickupOrder(service: OrderService) {

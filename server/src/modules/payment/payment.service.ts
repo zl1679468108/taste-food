@@ -80,7 +80,7 @@ export class PaymentService {
       transactionId,
       orderId,
       amount: order.total,
-      status: 'success',
+      status: 'paid',
       paidAt: now,
       mock: true,
       provider: 'sandbox',
@@ -140,14 +140,6 @@ export class PaymentService {
     );
   }
 
-  private isMissingColumnError(error: { message?: string } | null | undefined): boolean {
-    const msg = String(error?.message || '').toLowerCase();
-    return (
-      (msg.includes('column') && (msg.includes('does not exist') || msg.includes('schema cache'))) ||
-      (msg.includes('could not find the') && msg.includes('column'))
-    );
-  }
-
   private async insertPaymentRecord(
     orderId: string,
     userId: string,
@@ -157,55 +149,21 @@ export class PaymentService {
   ): Promise<void> {
     if (!supabase) return;
     const now = payment.paidAt || new Date().toISOString();
-    const candidates: Record<string, unknown>[] = [
-      {
-        id: transactionId,
-        order_id: orderId,
-        user_id: userId,
-        amount,
-        status: payment.status || 'success',
-        provider: payment.provider || 'sandbox',
-        paid_at: now,
-        created_at: now,
-      },
-      {
-        id: transactionId,
-        order_id: orderId,
-        amount,
-        status: payment.status || 'success',
-        provider: payment.provider || 'sandbox',
-        paid_at: now,
-        created_at: now,
-      },
-      {
-        id: transactionId,
-        order_id: orderId,
-        amount,
-        status: payment.status || 'success',
-        created_at: now,
-      },
-      {
-        order_id: orderId,
-        amount,
-        status: payment.status || 'success',
-      },
-    ];
-
-    let lastError: { message?: string } | null = null;
-    for (const payload of candidates) {
-      const { error } = await supabase.from('tf_payments').insert(payload);
-      if (!error) return;
-      lastError = error;
-      if (!this.isMissingColumnError(error) && !/null value|violates not-null|duplicate key/i.test(error.message || '')) {
-        // 非 schema 兼容类错误时继续尝试更小 payload 无意义则直接退出
-        if (!/column|schema cache|could not find/i.test(error.message || '')) {
-          break;
-        }
-      }
+    // T181 后 tf_payments 列已齐全；库用 method 列且 CHECK 仅允许 wechat/alipay/balance，
+    // 而 payment.provider 不存在于库，多候选降级为历史 provider/method 错位兼容死代码，已废弃。
+    // 直写有效列，method 省略走默认 'wechat'，并保留 user_id / paid_at（旧候选 2 会丢失二者）。
+    const { error } = await supabase.from('tf_payments').insert({
+      id: transactionId,
+      order_id: orderId,
+      user_id: userId,
+      amount,
+      status: payment.status || 'paid',
+      paid_at: now,
+      created_at: now,
+    });
+    if (error) {
+      this.logger.warn(`[Payment] 写入 tf_payments 失败，继续更新订单状态: ${error.message}`);
     }
-    this.logger.warn(
-      `[Payment] 写入 tf_payments 失败，继续更新订单状态: ${lastError?.message || 'unknown'}`,
-    );
   }
 
   private async persistSuccessfulPayment(

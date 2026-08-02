@@ -65,10 +65,15 @@ export const brand = {
   font7xl: 34,
 
   /* ---------- 间距阶梯（px number） ---------- */
+  space0_5: 2,
   space1: 4,
+  space1_5: 6,
   space2: 8,
+  space2_5: 10,
   space3: 12,
+  space3_5: 14,
   space4: 16,
+  space4_5: 18,
   space5: 20,
   space6: 24,
   space7: 28,

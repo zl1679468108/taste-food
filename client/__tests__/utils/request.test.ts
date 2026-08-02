@@ -185,6 +185,70 @@ describe('request utils', () => {
     expect(mockTaro.request).toHaveBeenCalledTimes(2);
   });
 
+  test('post login credential error 1004 without token should toast business message', async () => {
+    mockTaro.getStorageSync.mockReturnValue(null);
+    mockTaro.request.mockResolvedValue({
+      ...mockResponse,
+      statusCode: 401,
+      data: { code: 1004, data: null, message: '用户名或密码错误' },
+    });
+
+    await expect(post('/auth/login', { username: 'x', password: 'y' })).rejects.toThrow(
+      '用户名或密码错误',
+    );
+    expect(authStoreMocks.refreshSession).not.toHaveBeenCalled();
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '用户名或密码错误',
+      icon: 'none',
+    });
+  });
+
+  test('post with skipAuthRedirect should toast 1004 as normal business error', async () => {
+    mockTaro.getStorageSync.mockReturnValue('stale-token');
+    mockTaro.request.mockResolvedValue({
+      ...mockResponse,
+      statusCode: 401,
+      data: { code: 1004, data: null, message: '用户名或密码错误' },
+    });
+
+    await expect(
+      post('/auth/login', { username: 'x', password: 'bad' }, { skipAuthRedirect: true }),
+    ).rejects.toThrow('用户名或密码错误');
+    expect(authStoreMocks.refreshSession).not.toHaveBeenCalled();
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '用户名或密码错误',
+      icon: 'none',
+    });
+  });
+
+  test('get unauthorized without token should toast instead of silent throw', async () => {
+    mockTaro.getStorageSync.mockReturnValue(null);
+    mockTaro.request.mockResolvedValue({
+      ...mockResponse,
+      data: { code: 1004, data: null, message: '请先登录' },
+    });
+
+    await expect(get('/favorites')).rejects.toThrow('请先登录');
+    expect(authStoreMocks.refreshSession).not.toHaveBeenCalled();
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '请先登录',
+      icon: 'none',
+    });
+  });
+
+  test('business error without message should still toast fallback', async () => {
+    mockTaro.request.mockResolvedValue({
+      ...mockResponse,
+      data: { code: 1001, data: null, message: '' },
+    });
+
+    await expect(post('/auth/register', { username: 'ab' })).rejects.toThrow('请求失败');
+    expect(mockTaro.showToast).toHaveBeenCalledWith({
+      title: '请求失败',
+      icon: 'none',
+    });
+  });
+
   test('isRetryableError detects network errors', () => {
     expect(isRetryableError(new RequestError('net', -1, { isNetworkError: true }))).toBe(true);
     expect(isRetryableError(new RequestError('bad', 400))).toBe(false);

@@ -111,4 +111,8 @@
   color: $text-tertiary;
   font-size: $font-2xs;
   line-height: $leading-normal;
+
+  &--warn {
+    color: $text-price;
+  }
 }

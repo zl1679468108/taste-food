@@ -16,7 +16,8 @@ interface StatusTimelineProps {
 }
 
 const DELIVERY_FLOW = [
-  'pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'completed',
+  'pending_payment', 'paid', 'accepted', 'preparing',
+  'ready_for_delivery', 'delivering', 'completed',
 ];
 const PICKUP_FLOW = [
   'pending_payment', 'paid', 'accepted', 'preparing', 'ready_for_pickup', 'completed',

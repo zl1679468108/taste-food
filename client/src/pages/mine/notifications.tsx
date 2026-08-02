@@ -15,6 +15,8 @@ interface InboxItem {
   type: string;
   title: string;
   content: string;
+  relatedType?: string;
+  relatedId?: string;
   isRead: boolean;
   createdAt: string;
 }
@@ -28,6 +30,7 @@ interface ListResult {
 
 export default function NotificationsPage() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const fetchMe = useAuthStore((s) => s.fetchMe);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<InboxItem[]>([]);
   const { pending: marking, run: runMarkAll } = useAsyncAction();
@@ -42,13 +45,18 @@ export default function NotificationsPage() {
     setLoading(true);
     try {
       const res = await get<ListResult>('/notifications', { page: 1, pageSize: 50 }, { showError: false });
-      setItems(res.data?.items || []);
+      const nextItems = res.data?.items || [];
+      setItems(nextItems);
+      // 看到审批通过通知时立刻刷新 roles，返回「我的」即可展示切换入口
+      if (nextItems.some((item) => item.type === 'role_application_approved')) {
+        void fetchMe();
+      }
     } catch {
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchMe]);
 
   useDidShow(() => {
     loadList();
@@ -121,7 +129,7 @@ export default function NotificationsPage() {
       {loading ? (
         <SkeletonLoader mode='notification' count={4} />
       ) : items.length === 0 ? (
-        <EmptyState icon='bell' title='暂无消息' description='审批结果与系统通知会出现在这里' />
+        <EmptyState icon='bell' title='暂无消息' description='新订单、售后申请与审批结果会出现在这里' />
       ) : (
         <View className='notif-page__list'>
           {items.map((item) => {
@@ -131,8 +139,41 @@ export default function NotificationsPage() {
               key={item.id}
               className={`notif-page__item${item.isRead ? '' : ' is-unread'}${readPending ? ' is-pending' : ''}`}
               onClick={() => {
-                if (item.isRead) return;
-                markRead(item.id);
+                const wasUnread = !item.isRead;
+                const isApproved = item.type === 'role_application_approved';
+                const isOrderMsg =
+                  item.relatedType === 'order' ||
+                  item.type === 'order_paid' ||
+                  item.type === 'order_cancel_request' ||
+                  item.type === 'order_cancel_approved' ||
+                  item.type === 'order_cancel_rejected';
+                if (wasUnread) {
+                  markRead(item.id);
+                }
+                // 仅未读的「申请通过」引导回「我的」切换身份，避免点历史消息反复跳转
+                if (isApproved && wasUnread) {
+                  void fetchMe().then(() => {
+                    Taro.showToast({ title: '可在「我的」切换身份', icon: 'none' });
+                    setTimeout(() => {
+                      Taro.switchTab({ url: '/pages/mine/index' });
+                    }, 400);
+                  });
+                  return;
+                }
+                // 订单相关：商家去后台处理，顾客进订单详情
+                if (isOrderMsg) {
+                  const role = useAuthStore.getState().user?.role;
+                  if (role === 'merchant' || role === 'admin') {
+                    // 取消申请优先落到退款售后心智；新支付单进商家首页待接单
+                    Taro.switchTab({ url: '/pages/admin/index' });
+                    return;
+                  }
+                  if (item.relatedId) {
+                    Taro.navigateTo({
+                      url: `/pages/order-detail/index?orderId=${item.relatedId}`,
+                    });
+                  }
+                }
               }}
             >
               <View className='notif-page__item-head'>

@@ -10,8 +10,8 @@ import {
   Form,
   Input,
   Select,
-  message,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { UserOutlined, TeamOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
 import { User } from '@/services/user';
@@ -30,7 +30,6 @@ import {
   DEFAULT_PAGE_SIZE,
   DEFAULT_TABLE_PAGINATION,
   DEFAULT_TABLE_LOCALE,
-  filterByKeyword,
 } from '@/utils/table';
 import { brand } from '@/theme';
 
@@ -77,7 +76,7 @@ useEffect(() => {
   setPage(1);
 }, [searchText, roleFilter]);
 
-const usersQuery = useUsers({ page, pageSize });
+const usersQuery = useUsers({ page, pageSize, role: roleFilter, keyword: searchText });
 const loading = usersQuery.isPending;
 const total = usersQuery.data?.total ?? 0;
   const users = useMemo<User[]>(
@@ -105,16 +104,6 @@ const total = usersQuery.data?.total ?? 0;
     shops.forEach((s) => map.set(s.id, s.name));
     return map;
   }, [shops]);
-
-const filteredByKeyword = useMemo(
-  () => filterByKeyword(users, searchText, ['nickName', 'id', 'openid']),
-  [users, searchText],
-);
-
-const filteredUsers = useMemo(
-  () => filteredByKeyword.filter((u) => !roleFilter || u.role === roleFilter),
-  [filteredByKeyword, roleFilter],
-);
 
   const openCreate = () => {
     setEditing(null);
@@ -212,7 +201,7 @@ const filteredUsers = useMemo(
                 {record.nickName || '未命名用户'}
               </Text>
               {record.id === currentUser?.id ? (
-                <Tag style={{ marginLeft: 6 }} color="orange">
+                <Tag style={{ marginLeft: 'var(--tf-space-1_5)'}} color="orange">
                   我
                 </Tag>
               ) : null}
@@ -272,6 +261,14 @@ const filteredUsers = useMemo(
       render: (time: string) => formatTime(time),
     },
     {
+      title: '最后登录',
+      dataIndex: 'lastLoginAt',
+      key: 'lastLoginAt',
+      width: 160,
+      render: (time?: string) =>
+        time ? formatTime(time, 'YYYY-MM-DD HH:mm:ss') : <Text type="secondary">—</Text>,
+    },
+    {
       title: '操作',
       key: 'action',
       width: 100,
@@ -291,7 +288,7 @@ const filteredUsers = useMemo(
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<TeamOutlined style={{ marginRight: 8 }} />}
+        icon={<TeamOutlined style={{ marginRight: 'var(--tf-space-2)' }} />}
         title="用户管理"
         addText={isPlatformAdmin ? '新建用户' : undefined}
         onAdd={isPlatformAdmin ? openCreate : undefined}
@@ -326,7 +323,7 @@ const filteredUsers = useMemo(
         />
         <Table
           columns={columns}
-          dataSource={filteredUsers}
+          dataSource={users}
           rowKey="id"
           loading={loading}
           size="small"
@@ -341,7 +338,7 @@ const filteredUsers = useMemo(
     },
   }}
           locale={DEFAULT_TABLE_LOCALE}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 1160 }}
         />
       </TableCard>
 
@@ -352,7 +349,7 @@ const filteredUsers = useMemo(
         onCancel={() => setModalOpen(false)}
         confirmLoading={submitting}
         okText="保存"
-        destroyOnClose
+        destroyOnHidden
         width={520}
       >
         <Form form={form} layout="vertical" initialValues={{ role: 'customer', accountType: 'merchant' }}>

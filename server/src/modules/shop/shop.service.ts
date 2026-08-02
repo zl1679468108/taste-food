@@ -9,6 +9,10 @@ import {
   BusinessHoursResponseDto,
 } from './dto/shop.dto';
 import {
+  VoiceAlertConfig,
+  UpdateVoiceAlertConfigDto,
+} from './dto/voice-alert-config.dto';
+import {
   BusinessHours,
   defaultBusinessHours,
   isWithinBusinessHours,
@@ -22,17 +26,18 @@ import {
 
 const DEFAULT_SHOP_ID = '00000000-0000-0000-0000-000000000001';
 
-const SHOP_SELECT_CANDIDATES = [
-  'id, name, description, logo_url, address, latitude, longitude, phone, status, delivery_range, delivery_fee, min_order_amount, business_hours, created_at, updated_at',
-  'id, name, description, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, business_hours, created_at, updated_at',
-  'id, name, description, logo_url, address, phone, status, delivery_range, delivery_fee, min_order_amount, created_at, updated_at',
-  'id, name, description, logo_url, address, phone, status, delivery_fee, min_order_amount, created_at, updated_at',
-  'id, name, description, logo_url, address, phone, status, created_at, updated_at',
-  'id, name, description, address, phone, status, created_at, updated_at',
-] as const;
+const SHOP_SELECT =
+  'id, name, description, logo_url, address, latitude, longitude, phone, status, delivery_range, delivery_confirm_radius_m, delivery_fee, min_order_amount, business_hours, created_at, updated_at';
 
 // 内存回退数据（仅开发环境，生产环境禁用）
 const memoryShops: Map<string, ShopResponseDto> = new Map();
+
+// 内存回退：语音播报配置（仅开发环境，生产环境禁用）
+const memoryVoiceAlertConfigs: Map<string, VoiceAlertConfig> = new Map();
+
+function defaultVoiceAlertConfig(): VoiceAlertConfig {
+  return { selection: {}, enabled: true, volume: 1, repeat: 1 };
+}
 
 const initMemoryShops = () => {
   if (memoryShops.size > 0) return;
@@ -46,6 +51,7 @@ const initMemoryShops = () => {
     logoUrl: '',
     status: ShopStatus.OPEN,
     deliveryRange: 3000,
+    deliveryConfirmRadiusM: 500,
     deliveryFee: 500,
     minOrderAmount: 0,
     businessHours: defaultBusinessHours(),
@@ -57,27 +63,10 @@ const initMemoryShops = () => {
 @Injectable()
 export class ShopService {
 
-  private isMissingColumnError(error: { message?: string } | null | undefined): boolean {
-    const msg = (error?.message || '').toLowerCase();
-    return msg.includes('column') && msg.includes('does not exist');
-  }
-
   private async queryShops(
     build: (select: string) => any,
   ): Promise<{ data: any[] | any | null; error: any | null }> {
-    // Prefer full schema, then progressively degrade for older live databases.
-    let last = { data: null, error: { message: 'no shop select candidate tried' } as any };
-    for (const select of SHOP_SELECT_CANDIDATES) {
-      const result = await build(select);
-      if (!result.error) {
-        return result;
-      }
-      last = result;
-      if (!this.isMissingColumnError(result.error)) {
-        return result;
-      }
-    }
-    return last;
+    return build(SHOP_SELECT);
   }
 
   async findById(id: string): Promise<ShopResponseDto> {
@@ -193,6 +182,7 @@ export class ShopService {
         logo_url: dto.logoUrl || '',
         status: dto.status || ShopStatus.OPEN,
         delivery_range: dto.deliveryRange ?? 3000,
+        delivery_confirm_radius_m: dto.deliveryConfirmRadiusM ?? 500,
         delivery_fee: dto.deliveryFee ?? 500,
         min_order_amount: dto.minOrderAmount ?? 0,
         business_hours: businessHours,
@@ -247,6 +237,7 @@ export class ShopService {
       logoUrl: dto.logoUrl || '',
       status: dto.status || ShopStatus.OPEN,
       deliveryRange: dto.deliveryRange ?? 3000,
+      deliveryConfirmRadiusM: dto.deliveryConfirmRadiusM ?? 500,
       deliveryFee: dto.deliveryFee ?? 500,
       minOrderAmount: dto.minOrderAmount ?? 0,
       businessHours,
@@ -300,6 +291,7 @@ export class ShopService {
       if (dto.phone !== undefined) updateData.phone = dto.phone;
       if (dto.logoUrl !== undefined) updateData.logo_url = dto.logoUrl;
       if (dto.deliveryRange !== undefined) updateData.delivery_range = dto.deliveryRange;
+      if (dto.deliveryConfirmRadiusM !== undefined) updateData.delivery_confirm_radius_m = dto.deliveryConfirmRadiusM;
       if (dto.deliveryFee !== undefined) updateData.delivery_fee = dto.deliveryFee;
       if (dto.minOrderAmount !== undefined) updateData.min_order_amount = dto.minOrderAmount;
       if (normalizedHours !== undefined) updateData.business_hours = normalizedHours;
@@ -362,6 +354,7 @@ export class ShopService {
     if (dto.phone !== undefined) shop.phone = dto.phone;
     if (dto.logoUrl !== undefined) shop.logoUrl = dto.logoUrl;
     if (dto.deliveryRange !== undefined) shop.deliveryRange = dto.deliveryRange;
+    if (dto.deliveryConfirmRadiusM !== undefined) (shop as any).deliveryConfirmRadiusM = dto.deliveryConfirmRadiusM;
     if (dto.deliveryFee !== undefined) shop.deliveryFee = dto.deliveryFee;
     if (dto.minOrderAmount !== undefined) shop.minOrderAmount = dto.minOrderAmount;
     if (normalizedHours !== undefined) shop.businessHours = normalizedHours;
@@ -385,6 +378,66 @@ export class ShopService {
       throw new NotFoundException(`店铺 ${id} 不存在`);
     }
     memoryShops.delete(id);
+  }
+
+  // ===== 语音播报配置（T308）=====
+
+  async getVoiceAlertConfig(shopId: string): Promise<VoiceAlertConfig> {
+    const fallback = defaultVoiceAlertConfig();
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_shops')
+        .select('voice_alert_config')
+        .eq('id', shopId)
+        .single();
+      if (error || !data) return fallback;
+      const cfg = data.voice_alert_config;
+      if (!cfg) return fallback;
+      return {
+        selection:
+          cfg.selection && typeof cfg.selection === 'object' ? cfg.selection : fallback.selection,
+        enabled: typeof cfg.enabled === 'boolean' ? cfg.enabled : fallback.enabled,
+        volume:
+          typeof cfg.volume === 'number'
+            ? Math.min(1, Math.max(0, cfg.volume))
+            : fallback.volume,
+        repeat:
+          typeof cfg.repeat === 'number'
+            ? Math.min(3, Math.max(1, Math.round(cfg.repeat)))
+            : fallback.repeat,
+      };
+    }
+
+    assertMemoryFallbackAllowed('ShopService');
+    return memoryVoiceAlertConfigs.get(shopId) || fallback;
+  }
+
+  async updateVoiceAlertConfig(
+    shopId: string,
+    dto: UpdateVoiceAlertConfigDto,
+  ): Promise<VoiceAlertConfig> {
+    const current = await this.getVoiceAlertConfig(shopId);
+    const merged: VoiceAlertConfig = {
+      selection: dto.selection !== undefined ? dto.selection : current.selection,
+      enabled: dto.enabled !== undefined ? dto.enabled : current.enabled,
+      volume: dto.volume !== undefined ? dto.volume : current.volume,
+      repeat: dto.repeat !== undefined ? dto.repeat : current.repeat,
+    };
+
+    if (hasSupabase() && supabase) {
+      const { error } = await supabase
+        .from('tf_shops')
+        .update({ voice_alert_config: merged, updated_at: new Date().toISOString() })
+        .eq('id', shopId);
+      if (error) {
+        throw new BadRequestException(`更新语音播报配置失败: ${error.message}`);
+      }
+      return merged;
+    }
+
+    assertMemoryFallbackAllowed('ShopService');
+    memoryVoiceAlertConfigs.set(shopId, merged);
+    return merged;
   }
 
   private withOpenFlag(shop: ShopResponseDto): ShopResponseDto {
@@ -441,6 +494,7 @@ export class ShopService {
       status: record.status,
       // 旧库可能没有配送配置列，回退到系统默认值
       deliveryRange: record.delivery_range ?? record.deliveryRange ?? 3000,
+      deliveryConfirmRadiusM: record.delivery_confirm_radius_m ?? record.deliveryConfirmRadiusM ?? 500,
       deliveryFee: record.delivery_fee ?? record.deliveryFee ?? 500,
       minOrderAmount: record.min_order_amount ?? record.minOrderAmount ?? 0,
       businessHours,

@@ -5,10 +5,9 @@
   "description": "小买卖点餐系统 - NestJS 后端",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "start": "(lsof -ti:3010 | xargs kill -9 2>/dev/null || echo ok); NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--use-env-proxy\" nest start --watch",
+    "start": "bash ./scripts/start-guard.sh",
     "start:prod": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--use-env-proxy\" node dist/main",
     "start:debug": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--use-env-proxy\" nest start --debug --watch",
-    "start:dev": "(lsof -ti:3010 | xargs kill -9 2>/dev/null || echo ok); NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--use-env-proxy\" nest start --watch",
     "test": "NODE_ENV=test ALLOW_MEMORY_FALLBACK=true node --require ts-node/register --require reflect-metadata --require ./test/setup.ts --test \"test/**/*.test.ts\""
   },
   "dependencies": {
@@ -20,6 +19,7 @@
     "@nestjs/websockets": "11.1.27",
     "@supabase/supabase-js": "^2.108.2",
     "@types/multer": "^2.1.0",
+    "@types/ws": "^8.18.1",
     "class-transformer": "^0.5.1",
     "class-validator": "0.15.1",
     "dayjs": "^1.11.0",
@@ -28,7 +28,8 @@
     "reflect-metadata": "0.2.2",
     "rxjs": "^7.8.0",
     "socket.io": "^4.7.0",
-    "uuid": "14.0.1"
+    "uuid": "14.0.1",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@nestjs/cli": "11.0.23",

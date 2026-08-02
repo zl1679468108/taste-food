@@ -101,10 +101,27 @@
       color: $danger;
     }
 
+    &--primary,
+    &.primary {
+      color: $primary;
+      font-weight: $weight-semibold;
+    }
+
     &.is-disabled {
       color: $text-disabled;
       opacity: 0.6;
       pointer-events: none;
     }
   }
+}
+
+
+.address-card__no-coord {
+  margin-left: $space-1;
+  padding: 0 $space-1;
+  border-radius: $radius-sm;
+  background: $primary-light;
+  color: $text-price;
+  font-size: $font-2xs;
+  line-height: $leading-normal;
 }

@@ -1,0 +1,166 @@
+@use '../../styles/design-tokens' as *;
+
+.tf-after-sale {
+  margin: 0 $page-padding-x $section-gap;
+  padding: $space-4;
+  background: $bg-card;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-card;
+
+  &--embedded {
+    margin: $space-3 0 0;
+    padding: $space-3 0 0;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+    border-top: 1px solid $divider;
+  }
+}
+
+.tf-after-sale__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-3;
+  margin-bottom: $space-3;
+}
+
+.tf-after-sale__title {
+  font-size: $font-lg;
+  font-weight: $weight-semibold;
+  color: $text-primary;
+  line-height: $leading-tight;
+}
+
+.tf-after-sale__amount {
+  font-size: $font-sm;
+  font-weight: $weight-semibold;
+  color: $text-price;
+  flex-shrink: 0;
+}
+
+.tf-after-sale__meta {
+  margin-bottom: $space-3;
+  padding: $space-2 $space-3;
+  background: $primary-light;
+  border-radius: $radius-md;
+}
+
+.tf-after-sale__meta-text {
+  font-size: $font-xs;
+  color: $primary-dark;
+  line-height: $leading-normal;
+}
+
+.tf-after-sale__steps {
+  display: flex;
+  flex-direction: column;
+}
+
+.tf-after-sale__step {
+  display: flex;
+  align-items: stretch;
+  gap: $space-3;
+  min-height: 48px;
+}
+
+.tf-after-sale__rail {
+  width: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tf-after-sale__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 4px;
+  background: $gray-300;
+  box-sizing: border-box;
+}
+
+.tf-after-sale__line {
+  flex: 1;
+  width: 2px;
+  margin: 4px 0;
+  background: $gray-200;
+  border-radius: 1px;
+  min-height: 20px;
+}
+
+.tf-after-sale__body {
+  flex: 1;
+  padding-bottom: $space-4;
+  min-width: 0;
+}
+
+.tf-after-sale__step:last-child .tf-after-sale__body {
+  padding-bottom: 0;
+}
+
+.tf-after-sale__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: $space-2;
+}
+
+.tf-after-sale__step-title {
+  font-size: $font-base;
+  font-weight: $weight-medium;
+  color: $text-secondary;
+  line-height: $leading-tight;
+}
+
+.tf-after-sale__step-time {
+  font-size: $font-2xs;
+  color: $text-hint;
+  flex-shrink: 0;
+}
+
+.tf-after-sale__step-desc {
+  display: block;
+  margin-top: $space-1;
+  font-size: $font-xs;
+  color: $text-tertiary;
+  line-height: $leading-normal;
+}
+
+.tf-after-sale__step--done {
+  .tf-after-sale__dot {
+    background: $success;
+  }
+
+  .tf-after-sale__line {
+    background: rgba($success, 0.35);
+  }
+
+  .tf-after-sale__step-title {
+    color: $text-primary;
+  }
+}
+
+.tf-after-sale__step--current {
+  .tf-after-sale__dot {
+    background: $primary;
+    box-shadow: 0 0 0 4px $primary-soft;
+  }
+
+  .tf-after-sale__step-title {
+    color: $primary;
+    font-weight: $weight-semibold;
+  }
+
+  .tf-after-sale__step-desc {
+    color: $text-secondary;
+  }
+}
+
+.tf-after-sale__step--todo {
+  .tf-after-sale__dot {
+    background: $bg-card;
+    border: 2px solid $gray-300;
+  }
+}

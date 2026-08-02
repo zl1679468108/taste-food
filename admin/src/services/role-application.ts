@@ -18,6 +18,8 @@ export interface RoleApplication {
   reviewedAt?: string;
   createdAt: string;
   updatedAt: string;
+  userNickname?: string;
+  userPhone?: string;
 }
 
 export interface CreateRoleApplicationParams {

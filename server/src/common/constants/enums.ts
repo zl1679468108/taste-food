@@ -3,6 +3,8 @@ export enum OrderStatus {
   PAID = 'paid',
   ACCEPTED = 'accepted',
   PREPARING = 'preparing',
+  /** 外卖出餐完成，等待骑手抢单 */
+  READY_FOR_DELIVERY = 'ready_for_delivery',
   READY_FOR_PICKUP = 'ready_for_pickup',
   DELIVERING = 'delivering',
   COMPLETED = 'completed',

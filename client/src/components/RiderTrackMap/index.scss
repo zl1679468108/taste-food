@@ -46,23 +46,6 @@
     white-space: nowrap;
   }
 
-  &__expand {
-    flex-shrink: 0;
-    padding: $space-1 $space-2;
-    border-radius: $radius-pill;
-    background: $bg-muted;
-    border: 1px solid $divider;
-
-    &:active {
-      opacity: 0.75;
-    }
-  }
-
-  &__expand-text {
-    font-size: $font-xs;
-    color: $text-secondary;
-    line-height: $leading-normal;
-  }
 
   &__map-wrap {
     position: relative;
@@ -156,61 +139,6 @@
     flex-shrink: 0;
   }
 
-  &__meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: $space-2;
-    margin-top: $space-3;
-    padding: $space-2 $space-1 0;
-    border-top: 1px solid $divider;
-  }
-
-  &__meta-item {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: $space-1;
-    min-width: 0;
-  }
-
-  &__meta-text {
-    font-size: $font-xs;
-    color: $text-secondary;
-    line-height: $leading-snug;
-  }
-
-  &__meta-line {
-    width: 20px;
-    height: 2px;
-    border-radius: $radius-xs;
-    background: linear-gradient(90deg, rgba($primary, 0.25), $primary);
-    flex-shrink: 0;
-  }
-
-  &__legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: $radius-full;
-    flex-shrink: 0;
-
-    &--shop {
-      background: $primary;
-      box-shadow: 0 0 0 3px $primary-soft;
-    }
-
-    &--route {
-      background: $info;
-      box-shadow: 0 0 0 3px rgba($info, 0.16);
-    }
-
-    &--dest {
-      background: $success;
-      box-shadow: 0 0 0 3px rgba($success, 0.16);
-    }
-  }
-
   /* ---------- 全屏查看 ---------- */
   &__fullscreen {
     position: fixed;
@@ -268,6 +196,23 @@
     min-width: 64px;
     text-align: right;
     font-size: $font-xs;
+    color: $primary;
+    line-height: $leading-normal;
+  }
+
+  &__fullscreen-action {
+    min-width: 64px;
+    padding: $space-1 0;
+    text-align: right;
+
+    &:active {
+      opacity: 0.7;
+    }
+  }
+
+  &__fullscreen-action-text {
+    font-size: $font-sm;
+    font-weight: $weight-medium;
     color: $primary;
     line-height: $leading-normal;
   }

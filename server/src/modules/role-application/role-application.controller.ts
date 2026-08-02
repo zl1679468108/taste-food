@@ -3,6 +3,7 @@ import { RoleApplicationService } from './role-application.service';
 import { CreateRoleApplicationDto, ReviewRoleApplicationDto } from './dto/role-application.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PlatformOnly } from '../../common/decorators/shop-scope.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 
@@ -37,6 +38,7 @@ export class RoleApplicationController {
 
   @Get()
   @Roles(UserRole.ADMIN)
+  @PlatformOnly()
   async list(@Query('status') status?: string): Promise<ApiResponse<any>> {
     const rows = await this.service.listAll(status);
     return success(rows);
@@ -44,6 +46,7 @@ export class RoleApplicationController {
 
   @Patch(':id/review')
   @Roles(UserRole.ADMIN)
+  @PlatformOnly()
   async review(
     @Param('id') id: string,
     @CurrentUser('userId') reviewerId: string,

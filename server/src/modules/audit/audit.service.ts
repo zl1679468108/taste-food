@@ -111,6 +111,7 @@ export class AuditService {
     pageSize?: number;
     method?: string;
     action?: string;
+    keyword?: string;
   }): Promise<PaginatedData<AuditLogRecord>> {
     const page = Math.max(params.page || 1, 1);
     const pageSize = Math.min(Math.max(params.pageSize || 20, 1), 100);
@@ -127,6 +128,13 @@ export class AuditService {
         if (params.shopId) query = query.eq('shop_id', params.shopId);
         if (params.method) query = query.eq('method', params.method.toUpperCase());
         if (params.action) query = query.ilike('action', `%${params.action}%`);
+        if (params.keyword) {
+          const q = params.keyword.trim();
+          // 关键词模糊匹配：摘要 / 动作 / 路径 / 资源 / 操作人 / IP
+          query = query.or(
+            `summary.ilike.%${q}%,action.ilike.%${q}%,path.ilike.%${q}%,resource.ilike.%${q}%,user_id.ilike.%${q}%,ip.ilike.%${q}%`,
+          );
+        }
         const { data, error, count } = await query;
         if (error) throw error;
         return {
@@ -150,6 +158,17 @@ export class AuditService {
     if (params.action) {
       const a = params.action.toLowerCase();
       filtered = filtered.filter((l) => l.action.toLowerCase().includes(a));
+    }
+    if (params.keyword) {
+      const q = params.keyword.trim().toLowerCase();
+      filtered = filtered.filter((l) =>
+        (l.summary || '').toLowerCase().includes(q) ||
+        (l.action || '').toLowerCase().includes(q) ||
+        (l.path || '').toLowerCase().includes(q) ||
+        (l.resource || '').toLowerCase().includes(q) ||
+        (l.userId || '').toLowerCase().includes(q) ||
+        (l.ip || '').toLowerCase().includes(q),
+      );
     }
     const total = filtered.length;
     const start = (page - 1) * pageSize;

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Switch,
-  message,
   Typography,
   Descriptions,
   Tag,
@@ -17,6 +16,7 @@ import {
   TimePicker,
   Checkbox,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import {
   ShopOutlined,
   ReloadOutlined,
@@ -40,6 +40,7 @@ import { useShop, useUpdateShop, useUpdateShopStatus, useUpdateBusinessHours } f
 import { useShopContext } from '@/hooks/useShopContext';
 import { formatPrice } from '@/utils/format';
 import PageHeaderActions from '@/components/PageHeaderActions';
+import AllShopsScopeAlert from '@/components/AllShopsScopeAlert';
 import TableCard from '@/components/TableCard';
 import StatisticCard from '@/components/StatisticCard';
 import { brand } from '@/theme';
@@ -181,6 +182,7 @@ const ShopPage: React.FC = () => {
       phone: shop?.phone || '',
       logoUrl: shop?.logoUrl || '',
       deliveryRange: shop?.deliveryRange ? shop.deliveryRange / 1000 : 3,
+      deliveryConfirmRadiusM: shop?.deliveryConfirmRadiusM ?? 500,
       deliveryFee: shop?.deliveryFee != null ? shop.deliveryFee / 100 : 5,
       minOrderAmount: shop?.minOrderAmount != null ? shop.minOrderAmount / 100 : 0,
     });
@@ -201,6 +203,7 @@ const ShopPage: React.FC = () => {
           phone: values.phone,
           logoUrl: values.logoUrl,
           deliveryRange: Math.round(values.deliveryRange * 1000),
+          deliveryConfirmRadiusM: Math.round(Number(values.deliveryConfirmRadiusM) || 500),
           deliveryFee: Math.round(values.deliveryFee * 100),
           minOrderAmount: Math.round(values.minOrderAmount * 100),
         },
@@ -277,7 +280,7 @@ const ShopPage: React.FC = () => {
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<ShopOutlined style={{ marginRight: 8 }} />}
+        icon={<ShopOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
         title="店铺信息"
         onRefresh={() => shopQuery.refetch()}
         extra={
@@ -289,6 +292,8 @@ const ShopPage: React.FC = () => {
         }
       />
 
+      <AllShopsScopeAlert />
+
       {loadError && !loading ? (
         <TableCard>
           <Empty description="店铺信息加载失败" image={Empty.PRESENTED_IMAGE_SIMPLE}>
@@ -299,7 +304,7 @@ const ShopPage: React.FC = () => {
         </TableCard>
       ) : (
         <>
-          <Row gutter={[16, 16]} style={{ marginBottom: 8 }}>
+          <Row gutter={[16, 16]} style={{ marginBottom: 'var(--tf-space-2)'}}>
             <Col xs={24} sm={8}>
               <StatisticCard
                 title="配送范围"
@@ -346,8 +351,8 @@ const ShopPage: React.FC = () => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: 16,
-                gap: 12,
+                marginBottom: 'var(--tf-space-4)',
+                gap: 'var(--tf-space-3)',
                 flexWrap: 'wrap',
               }}
             >
@@ -382,8 +387,7 @@ const ShopPage: React.FC = () => {
               column={{ xs: 1, sm: 2 }}
               bordered
               size="small"
-              labelStyle={{ width: 110, background: brand.gray50 }}
-              contentStyle={{ background: brand.bgCard }}
+              styles={{ label: { width: 110, background: brand.gray50 }, content: { background: brand.bgCard } }}
             >
               <Descriptions.Item label="店铺名称">
                 <Text strong>{shop?.name || '-'}</Text>
@@ -399,7 +403,7 @@ const ShopPage: React.FC = () => {
                   : ''}
               </Descriptions.Item>
               <Descriptions.Item label="Logo">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--tf-space-3)'}}>
                   <ShopLogo src={shop?.logoUrl} size={48} preview />
                   {shop?.logoUrl ? (
                     <Text ellipsis style={{ maxWidth: 280 }} title={shop.logoUrl}>
@@ -429,8 +433,8 @@ const ShopPage: React.FC = () => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: 12,
-                gap: 12,
+                marginBottom: 'var(--tf-space-3)',
+                gap: 'var(--tf-space-3)',
                 flexWrap: 'wrap',
               }}
             >
@@ -466,7 +470,7 @@ const ShopPage: React.FC = () => {
               </Space>
             </div>
 
-            <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 'var(--tf-space-4)'}}>
               按星期配置营业时段（每天一段）。勾选「休息」表示当日不营业。可先配好周一，再点「同步周一到全周」批量填充其余天（仅本地草稿）。
             </Text>
 
@@ -479,7 +483,7 @@ const ShopPage: React.FC = () => {
                     gutter={12}
                     align="middle"
                     style={{
-                      padding: '10px 12px',
+                      padding: 'var(--tf-space-2_5) var(--tf-space-3)',
                       background: brand.gray50,
                       borderRadius: brand.radius,
                       border: `1px solid ${brand.gray200}`,
@@ -509,6 +513,7 @@ const ShopPage: React.FC = () => {
                         format="HH:mm"
                         minuteStep={5}
                         disabled={draft.closed}
+                        allowEmpty
                         value={draft.range}
                         style={{ width: '100%', maxWidth: 320 }}
                         onChange={(value) =>
@@ -535,7 +540,7 @@ const ShopPage: React.FC = () => {
         confirmLoading={editSaving}
         okText="保存"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -679,6 +684,21 @@ const ShopPage: React.FC = () => {
                 ]}
               >
                 <InputNumber min={0} max={1000} step={1} precision={2} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="deliveryConfirmRadiusM"
+                label="送达围栏（米）"
+                extra="骑手确认送达须在此范围内，默认 500"
+                rules={[
+                  { required: true, message: '请输入送达围栏' },
+                  { type: 'number', min: 200, max: 1000, message: '范围 200 ~ 1000 米' },
+                ]}
+              >
+                <InputNumber min={200} max={1000} step={50} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
           </Row>

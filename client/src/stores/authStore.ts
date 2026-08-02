@@ -3,6 +3,7 @@ import * as TaroImport from '@tarojs/taro';
 import { post, get as getRequest } from '../utils/request';
 import { ApiResponse } from '../types/api';
 import { disconnectSocket } from '../services/socket';
+import { setTabBarSelectedPath, TAB_BAR_PATHS } from '../utils/tab-bar';
 
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 
@@ -132,19 +133,23 @@ function persistSession(token: string, refreshToken: string, user: User) {
 /** 按角色跳转首页（无 admin 入口） */
 export function navigateByRole(role?: string) {
   if (role === 'merchant') {
-    Taro.switchTab({ url: '/pages/admin/index' });
+    setTabBarSelectedPath(TAB_BAR_PATHS.admin);
+    Taro.switchTab({ url: TAB_BAR_PATHS.admin });
     return;
   }
   if (role === 'rider') {
-    Taro.switchTab({ url: '/pages/rider/index' });
+    setTabBarSelectedPath(TAB_BAR_PATHS.rider);
+    Taro.switchTab({ url: TAB_BAR_PATHS.rider });
     return;
   }
   if (role === 'admin') {
     Taro.showToast({ title: '请使用 PC 管理后台', icon: 'none' });
-    Taro.switchTab({ url: '/pages/menu/index' });
+    setTabBarSelectedPath(TAB_BAR_PATHS.menu);
+    Taro.switchTab({ url: TAB_BAR_PATHS.menu });
     return;
   }
-  Taro.switchTab({ url: '/pages/menu/index' });
+  setTabBarSelectedPath(TAB_BAR_PATHS.menu);
+  Taro.switchTab({ url: TAB_BAR_PATHS.menu });
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -181,7 +186,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
             nickName: profile?.nickName,
             avatarUrl: profile?.avatarUrl,
           },
-          { showError: true },
+          // 登录接口的 1004 表示凭证错误，不是会话过期，禁止走全局 refresh/logout
+          { showError: true, skipAuthRedirect: true },
         );
         return applyLogin(response.data);
       } catch (error) {
@@ -196,7 +202,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         const response: ApiResponse<LoginResponse> = await post(
           '/auth/login',
           { username, password },
-          { showError: true },
+          // 登录接口的 1004 表示凭证错误，不是会话过期，禁止走全局 refresh/logout
+          { showError: true, skipAuthRedirect: true },
         );
         return applyLogin(response.data);
       } catch (error) {
@@ -211,7 +218,8 @@ export const useAuthStore = create<AuthState>((set, get) => {
         const response: ApiResponse<LoginResponse> = await post(
           '/auth/register',
           payload as unknown as Record<string, unknown>,
-          { showError: true },
+          // 注册失败同样可能返回 1004/校验错误，禁止误触发会话恢复
+          { showError: true, skipAuthRedirect: true },
         );
         return applyLogin(response.data);
       } catch (error) {

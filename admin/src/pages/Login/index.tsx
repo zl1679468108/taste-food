@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Button, Card, Form, Input, Typography, Space, Divider, message } from 'antd';
+import { Button, Card, Form, Input, Typography, Space, Divider } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import {
   UserOutlined,
   LockOutlined,
@@ -14,6 +15,7 @@ import {
   toCurrentUser,
   homePathForRole,
 } from '@/services/auth';
+import { computeAccess } from '@/utils/computeAccess';
 import { brand } from '@/theme';
 import brandLogo from '@/assets/images/brand-logo.png';
 
@@ -36,13 +38,7 @@ const LoginPage: React.FC = () => {
       const currentUser = toCurrentUser(result);
       await setInitialState({
         currentUser,
-        admin: {
-          canOps: result.role === 'admin' || result.role === 'merchant',
-          canPlatform: result.role === 'admin' && !result.shopId,
-          canMerchant: result.role === 'merchant',
-          canAdmin: result.role === 'admin' || result.role === 'merchant',
-          canPlatformAdmin: result.role === 'admin' && !result.shopId,
-        },
+        admin: computeAccess(result),
       });
       message.success('登录成功');
       // 登录态刚写入后直接走 Umi history 可能复用登录前的权限路由标记，
@@ -79,7 +75,7 @@ const LoginPage: React.FC = () => {
         alignItems: 'center',
         justifyContent: 'center',
         background: `linear-gradient(135deg, ${brand.primary} 0%, ${brand.primaryDark} 100%)`,
-        padding: '20px',
+        padding: 'var(--tf-space-5)',
       }}
     >
       <Card
@@ -99,14 +95,14 @@ const LoginPage: React.FC = () => {
                 width: 64,
                 height: 64,
                 borderRadius: 14,
-                marginBottom: 16,
+                marginBottom: 'var(--tf-space-4)',
                 display: 'block',
                 marginLeft: 'auto',
                 marginRight: 'auto',
                 boxShadow: '0 8px 20px rgba(255, 107, 53, 0.28)',
               }}
             />
-            <Title level={2} style={{ marginBottom: 8 }}>
+            <Title level={2} style={{ marginBottom: 'var(--tf-space-2)'}}>
               小买卖管理后台
             </Title>
             <Text type="secondary">账号密码登录 · 多角色入口</Text>
@@ -168,7 +164,7 @@ const LoginPage: React.FC = () => {
 
           <div>
             <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
-              <SafetyOutlined style={{ marginRight: 4 }} />
+              <SafetyOutlined style={{ marginRight: 'var(--tf-space-1)'}} />
               开发提示：平台管理员 admin / admin123；商家可点「填充测试商家」
             </Paragraph>
           </div>

@@ -14,7 +14,7 @@ export interface SandboxPayResult {
   provider: 'sandbox';
   mock: true;
   transactionId: string;
-  status: 'success';
+  status: 'paid';
   paidAt: string;
 }
 

@@ -164,6 +164,12 @@
       color: $text-inverse;
     }
 
+    .release-btn {
+      background: $bg-card;
+      color: $text-secondary;
+      border: 1px solid $border-strong;
+    }
+
     .deliver-btn {
       background: $success;
       color: $text-inverse;

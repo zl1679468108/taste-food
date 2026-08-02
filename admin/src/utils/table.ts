@@ -8,13 +8,16 @@ export const DEFAULT_PAGE_SIZE = 20;
 /** 管理后台表格默认密度 */
 export const DEFAULT_TABLE_SIZE: TableProps['size'] = 'small';
 
-/** 管理后台表格默认分页 */
+/** 管理后台表格默认分页
+ * 注意：只给 defaultPageSize（非受控），不要给受控的 pageSize，
+ * 否则用户切换"每页条数"会失效（值被常量锁死）。
+ * 需要受控分页的页面（如后端分页的 Order/Audit/User）请自行传 pageSize + onChange。
+ */
 export const DEFAULT_TABLE_PAGINATION: TablePaginationConfig = {
   showSizeChanger: true,
   pageSizeOptions: ['10', '20', '50'],
   showTotal: (total) => `共 ${total} 条`,
   defaultPageSize: DEFAULT_PAGE_SIZE,
-  pageSize: DEFAULT_PAGE_SIZE,
 };
 
 /** 统一空态文案 */

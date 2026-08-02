@@ -6,7 +6,6 @@ import {
   Form,
   Input,
   InputNumber,
-  message,
   Space,
   Popconfirm,
   Typography,
@@ -18,6 +17,7 @@ import {
   Row,
   Col,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import {
   EditOutlined,
   DeleteOutlined,
@@ -41,7 +41,8 @@ import {
   useDeleteShop,
 } from '@/hooks/queries';
 import { formatTime, formatPrice } from '@/utils/format';
-import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE, filterByKeyword } from '@/utils/table';
+import { DEFAULT_TABLE_PAGINATION, DEFAULT_TABLE_LOCALE } from '@/utils/table';
+import { useKeywordFilter } from '@/hooks/useKeywordFilter';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
@@ -175,6 +176,7 @@ const ShopManagePage: React.FC = () => {
     mapRecordToForm: (record) => ({
       ...record,
       deliveryRange: record.deliveryRange ? record.deliveryRange / 1000 : 3,
+      deliveryConfirmRadiusM: record.deliveryConfirmRadiusM ?? 500,
       deliveryFee: record.deliveryFee != null ? record.deliveryFee / 100 : 5,
       minOrderAmount: record.minOrderAmount != null ? record.minOrderAmount / 100 : 0,
     }),
@@ -270,6 +272,7 @@ const ShopManagePage: React.FC = () => {
           phone: values.phone as string,
           logoUrl: values.logoUrl as string,
           deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
+          deliveryConfirmRadiusM: Math.round(Number(values.deliveryConfirmRadiusM) || 500),
           deliveryFee: Math.round(Number(values.deliveryFee) * 100),
           minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
         } as Record<string, unknown>);
@@ -292,6 +295,7 @@ const ShopManagePage: React.FC = () => {
             phone: values.phone as string,
             logoUrl: values.logoUrl as string,
             deliveryRange: Math.round(Number(values.deliveryRange) * 1000),
+            deliveryConfirmRadiusM: Math.round(Number(values.deliveryConfirmRadiusM) || 500),
             deliveryFee: Math.round(Number(values.deliveryFee) * 100),
             minOrderAmount: Math.round(Number(values.minOrderAmount) * 100),
           } as Record<string, unknown>,
@@ -301,10 +305,7 @@ const ShopManagePage: React.FC = () => {
       },
     });
 
-const filteredByKeyword = useMemo(
-  () => filterByKeyword(shops, searchText, ['name', 'address', 'phone']),
-  [shops, searchText],
-);
+const filteredByKeyword = useKeywordFilter(shops, searchText, ['name', 'address', 'phone']);
 
 const filteredShops = useMemo(
   () => filteredByKeyword.filter((s) => !statusFilter || s.status === statusFilter),
@@ -319,7 +320,7 @@ const filteredShops = useMemo(
       width: 220,
       ellipsis: true,
       render: (name: string, record: ShopModel) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--tf-space-2_5)'}}>
           <ShopLogo src={record.logoUrl} size={40} />
           <div style={{ minWidth: 0 }}>
             <Text strong>{name}</Text>
@@ -432,7 +433,7 @@ const filteredShops = useMemo(
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<ShopOutlined style={{ marginRight: 8 }} />}
+        icon={<ShopOutlined style={{ marginRight: 'var(--tf-space-2)' }} />}
         title={isPlatformAdmin ? '店铺管理' : '我的店铺'}
         addText={isPlatformAdmin ? '新增店铺' : undefined}
         onAdd={isPlatformAdmin ? () => {
@@ -477,7 +478,7 @@ const filteredShops = useMemo(
         confirmLoading={submitting}
         okText="保存"
         width={720}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { maxHeight: '70vh', overflowY: 'auto' } }}
       >
         <Form form={form} layout="vertical">
@@ -561,11 +562,24 @@ const filteredShops = useMemo(
               </Form.Item>
             </Col>
           </Row>
+          <Row gutter={16}>
+            <Col xs={24} sm={8}>
+              <Form.Item
+                name="deliveryConfirmRadiusM"
+                label="送达围栏（米）"
+                initialValue={500}
+                extra="骑手确认送达须在此范围内，默认 500"
+                rules={[{ type: 'number', min: 200, max: 1000, message: '范围 200 ~ 1000 米' }]}
+              >
+                <InputNumber min={200} max={1000} step={50} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Divider orientation="left" plain>
             营业时段
           </Divider>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--tf-space-2)', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--tf-space-2)', gap: 'var(--tf-space-3)', flexWrap: 'wrap' }}>
             <Text type="secondary">先配周一，再一键同步到其余天（仅本地草稿）</Text>
             <Button size="small" icon={<CopyOutlined />} onClick={applyMondayToRestOfWeek}>
               同步周一到全周
@@ -597,6 +611,7 @@ const filteredShops = useMemo(
                       format="HH:mm"
                       value={draft?.range || null}
                       disabled={!!draft?.closed}
+                      allowEmpty
                       style={{ width: '100%' }}
                       onChange={(vals) =>
                         updateDayDraft(day, {
@@ -617,7 +632,7 @@ const filteredShops = useMemo(
         open={!!tablesShop}
         onClose={() => setTablesShop(null)}
         width={880}
-        destroyOnClose
+        destroyOnHidden
       >
         {tablesShop ? <ShopTablesPanel shopId={tablesShop.id} compact /> : null}
       </Drawer>

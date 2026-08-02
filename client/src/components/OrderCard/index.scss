@@ -89,6 +89,20 @@
     line-height: $leading-tight;
   }
 
+  &__tip {
+    display: block;
+    margin: 0 0 $space-2;
+    padding: $space-1 $space-2;
+    font-size: $font-xs;
+    color: $primary-dark;
+    background: $primary-light;
+    border-radius: $radius-sm;
+    line-height: $leading-normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   &__actions {
     margin-top: $space-3;
     display: flex;

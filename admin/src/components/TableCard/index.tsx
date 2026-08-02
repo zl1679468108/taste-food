@@ -57,7 +57,7 @@ const TableCard: React.FC<TableCardProps> = ({
 
   return (
     <Card
-      bordered={false}
+      variant="borderless"
       className={classes}
       title={title}
       extra={extra}
@@ -67,7 +67,7 @@ const TableCard: React.FC<TableCardProps> = ({
         background: brand.bgCard,
         ...style,
       }}
-      bodyStyle={mergedBodyStyle}
+      styles={{ body: mergedBodyStyle }}
     >
       {children}
     </Card>

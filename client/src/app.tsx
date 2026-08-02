@@ -27,6 +27,8 @@ function App({ children }: PropsWithChildren) {
 
     if (restored) {
       connectWebSocket();
+      // 恢复本地会话后立即同步最新角色/资料，避免审批通过后仍用旧缓存
+      void useAuthStore.getState().fetchMe();
     } else {
       setTimeout(() => {
         Taro.reLaunch({ url: '/pages/auth/login' });
@@ -53,7 +55,10 @@ function App({ children }: PropsWithChildren) {
       isFirstShow.current = false;
       return;
     }
-    useAuthStore.getState().refreshSession();
+    const auth = useAuthStore.getState();
+    void auth.refreshSession();
+    // 从后台回前台时同步角色，解决「申请已通过但切换入口未出现」
+    void auth.fetchMe();
   });
 
   return (

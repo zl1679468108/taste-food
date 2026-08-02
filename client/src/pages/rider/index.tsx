@@ -1,10 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, ScrollView } from '@tarojs/components';
+import { API_BASE_URL } from '../../env';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { shortOrderId } from '../../utils/format';
 import { Order, OrderStatus } from '../../types/order';
+import {
+  DELIVERY_CONFIRM_ACCURACY_BUFFER_MAX_M,
+  DELIVERY_CONFIRM_RADIUS_M,
+  DELIVERY_PROOF_MAX_PHOTOS,
+  DELIVERY_PROOF_MIN_PHOTOS,
+} from '@taste-food/shared/constants';
 import { PaginatedData } from '../../types/api';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import FilterTabs from '../../components/FilterTabs';
@@ -14,6 +21,8 @@ import SkeletonLoader from '../../components/SkeletonLoader';
 import { usePullRefresh } from '../../hooks/usePullRefresh';
 import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import { useRiderLocationTracker } from '../../hooks/useRiderLocationTracker';
+import { useSyncTabBar } from '../../hooks/useSyncTabBar';
+import { TAB_BAR_PATHS } from '../../utils/tab-bar';
 import './index.scss';
 import ListEndTip from '../../components/ListEndTip';
 import FooterBar from '../../components/FooterBar';
@@ -29,9 +38,11 @@ function formatSyncedAgo(timestamp: number, now: number): string {
 }
 
 const RiderPage = () => {
+  useSyncTabBar(TAB_BAR_PATHS.rider);
   // Store 订阅（函数组件中正确订阅变化）
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
 
   // 本地状态
   const [orders, setOrders] = useState<Order[]>([]);
@@ -40,25 +51,32 @@ const RiderPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
   const [shopNameMap, setShopNameMap] = useState<Record<string, string>>({});
+  const [shopRadiusMap, setShopRadiusMap] = useState<Record<string, number>>({});
   // 每 10s 走一次，驱动「位置已同步 · x 秒前」文案自动刷新
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   // 列表按 key 维度互斥（ref 判定，可挡同一 tick 连点）：
-  // grab:${orderId} / deliver:${orderId} / track:${orderId}
+  // grab:${orderId} / deliver:${orderId} / release:${orderId} / track:${orderId}
   const rowAction = useKeyedAsyncAction();
 
   /** 加载店铺名映射（跨店抢单展示用） */
   const ensureShopNames = async (list: Order[]) => {
     const ids = Array.from(new Set(list.map((o) => o.shopId).filter(Boolean)));
-    const missing = ids.filter((id) => !shopNameMap[id]);
+    const missing = ids.filter((id) => !shopNameMap[id] || shopRadiusMap[id] == null);
     if (missing.length === 0) return;
     try {
-      const res = await get<Array<{ id: string; name: string }>>('/shops');
-      const next = { ...shopNameMap };
+      const res = await get<Array<{ id: string; name: string; deliveryConfirmRadiusM?: number }>>('/shops');
+      const nextNames = { ...shopNameMap };
+      const nextRadius = { ...shopRadiusMap };
       for (const s of res.data || []) {
-        if (s?.id) next[s.id] = s.name || s.id;
+        if (!s?.id) continue;
+        nextNames[s.id] = s.name || s.id;
+        if (typeof s.deliveryConfirmRadiusM === 'number') {
+          nextRadius[s.id] = s.deliveryConfirmRadiusM;
+        }
       }
-      setShopNameMap(next);
+      setShopNameMap(nextNames);
+      setShopRadiusMap(nextRadius);
     } catch {
       // 忽略店名加载失败，卡片回退显示短 ID
     }
@@ -144,7 +162,7 @@ const RiderPage = () => {
     loadData(tab);
   };
 
-  /** 抢单 */
+  /** 抢单（池内含 ready_for_delivery 及兼容无骑手旧单） */
   const handleGrab = (orderId: string) =>
     rowAction.run(`grab:${orderId}`, async () => {
       try {
@@ -159,18 +177,219 @@ const RiderPage = () => {
       }
     });
 
-  /** 确认送达 */
-  const handleDeliver = (orderId: string) =>
-    rowAction.run(`deliver:${orderId}`, async () => {
+  /** 释放订单：退回待抢池 */
+  const handleRelease = (orderId: string) => {
+    Taro.showModal({
+      title: '释放订单',
+      content: '释放后订单将回到待抢单池，其他骑手可接。确认释放？',
+      confirmText: '确认释放',
+      cancelText: '再想想',
+      success: (res) => {
+        if (!res.confirm) return;
+        void rowAction.run(`release:${orderId}`, async () => {
+          try {
+            await post(`/orders/${orderId}/release`);
+            Taro.showToast({ title: '已释放订单', icon: 'success' });
+            loadData();
+          } catch (e) {
+            if (isDuplicateSubmitError(e)) return;
+            console.error('释放订单失败:', e);
+            const message =
+              (e as any)?.message ||
+              (e as any)?.data?.message ||
+              '释放失败';
+            Taro.showToast({ title: String(message).slice(0, 40), icon: 'none' });
+          }
+        });
+      },
+    });
+  };
+
+  /** 计算两点距离（米），与后端 haversine 一致，用于客户端预检 */
+  const distanceMeters = (
+    a: { latitude: number; longitude: number },
+    b: { latitude: number; longitude: number },
+  ) => {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const R = 6371000;
+    const dLat = toRad(b.latitude - a.latitude);
+    const dLng = toRad(b.longitude - a.longitude);
+    const lat1 = toRad(a.latitude);
+    const lat2 = toRad(b.latitude);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(h))));
+  };
+
+  const resolveRadiusM = (accuracy?: number, baseRadiusM?: number) => {
+    const base =
+      typeof baseRadiusM === 'number' && Number.isFinite(baseRadiusM)
+        ? baseRadiusM
+        : DELIVERY_CONFIRM_RADIUS_M;
+    const buffer = Math.min(Math.max(accuracy || 0, 0), DELIVERY_CONFIRM_ACCURACY_BUFFER_MAX_M);
+    return base + buffer;
+  };
+
+  /** 上传单张送达照片 */
+  const uploadProofPhoto = async (filePath: string, order: Order): Promise<string> => {
+    if (!token) {
+      throw new Error('请先登录');
+    }
+    const uploadRes = await Taro.uploadFile({
+      url: `${API_BASE_URL}/storage/images/delivery-proof`,
+      filePath,
+      name: 'image',
+      header: {
+        Authorization: `Bearer ${token}`,
+      },
+      formData: {
+        originalName: 'delivery-proof.jpg',
+        orderId: order.id,
+        shopId: order.shopId || '',
+        shop_id: order.shopId || '',
+      },
+    });
+    let data: any;
+    try {
+      data = JSON.parse(uploadRes.data);
+    } catch {
+      throw new Error('上传响应解析失败');
+    }
+    if (data?.code !== 0 || !data?.data?.url) {
+      throw new Error(data?.message || '上传失败');
+    }
+    return data.data.url as string;
+  };
+
+  /**
+   * 确认送达：定位围栏预检 → 拍摄/选择 1~3 张现场照片 → 上传 → 提交
+   */
+  const handleDeliver = (order: Order) =>
+    rowAction.run(`deliver:${order.id}`, async () => {
       try {
-        await post(`/orders/${orderId}/deliver`);
+        // 1) 获取当前位置
+        Taro.showLoading({ title: '定位中...', mask: true });
+        let location: Taro.getLocation.SuccessCallbackResult;
+        try {
+          location = await Taro.getLocation({
+            type: 'gcj02',
+            isHighAccuracy: true,
+            highAccuracyExpireTime: 4000,
+          });
+        } catch (locErr: any) {
+          Taro.hideLoading();
+          const msg = String(locErr?.errMsg || locErr?.message || '');
+          if (msg.includes('auth deny') || msg.includes('authorize') || msg.includes('permission')) {
+            Taro.showModal({
+              title: '需要定位权限',
+              content: '确认送达需校验你是否在收货地址附近，请开启定位权限后重试',
+              confirmText: '去设置',
+              success: (res) => {
+                if (res.confirm) {
+                  Taro.openSetting({});
+                }
+              },
+            });
+            return;
+          }
+          Taro.showToast({ title: '定位失败，请重试', icon: 'none' });
+          return;
+        }
+
+        const accuracy =
+          typeof (location as any).accuracy === 'number'
+            ? (location as any).accuracy
+            : undefined;
+        const radiusM = resolveRadiusM(
+          accuracy,
+          order.deliveryConfirmRadiusM ?? shopRadiusMap[order.shopId],
+        );
+        const destLat = order.deliveryLatitude;
+        const destLng = order.deliveryLongitude;
+        if (typeof destLat === 'number' && typeof destLng === 'number') {
+          const dist = distanceMeters(
+            { latitude: location.latitude, longitude: location.longitude },
+            { latitude: destLat, longitude: destLng },
+          );
+          if (dist > radiusM) {
+            Taro.hideLoading();
+            const remain = Math.max(0, dist - radiusM);
+            await Taro.showModal({
+              title: '未到达收货范围',
+              content: `当前位置距收货地址约 ${dist} 米（需 ≤${radiusM} 米）。还差约 ${remain} 米，请继续靠近后重试。`,
+              showCancel: false,
+              confirmText: '知道了',
+            });
+            return;
+          }
+        }
+
+        Taro.hideLoading();
+
+        // 2) 拍摄/选择现场照片（1~3 张）
+        let mediaRes: Taro.chooseMedia.SuccessCallbackResult;
+        try {
+          mediaRes = await Taro.chooseMedia({
+            count: DELIVERY_PROOF_MAX_PHOTOS,
+            mediaType: ['image'],
+            sourceType: ['camera'],
+            sizeType: ['compressed'],
+            camera: 'back',
+          });
+        } catch (mediaErr: any) {
+          const msg = String(mediaErr?.errMsg || mediaErr?.message || '');
+          if (msg.includes('cancel')) return;
+          Taro.showToast({ title: '请使用相机拍摄送达现场照片', icon: 'none' });
+          return;
+        }
+
+        const files = (mediaRes.tempFiles || []).filter((f) => !!f.tempFilePath);
+        if (files.length < DELIVERY_PROOF_MIN_PHOTOS) {
+          Taro.showToast({
+            title: `请至少上传 ${DELIVERY_PROOF_MIN_PHOTOS} 张送达照片`,
+            icon: 'none',
+          });
+          return;
+        }
+
+        // 3) 上传照片
+        Taro.showLoading({ title: '上传照片中...', mask: true });
+        const photoUrls: string[] = [];
+        try {
+          for (const file of files.slice(0, DELIVERY_PROOF_MAX_PHOTOS)) {
+            const url = await uploadProofPhoto(file.tempFilePath, order);
+            photoUrls.push(url);
+          }
+        } catch (upErr: any) {
+          Taro.hideLoading();
+          Taro.showToast({
+            title: upErr?.message || '照片上传失败',
+            icon: 'none',
+          });
+          return;
+        }
+
+        // 4) 提交确认送达
+        Taro.showLoading({ title: '确认送达中...', mask: true });
+        await post(`/orders/${order.id}/deliver`, {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          accuracy,
+          photoUrls,
+        });
+        Taro.hideLoading();
         Taro.showToast({ title: '确认送达成功', icon: 'success' });
         loadData();
       } catch (e) {
-        // 重复提交被请求层拦截，属正常行为，不提示用户
+        Taro.hideLoading();
         if (isDuplicateSubmitError(e)) return;
         console.error('确认送达失败:', e);
-        Taro.showToast({ title: '确认送达失败', icon: 'none' });
+        const message =
+          (e as any)?.message ||
+          (e as any)?.data?.message ||
+          '确认送达失败';
+        Taro.showToast({ title: String(message).slice(0, 40), icon: 'none' });
       }
     });
 
@@ -262,15 +481,27 @@ const RiderPage = () => {
                 ) : order.status === OrderStatus.DELIVERING ? (
                   <View className='rider-actions'>
                     <View
+                      className={`btn release-btn${rowAction.isPending(`release:${order.id}`) ? ' disabled' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation?.();
+                        handleRelease(order.id);
+                      }}
+                    >
+                      {rowAction.isPending(`release:${order.id}`) ? '释放中...' : '释放订单'}
+                    </View>
+                    <View
                       className={`btn deliver-btn${rowAction.isPending(`deliver:${order.id}`) ? ' disabled' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation?.();
-                        handleDeliver(order.id);
+                        handleDeliver(order);
                       }}
                     >
                       {rowAction.isPending(`deliver:${order.id}`) ? '提交中...' : '确认送达'}
                     </View>
                   </View>
+                ) : order.status === OrderStatus.READY_FOR_DELIVERY ? (
+                  // 兼容：若「我的」里短暂出现待抢态，仍展示地址文案
+                  <Text className='value'>待抢单 · {order.address || '等待骑手接单'}</Text>
                 ) : (
                   <Text className='value'>{order.address || '到店自取'}</Text>
                 )

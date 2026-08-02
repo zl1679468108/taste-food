@@ -10,13 +10,14 @@ import {
   Switch,
   Table,
   Typography,
-  message,
   Image,
   Tag,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import type { ColumnsType } from 'antd/es/table';
 import { QrcodeOutlined, TableOutlined } from '@ant-design/icons';
 import PageHeaderActions from '@/components/PageHeaderActions';
+import AllShopsScopeAlert from '@/components/AllShopsScopeAlert';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import EmptyState from '@/components/EmptyState';
@@ -199,7 +200,7 @@ const filteredTables = useMemo(
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<TableOutlined style={{ marginRight: 8 }} />}
+        icon={<TableOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
         title="桌台与扫码"
         addText="新增桌台"
         onAdd={handleAdd}
@@ -214,8 +215,10 @@ const filteredTables = useMemo(
         }
       />
 
+      <AllShopsScopeAlert />
+
       <TableCard>
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: 'var(--tf-space-3)'}}>
           <Space wrap size={8}>
             <Tag color="blue">当前店铺</Tag>
             <Text strong>{shopName || '默认店铺'}</Text>
@@ -223,7 +226,7 @@ const filteredTables = useMemo(
               {shopId}
             </Text>
           </Space>
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 'var(--tf-space-1_5)'}}>
             <Text type="secondary" style={{ fontSize: 12 }}>
               桌台按店铺绑定（/api/shops/:shopId/tables）。开发可用普通二维码；正式环境请用微信小程序码。
             </Text>
@@ -274,7 +277,7 @@ const filteredTables = useMemo(
         confirmLoading={saving}
         cancelButtonProps={{ disabled: saving }}
         maskClosable={!saving}
-        destroyOnClose
+        destroyOnHidden
         okText="保存"
       >
         <Form form={form} layout="vertical" initialValues={{ active: true, sortOrder: 0 }}>

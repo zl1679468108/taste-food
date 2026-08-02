@@ -7,6 +7,7 @@ export function useAuditLogs(params: {
   page: number;
   pageSize: number;
   method?: string;
+  keyword?: string;
 }) {
   return useQuery({
     queryKey: queryKeys.auditLogs.list(params),

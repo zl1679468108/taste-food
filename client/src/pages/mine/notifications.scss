@@ -92,6 +92,8 @@
   color: $text-secondary;
   line-height: $leading-normal;
   margin-bottom: $space-1;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .notif-page__time {

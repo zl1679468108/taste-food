@@ -1,25 +1,17 @@
 import React, { useState } from 'react';
-import {
-  Button,
-  Form,
-  Input,
-  Modal,
-  Space,
-  Table,
-  Tag,
-  Typography,
-  message,
-} from 'antd';
-import { CheckOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
+import { CheckOutlined, CloseOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { type RoleApplication } from '@/services/role-application';
 import { useApplications, useReviewApplication } from '@/hooks/queries';
 import { formatTime } from '@/utils/format';
 import { DEFAULT_TABLE_LOCALE, DEFAULT_TABLE_PAGINATION } from '@/utils/table';
+import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { isRequestErrorHandled } from '@/utils/request';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: 'processing', text: '待审批' },
@@ -56,14 +48,12 @@ const ApprovalsPage: React.FC = () => {
           ? `将创建/绑定商家店铺：${row.shopName || '未命名'}`
           : '将为用户开通骑手角色',
       okText: '通过',
-      // 返回 Promise，antd 会自动给确认按钮加 loading 并阻止重复点击
       onOk: async () => {
         setReviewingId(row.id);
         try {
           await reviewMutation.mutateAsync({ id: row.id, params: { status: 'approved' } });
           message.success('已通过');
         } catch (error) {
-          // 重复提交被请求层拦截，不视为失败
           if (isRequestErrorHandled(error)) return;
           throw error;
         } finally {
@@ -106,25 +96,28 @@ const ApprovalsPage: React.FC = () => {
       render: (v: string) => roleMap[v] || v,
     },
     {
-      title: '用户 ID',
-      dataIndex: 'userId',
-      width: 160,
-      ellipsis: true,
-      render: (v: string) => (
-        <Text copyable={{ text: v }} style={{ fontSize: 12 }}>
-          {v ? `${v.slice(0, 8)}…` : '—'}
-        </Text>
-      ),
+      title: '用户信息',
+      key: 'userInfo',
+      width: 180,
+      render: (_: unknown, row: RoleApplication) => {
+        if (row.userNickname || row.userPhone) {
+          return (
+            <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+              {row.userNickname && `${row.userNickname} ${row.userPhone ? ' · ' : ''}`}
+              {row.userPhone && row.userPhone}
+            </div>
+          );
+        }
+        return <Text type="secondary" style={{ fontSize: 14 }}>{row.userId.slice(0, 8)}…</Text>;
+      },
     },
     {
       title: '店铺信息',
       key: 'shop',
       render: (_: unknown, row: RoleApplication) => (
-        <div>
+        <div style={{ fontSize: 14 }}>
           <div>{row.shopName || '—'}</div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {row.shopAddress || ''}
-          </Text>
+          <Text type="secondary">{row.shopAddress || ''}</Text>
         </div>
       ),
     },
@@ -192,32 +185,25 @@ const ApprovalsPage: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <Title level={4} style={{ margin: 0 }}>
-            审批中心
-          </Title>
-          <Text type="secondary">平台管理员审核商家 / 骑手入驻申请</Text>
-        </div>
-        <Button icon={<ReloadOutlined />} onClick={() => void applicationsQuery.refetch()}>
-          刷新
-        </Button>
-      </Space>
-
-      <SearchFilterBar
-        filterPlaceholder="状态筛选"
-        filterValue={status}
-        filterOptions={[
-          { value: 'pending', label: '待审批' },
-          { value: 'approved', label: '已通过' },
-          { value: 'rejected', label: '已驳回' },
-        ]}
-        onFilterChange={(v) => setStatus(v)}
-        style={{ marginBottom: 12 }}
+    <div className="tf-page">
+      <PageHeaderActions
+        icon={<SafetyCertificateOutlined style={{ marginRight: 'var(--tf-space-2)' }} />}
+        title="审批中心"
+        onRefresh={() => void applicationsQuery.refetch()}
       />
 
       <TableCard>
+        <SearchFilterBar
+          filterPlaceholder="状态筛选"
+          filterValue={status}
+          filterOptions={[
+            { value: 'pending', label: '待审批' },
+            { value: 'approved', label: '已通过' },
+            { value: 'rejected', label: '已驳回' },
+          ]}
+          onFilterChange={(v) => setStatus(v)}
+        />
+
         <Table
           rowKey="id"
           loading={loading}

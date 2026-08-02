@@ -90,6 +90,10 @@ const AddressEditPage = () => {
       Taro.showToast({ title: '请填写详细地址', icon: 'none' });
       return;
     }
+    if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+      Taro.showToast({ title: '请先地图选点，坐标必填', icon: 'none' });
+      return;
+    }
 
     await runSave(async () => {
       const payload = {
@@ -97,9 +101,8 @@ const AddressEditPage = () => {
         contactName: contactName.trim(),
         contactPhone: contactPhone.trim(),
         detail: detail.trim(),
-        ...(typeof latitude === 'number' && typeof longitude === 'number'
-          ? { latitude, longitude }
-          : {}),
+        latitude,
+        longitude,
         tag: tag.trim() || undefined,
         isDefault,
       };
@@ -159,23 +162,27 @@ const AddressEditPage = () => {
           </Text>
           <Input
             className='form-item__input'
-            placeholder='小区 / 门牌号等'
+            placeholder='地图选点后可补充门牌/楼层'
             value={detail}
             onInput={(e) => {
+              // 允许在地图选点后补充门牌/楼层等文案，保留已选坐标
               setDetail(e.detail.value);
-              // 手动改文案后清空旧坐标，交由服务端腾讯地图 geocode
-              setLatitude(undefined);
-              setLongitude(undefined);
             }}
           />
           <View className='address-edit__loc-row'>
             <Text className='address-edit__loc-btn' onClick={handleChooseLocation}>
-              地图选点
+              地图选点（必选）
             </Text>
-            <Text className='address-edit__loc-hint'>
+            <Text
+              className={`address-edit__loc-hint${
+                typeof latitude === 'number' && typeof longitude === 'number'
+                  ? ''
+                  : ' address-edit__loc-hint--warn'
+              }`}
+            >
               {typeof latitude === 'number' && typeof longitude === 'number'
                 ? `已定位 ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
-                : '未选点时将尝试按地址解析坐标'}
+                : '坐标必填，请点击地图选点'}
             </Text>
           </View>
         </View>

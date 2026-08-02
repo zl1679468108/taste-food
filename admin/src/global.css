@@ -60,10 +60,15 @@
   --tf-font-5xl: 24px;
 
   /* 间距阶梯 */
+  --tf-space-0_5: 2px;
   --tf-space-1: 4px;
+  --tf-space-1_5: 6px;
   --tf-space-2: 8px;
+  --tf-space-2_5: 10px;
   --tf-space-3: 12px;
+  --tf-space-3_5: 14px;
   --tf-space-4: 16px;
+  --tf-space-4_5: 18px;
   --tf-space-5: 20px;
   --tf-space-6: 24px;
   --tf-space-8: 32px;
@@ -97,7 +102,7 @@ body {
 }
 
 .tf-page {
-  padding: 0 24px 24px;
+  padding: 0 var(--tf-space-6) var(--tf-space-6);
 }
 
 /* ========== 表格卡片 ========== */
@@ -110,7 +115,7 @@ body {
 
 .tf-table-card .ant-card-head {
   min-height: 48px;
-  padding: 0 16px;
+  padding: 0 var(--tf-space-4);
   border-bottom: 1px solid var(--tf-border);
 }
 
@@ -118,15 +123,15 @@ body {
   font-size: var(--tf-font-md);
   font-weight: 600;
   color: var(--tf-text);
-  padding: 12px 0;
+  padding: var(--tf-space-3) 0;
 }
 
 .tf-table-card .ant-card-extra {
-  padding: 12px 0;
+  padding: var(--tf-space-3) 0;
 }
 
 .tf-table-card .ant-card-body {
-  padding: 16px;
+  padding: var(--tf-space-4);
 }
 
 .tf-table-card--sticky .ant-card-body {
@@ -137,7 +142,7 @@ body {
 /* ========== 表格 small 密度 ========== */
 .tf-table-card .ant-table-small .ant-table-thead > tr > th,
 .ant-table.ant-table-small .ant-table-thead > tr > th {
-  padding: 10px 12px;
+  padding: var(--tf-space-2_5) var(--tf-space-3);
   background: var(--tf-bg-muted);
   font-weight: 600;
   color: var(--tf-text);
@@ -146,7 +151,7 @@ body {
 
 .tf-table-card .ant-table-small .ant-table-tbody > tr > td,
 .ant-table.ant-table-small .ant-table-tbody > tr > td {
-  padding: 10px 12px;
+  padding: var(--tf-space-2_5) var(--tf-space-3);
   font-size: var(--tf-font-sm);
 }
 
@@ -201,7 +206,7 @@ body {
 
 /* ========== 搜索筛选条 ========== */
 .tf-search-filter-bar {
-  margin-bottom: 16px;
+  margin-bottom: var(--tf-space-4);
 }
 
 .tf-search-filter-bar__inner {
@@ -247,13 +252,64 @@ body {
   border-color: var(--tf-primary) !important;
   color: var(--tf-text-inverse) !important;
   box-shadow: none;
-  padding-inline: 16px;
+  padding-inline: var(--tf-space-4);
   font-weight: 500;
 }
 
 .tf-search-filter-bar__search.ant-input-search .ant-input-search-button:hover {
   background: var(--tf-primary-dark) !important;
   border-color: var(--tf-primary-dark) !important;
+}
+
+/* 占位符跑马灯层：hover 时由左往右滚动展示完整文字 */
+.tf-search-filter-bar__search-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.tf-search-filter-bar__ph {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--tf-text-hint);
+  font-size: var(--tf-font-sm);
+  line-height: var(--tf-control-height);
+  z-index: 2;
+  transition: opacity 0.15s ease;
+}
+
+.tf-search-filter-bar__ph.is-hidden {
+  opacity: 0;
+}
+
+.tf-search-filter-bar__ph-text {
+  display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.tf-search-filter-bar__ph-text-segment {
+  display: inline-block;
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding-right: var(--tf-space-4);
+}
+
+/* 仅当文本溢出且 hover 时由右往左滚动（无缝循环） */
+.tf-search-filter-bar__search-wrap.is-hover
+  .tf-search-filter-bar__ph.is-overflow
+  .tf-search-filter-bar__ph-text {
+  animation: tf-ph-marquee-rl 6s linear infinite;
+}
+
+@keyframes tf-ph-marquee-rl {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
 }
 
 /* 筛选 Select 同高同风格 */
@@ -267,7 +323,7 @@ body {
   background: var(--tf-gray-100) !important;
   border-color: transparent !important;
   box-shadow: none !important;
-  padding-inline: 14px !important;
+  padding-inline: var(--tf-space-3_5) !important;
   display: flex;
   align-items: center;
 }
@@ -289,7 +345,7 @@ body {
 .tf-search-filter-bar__extra {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--tf-space-2);
 }
 
 /* 页面标题栏吸顶：适配 ProLayout 固定顶栏 */
@@ -299,8 +355,8 @@ body {
   top: var(--tf-header-height);
   z-index: 50;
   background: var(--tf-page-bg);
-  padding: 16px 24px 12px;
-  margin: 0 -24px 8px;
+  padding: var(--tf-space-4) var(--tf-space-6) var(--tf-space-3);
+  margin: 0 -2var(--tf-space-1) var(--tf-space-2);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
 

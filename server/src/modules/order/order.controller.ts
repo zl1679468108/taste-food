@@ -8,19 +8,26 @@ import {
   HttpCode,
   HttpStatus,
   ForbiddenException,
+  NotFoundException,
+  ServiceUnavailableException,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
 import dayjs from 'dayjs';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole, OrderStatus } from '../../common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
-import { resolveAdminTargetShopId } from '../../common/utils/admin-shop-scope';
+import { resolveAdminTargetShopId, isPlatformAdmin } from '../../common/utils/admin-shop-scope';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
-import { OrderService, OrderRecord, OrderStats, DailyStatsItem, StatusDistributionItem, DeliveryTrackPointRecord, RiderLocationReportResult } from './order.service';
+import { OrderService, OrderRecord, OrderStats, DailyStatsItem, DeliveryTrackPointRecord, RiderLocationReportResult } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderDto, OrderQueryDto } from './dto/update-order.dto';
+import { UpdateOrderDto, OrderQueryDto, CancelRequestDto, ResolveCancelRequestDto } from './dto/update-order.dto';
 import { DeliveryTrackPointDto } from './dto/delivery-track.dto';
+import { DeliverOrderDto } from './dto/deliver-order.dto';
+import { ForceCompleteOrderDto } from './dto/force-complete-order.dto';
+import { fetchStaticMapImage } from '../../common/utils/tencent-map';
 
 @Controller('orders')
 export class OrderController {
@@ -71,29 +78,34 @@ export class OrderController {
   ): Promise<ApiResponse<PaginatedData<OrderRecord>>> {
     const page = parseInt(query.page || '1', 10) || 1;
     const pageSize = parseInt(query.pageSize || '20', 10) || 20;
-    // 商家锁定绑定店；平台管理员可用 query.shop_id 切换
-    const adminShopId = resolveAdminTargetShopId(user.shopId, query.shop_id, {
-      lockToBoundShop: !!user.shopId,
-    });
+    // 商家锁定绑定店；平台管理员可用 query.shop_id 切换。
+    // 平台管理员不传 shop_id 时视为全店视角（跨店查询所有门店订单）。
+    const requestedShopId = query.shop_id?.trim() || undefined;
+    const isPlatformAllShops = isPlatformAdmin(user) && !requestedShopId;
+    const adminShopId = isPlatformAllShops
+      ? undefined
+      : resolveAdminTargetShopId(user.shopId, requestedShopId, {
+          lockToBoundShop: !!user.shopId,
+        });
 
     let result: PaginatedData<OrderRecord>;
 
     if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.user_id) {
-      result = await this.orderService.findByUserId(query.user_id, page, pageSize, query.status);
+      result = await this.orderService.findByUserId(query.user_id, page, pageSize, query.status, query.keyword);
     } else if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.rider_id) {
-      result = await this.orderService.findByRiderId(query.rider_id, query.status, page, pageSize);
+      result = await this.orderService.findByRiderId(query.rider_id, query.status, page, pageSize, query.keyword);
     } else if (user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) {
       result = await this.orderService.findByShopId(
-        adminShopId, query.status, page, pageSize, query.is_pool === 'true',
+        adminShopId, query.status, page, pageSize, query.is_pool === 'true', query.keyword,
       );
     } else if (user.role === UserRole.RIDER && query.is_pool === 'true') {
       // 骑手跨店抢单：可不传 shop_id 查看全部店铺待抢单；传则按店过滤
-      result = await this.orderService.findDeliveryPool(page, pageSize, query.shop_id);
+      result = await this.orderService.findDeliveryPool(page, pageSize, query.shop_id, query.keyword);
     } else if (user.role === UserRole.RIDER) {
-      result = await this.orderService.findByRiderId(user.userId, query.status, page, pageSize);
+      result = await this.orderService.findByRiderId(user.userId, query.status, page, pageSize, query.keyword);
     } else if (user.role === UserRole.CUSTOMER) {
       // 顾客订单列表支持按 status 筛选（待支付/已支付等 Tab）
-      result = await this.orderService.findByUserId(user.userId, page, pageSize, query.status);
+      result = await this.orderService.findByUserId(user.userId, page, pageSize, query.status, query.keyword);
     } else {
       result = { items: [], total: 0, page, pageSize };
     }
@@ -123,9 +135,9 @@ export class OrderController {
       lockToBoundShop: !!user.shopId,
     });
     const maxRows = maxRowsRaw ? parseInt(maxRowsRaw, 10) : 1000;
-    const raw = String(formatRaw || 'both').toLowerCase();
-    const format: 'csv' | 'xlsx' | 'both' =
-      raw === 'csv' || raw === 'xlsx' || raw === 'both' ? raw : 'both';
+    // PC 导出统一仅产出 Excel（.xlsx），不走 CSV（见需求 §3.21 / T267）。
+    // 忽略调用方传入的 csv/both，强制 xlsx，保证「PC 导出不走 CSV」。
+    const format: 'csv' | 'xlsx' | 'both' = 'xlsx';
     const data = await this.orderService.exportOrdersCsv(shopId, {
       status: status || undefined,
       maxRows: Number.isFinite(maxRows) ? maxRows : 1000,
@@ -156,27 +168,20 @@ export class OrderController {
   async getDailyStats(
     @Query('days') days: string | undefined,
     @Query('shop_id') queryShopId: string | undefined,
+    @Query('start_date') startDate: string | undefined,
+    @Query('end_date') endDate: string | undefined,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<ApiResponse<DailyStatsItem[]>> {
     const shopId = this.resolveAdminShopId(user, queryShopId);
-    // days=0 表示「全部」；否则限制在 1~90 天
+    // days=0 表示「全部」；否则限制在 1~90 天；start_date/end_date 优先
     const parsedDays = parseInt(days || '7', 10);
     const daysNum = parsedDays === 0 ? 0 : Math.min(Math.max(parsedDays || 7, 1), 90);
-    const daily = await this.orderService.getDailyStats(shopId, daysNum);
+    const range =
+      startDate && endDate
+        ? { startDate, endDate }
+        : undefined;
+    const daily = await this.orderService.getDailyStats(shopId, daysNum, range);
     return success(daily);
-  }
-
-  @Get('stats/status-distribution')
-  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
-  async getStatusDistribution(
-    @Query('shop_id') queryShopId: string | undefined,
-    @Query('days') days: string | undefined,
-    @CurrentUser() user: CurrentUserPayload,
-  ): Promise<ApiResponse<StatusDistributionItem[]>> {
-    const shopId = this.resolveAdminShopId(user, queryShopId);
-    const daysNum = days ? Math.min(Math.max(parseInt(days, 10) || 0, 0), 90) : undefined;
-    const dist = await this.orderService.getStatusDistribution(shopId, daysNum || undefined);
-    return success(dist);
   }
 
   /**
@@ -192,6 +197,89 @@ export class OrderController {
   ): Promise<ApiResponse<RiderLocationReportResult>> {
     const result = await this.orderService.reportRiderLocation(userId, dto);
     return success(result, result.reported > 0 ? '位置已同步' : '当前无配送中订单');
+  }
+
+
+  /**
+   * 配送轨迹腾讯静态地图（图片）。
+   * 用于 PC 管理后台订单详情直接展示真实腾讯地图，Key 仅留在服务端。
+   */
+  @Get(':id/delivery-map')
+  async getDeliveryMap(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Res({ passthrough: true }) res: any,
+  ): Promise<StreamableFile> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+
+    const track = await this.orderService.listDeliveryTrack(id);
+    const markers: Array<{
+      latitude: number;
+      longitude: number;
+      color?: string;
+      label?: string;
+    }> = [];
+
+    if (
+      typeof order.shopLatitude === 'number' &&
+      typeof order.shopLongitude === 'number' &&
+      Number.isFinite(order.shopLatitude) &&
+      Number.isFinite(order.shopLongitude)
+    ) {
+      markers.push({
+        latitude: order.shopLatitude,
+        longitude: order.shopLongitude,
+        color: 'blue',
+        label: 'S',
+      });
+    }
+
+    const path = track.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+    if (track.length > 0) {
+      const latest = track[track.length - 1];
+      markers.push({
+        latitude: latest.latitude,
+        longitude: latest.longitude,
+        color: '0xFF6B35',
+        label: 'R',
+      });
+    }
+
+    if (
+      typeof order.deliveryLatitude === 'number' &&
+      typeof order.deliveryLongitude === 'number' &&
+      Number.isFinite(order.deliveryLatitude) &&
+      Number.isFinite(order.deliveryLongitude)
+    ) {
+      markers.push({
+        latitude: order.deliveryLatitude,
+        longitude: order.deliveryLongitude,
+        color: 'green',
+        label: 'C',
+      });
+    }
+
+    if (markers.length === 0) {
+      throw new NotFoundException('暂无可用坐标');
+    }
+
+    const image = await fetchStaticMapImage({
+      markers,
+      path,
+      size: '720*360',
+      scale: 2,
+    });
+
+    if (!image) {
+      throw new ServiceUnavailableException('腾讯地图暂不可用（请配置 TENCENT_MAP_KEY）');
+    }
+
+    res.set({
+      'Content-Type': image.contentType,
+      'Cache-Control': 'private, max-age=15',
+    });
+    return new StreamableFile(image.buffer);
   }
 
   @Get(':id/delivery-track')
@@ -223,16 +311,27 @@ export class OrderController {
   async getOrder(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,
-  ): Promise<ApiResponse<OrderRecord & { estimatedCompletion?: string }>> {
+  ): Promise<ApiResponse<OrderRecord>> {
     const order = await this.orderService.findById(id);
     this.assertCanAccessOrder(order, user);
-    const result: OrderRecord & { estimatedCompletion?: string } = { ...order };
+    const result = await this.orderService.attachContactHints(order);
 
-    if ([OrderStatus.ACCEPTED, OrderStatus.PREPARING, OrderStatus.DELIVERING].includes(order.status)) {
-      const prepMinutes = 5;
-      const deliveryMinutes = order.deliveryType === 'delivery' ? 15 : 0;
-      const estimated = dayjs().add(prepMinutes + deliveryMinutes, 'minute').toISOString();
-      result.estimatedCompletion = estimated;
+    // 若商家未填 ETA，进行中订单给一个温和兜底，避免覆盖已有 estimatedCompletion
+    if (
+      !result.estimatedCompletion &&
+      [
+        OrderStatus.ACCEPTED,
+        OrderStatus.PREPARING,
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.READY_FOR_PICKUP,
+        OrderStatus.DELIVERING,
+      ].includes(order.status)
+    ) {
+      const prepMinutes = 15;
+      const deliveryMinutes = order.deliveryType === 'delivery' ? 20 : 0;
+      result.estimatedCompletion = dayjs(order.updatedAt || order.createdAt)
+        .add(prepMinutes + deliveryMinutes, 'minute')
+        .toISOString();
     }
 
     return success(result);
@@ -261,7 +360,7 @@ export class OrderController {
   ): Promise<ApiResponse<OrderRecord>> {
     // 多租户隔离：校验访问权限（admin 仅本店铺，customer 仅本人订单）
     // 骑手无权取消订单（如需取消应通过 admin 处理）
-    // 规则：顾客可在 pending_payment/paid 自主取消；商家接单后需商家/管理员处理
+    // 规则：顾客 pending_payment/paid 自主取消；商家可在接单后~待取餐/待配送关单退款
     const order = await this.orderService.findById(id);
     this.assertCanAccessOrder(order, user);
     // 仅顾客需要把 userId 传入做「本人订单」校验；商家/管理员取消本店单不校验下单人
@@ -303,6 +402,70 @@ export class OrderController {
   }
 
   /**
+   * 顾客催单
+   */
+  @Post(':id/urge')
+  @Roles(UserRole.CUSTOMER, UserRole.ADMIN)
+  async urgeOrder(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const updated = await this.orderService.urgeOrder(id, user.userId);
+    return success(updated, '已催单，商家会尽快处理');
+  }
+
+  /**
+   * 顾客申请取消（接单后）
+   */
+  @Post(':id/cancel-request')
+  @Roles(UserRole.CUSTOMER, UserRole.ADMIN)
+  async requestCancel(
+    @Param('id') id: string,
+    @Body() dto: CancelRequestDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const updated = await this.orderService.requestCancel(id, user.userId, dto.reason);
+    return success(updated, '已提交取消申请');
+  }
+
+  /**
+   * 商家/管理员处理取消申请
+   */
+  @Post(':id/cancel-request/resolve')
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  async resolveCancelRequest(
+    @Param('id') id: string,
+    @Body() dto: ResolveCancelRequestDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const updated = await this.orderService.resolveCancelRequest(
+      id,
+      !!dto.approve,
+      dto.reason,
+    );
+    return success(updated, dto.approve ? '已同意取消' : '已拒绝取消申请');
+  }
+
+  /**
+   * 骑手释放订单回待抢池
+   */
+  @Post(':id/release')
+  @Roles(UserRole.RIDER)
+  async releaseOrder(
+    @Param('id') id: string,
+    @CurrentUser('userId') userId: string,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const updated = await this.orderService.releaseOrder(id, userId);
+    return success(updated, '已释放订单');
+  }
+
+  /**
    * 骑手抢单
    */
   @Post(':id/grab')
@@ -316,15 +479,49 @@ export class OrderController {
   }
 
   /**
-   * 骑手确认送达
+   * 商家/管理员强制完成外卖配送（跳过围栏与拍照，原因必填）
+   */
+  @Post(':id/force-complete')
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  async forceCompleteOrder(
+    @Param('id') id: string,
+    @Body() dto: ForceCompleteOrderDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const updated = await this.orderService.forceCompleteOrder(
+      id,
+      { userId: user.userId, role: String(user.role) },
+      dto.reason,
+    );
+    return success(updated, '已强制完成');
+  }
+
+  /**
+   * T246.3: 顾客自取/堂食自助确认取餐（仅 ready_for_pickup）
+   */
+  @Post(':id/customer-complete')
+  @Roles(UserRole.CUSTOMER)
+  async customerCompletePickup(
+    @Param('id') id: string,
+    @CurrentUser('userId') userId: string,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const updated = await this.orderService.customerCompletePickup(id, userId);
+    return success(updated, '已确认取餐');
+  }
+
+  /**
+   * 骑手确认送达（地理围栏 + 现场照片）
    */
   @Post(':id/deliver')
   @Roles(UserRole.RIDER)
   async deliverOrder(
     @Param('id') id: string,
+    @Body() dto: DeliverOrderDto,
     @CurrentUser('userId') userId: string,
   ): Promise<ApiResponse<OrderRecord>> {
-    const order = await this.orderService.deliverOrder(id, userId);
+    const order = await this.orderService.deliverOrder(id, userId, dto);
     return success(order, '已确认送达');
   }
 }

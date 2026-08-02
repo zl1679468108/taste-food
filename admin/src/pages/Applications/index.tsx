@@ -8,8 +8,8 @@ import {
   Table,
   Tag,
   Typography,
-  message,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { FormOutlined } from '@ant-design/icons';
 import { useLocation } from '@umijs/max';
 import { useQueryClient } from '@tanstack/react-query';
@@ -171,7 +171,7 @@ const ApplicationsPage: React.FC = () => {
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<FormOutlined style={{ marginRight: 8 }} />}
+        icon={<FormOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
         title="我的申请"
         onRefresh={() => void myApplicationsQuery.refetch()}
         addText="提交申请"
@@ -209,7 +209,7 @@ const ApplicationsPage: React.FC = () => {
         confirmLoading={submitting}
         okButtonProps={{ disabled: eligibility?.eligible === false || submitting }}
         cancelButtonProps={{ disabled: submitting }}
-        destroyOnClose
+        destroyOnHidden
         width={560}
       >
         <Form form={form} layout="vertical" initialValues={{ applyRole: 'merchant' }}>

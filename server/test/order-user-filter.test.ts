@@ -36,15 +36,23 @@ test('findByUserId filters customer orders by status', async () => {
       userId,
       deliveryType: DeliveryType.DELIVERY,
       address: '杭州市西湖区测试地址 1 号',
+      deliveryLatitude: 30.2741,
+      deliveryLongitude: 120.1551,
+      contactName: '测试',
+      contactPhone: '13800138000',
       items: [{ menuItemId: 'menu-1', name: '测试菜品', quantity: 1 }],
-    });
+    } as any);
     const paid = await service.create({
       shopId,
       userId,
       deliveryType: DeliveryType.DELIVERY,
       address: '杭州市西湖区测试地址 2 号',
+      deliveryLatitude: 30.2742,
+      deliveryLongitude: 120.1552,
+      contactName: '测试',
+      contactPhone: '13800138001',
       items: [{ menuItemId: 'menu-1', name: '测试菜品', quantity: 1 }],
-    });
+    } as any);
     await paymentService.payOrder(paid.id, userId);
 
     const all = await service.findByUserId(userId, 1, 20);

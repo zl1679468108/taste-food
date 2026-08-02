@@ -1,329 +1,321 @@
-import React, { useState } from 'react';
-import { Card, Col, Row, Space, Spin, Segmented, DatePicker } from 'antd';
-import dayjs from 'dayjs';
+import React, { useMemo, useState } from 'react';
+import { Card, Col, Row, Skeleton, Space } from 'antd';
+import { useModel } from '@umijs/max';
+import dayjs, { type Dayjs } from 'dayjs';
 import {
-ShoppingCartOutlined,
-MoneyCollectOutlined,
-ClockCircleOutlined,
-CheckCircleOutlined,
-RiseOutlined,
-LineChartOutlined,
-PieChartOutlined,
+  ShoppingCartOutlined,
+  MoneyCollectOutlined,
+  ClockCircleOutlined,
+  RiseOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons';
-import { Line, Pie } from '@ant-design/charts';
-import { DailyStatsItem as ApiDailyStatsItem, DailyStatsItem, StatusDistributionItem } from '@/services/order';
+import { Line } from '@ant-design/charts';
+import type { DailyStatsItem } from '@/services/order';
+import type { Shop } from '@/services/shop';
 import { formatPrice } from '@/utils/format';
-import StatisticCard from '@/components/StatisticCard';
+import DashboardStatCard from '@/components/DashboardStatCard';
+import DashboardRangeControl, {
+  MAX_RANGE_DAYS,
+  type PresetRange,
+  type StatsScope,
+} from '@/components/DashboardRangeControl';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import { useShopContext } from '@/hooks/useShopContext';
 import { brand } from '@/theme';
-import {
-useOrderStatsToday,
-useDailyStats,
-useStatusDistribution,
-} from '@/hooks/queries';
+import { useDashboardStats } from '@/hooks/queries/useDashboardQueries';
 import { queryClient } from '@/lib/queryClient';
-import { queryKeys } from '@/hooks/queries/queryKeys';
-import { message } from 'antd';
-import { useEffect } from 'react';
 
-const { RangePicker } = DatePicker;
+const DATE_FMT = 'YYYY-MM-DD';
 
-type RangeKey = '1' | '7' | '30' | 'custom' | 'all';
-
-const RANGE_OPTIONS = [
-{ label: '今日', value: '1' },
-{ label: '近7天', value: '7' },
-{ label: '近30天', value: '30' },
-{ label: '自定义', value: 'custom' },
-];
-
-const ALL_SHOPS_RANGE_OPTION = { label: '全店汇总', value: 'all' } as const;
-
-const STATUS_TEXT: Record<string, string> = {
-  completed: '已完成',
-  delivering: '配送中',
-  preparing: '制作中',
-  paid: '已支付',
-  accepted: '已接单',
-  pending_payment: '待支付',
-  cancelled: '已取消',
-  rejected: '已拒绝',
-  ready_for_pickup: '待取餐',
-};
-
-function getStatusText(status: string): string {
-  return STATUS_TEXT[status] || status;
+interface PeriodSum {
+  orders: number;
+  /** 单位：分 */
+  revenue: number;
 }
 
-// TODO: 待后端增加 dateRange 参数支持直接按起止日期查询
-// 当前阶段：自定义范围通过天数差计算后传入现有 useDailyStats / useStatusDistribution
-
-function getCustomRangeLabel(range: [dayjs.Dayjs, dayjs.Dayjs] | null): string {
-  if (!range) {
-    return '自定义范围';
-  }
-  return `${range[0].format('MM-DD')} ~ ${range[1].format('MM-DD')}`;
-}
-
-function getResolvedDays(range: RangeKey, customRange: [dayjs.Dayjs, dayjs.Dayjs] | null): number {
-  if (range === 'custom' && customRange) {
-    return Math.ceil(customRange[1].diff(customRange[0], 'day')) || 1;
-  }
-  return Number(range);
+function sumItems(items: DailyStatsItem[]): PeriodSum {
+  return items.reduce<PeriodSum>(
+    (acc, d) => ({
+      orders: acc.orders + (d.orders || 0),
+      revenue: acc.revenue + (d.revenue || 0),
+    }),
+    { orders: 0, revenue: 0 },
+  );
 }
 
 const DashboardPage: React.FC = () => {
-const { shopId, ready, currentShop, canSwitchShops } = useShopContext();
-const [range, setRange] = useState<RangeKey>('7');
-const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  // 与 src/access.ts 的 canPlatformAdmin 口径保持一致：
+  // initialState.admin.canPlatformAdmin 优先，缺省时回退 role === 'admin' 且未绑定 shopId
+  const { initialState } = useModel('@@initialState');
+  const { shopId, shops, loaded, currentShop, scope } = useShopContext();
 
-// ---- 平台管理员「全店汇总」自动默认切 all ----
-useEffect(() => {
-if (!canSwitchShops) return;
-if (range !== 'all') {
-setRange('all');
-}
-}, [canSwitchShops, range]);
+  const [preset, setPreset] = useState<PresetRange>('7');
+  const [customRange, setCustomRange] = useState<[Dayjs, Dayjs] | null>(null);
 
-const isAllShops = range === 'all';
+  // 全店口径统一由顶栏店铺选择器控制（scope）；其余角色恒为单店
+  const canPlatformAdmin =
+    initialState?.admin?.canPlatformAdmin ??
+    (initialState?.currentUser?.role === 'admin' && !initialState?.currentUser?.shopId);
+  const effectiveScope: StatsScope = canPlatformAdmin ? scope : 'shop';
+  const shopList = (shops || []) as Shop[];
+  const isAllShops = effectiveScope === 'all';
 
-// 全店汇总已禁用：后端暂未支持跨店聚合，改为持久化提示卡片
-const BACKEND_ALL_SHOPS_READY = false;
+  // ---- 统计区间：本期 + 上一等长期 ----
+  const todayStr = dayjs().format(DATE_FMT);
+  const customKey = customRange
+    ? `${customRange[0].format(DATE_FMT)}_${customRange[1].format(DATE_FMT)}`
+    : '';
 
-// 有效 shopId：all 模式传 undefined 让后端聚合（后端不支持则前端降级：取当前店兜底）
-const effectiveShopId = !isAllShops && shopId ? shopId : undefined;
+  const period = useMemo(() => {
+    const today = dayjs(todayStr);
+    const [start, end] = customKey
+      ? [dayjs(customKey.split('_')[0]), dayjs(customKey.split('_')[1])]
+      : [today.subtract(Number(preset) - 1, 'day'), today];
 
-// ---- React Query ----
-// 全店汇总：后端暂未支持跨店聚合时，仍用当前选中店兜底展示
-const fallbackShopId = shopId ?? undefined;
-const { data: stats, isFetching: statsFetching } = useOrderStatsToday(isAllShops ? fallbackShopId : effectiveShopId);
+    const spanDays = Math.min(Math.max(end.diff(start, 'day') + 1, 1), MAX_RANGE_DAYS);
+    const prevEnd = start.subtract(1, 'day');
+    const prevStart = prevEnd.subtract(spanDays - 1, 'day');
 
-const resolvedDays = getResolvedDays(range, customRange);
+    return {
+      spanDays,
+      startStr: start.format(DATE_FMT),
+      endStr: end.format(DATE_FMT),
+      prevStartStr: prevStart.format(DATE_FMT),
+      prevEndStr: prevEnd.format(DATE_FMT),
+    };
+  }, [customKey, preset, todayStr]);
 
-const { data: dailyRaw, isFetching: dailyFetching } = useDailyStats(
-ready && !isAllShops ? effectiveShopId : fallbackShopId,
-resolvedDays,
-);
+  // 一次取数覆盖「上一期起点 ~ 本期终点」，前端再按日期切片，避免两次请求
+  const fetchRange = {
+    startDate: period.prevStartStr,
+    endDate: period.endStr,
+  };
 
-const { data: distRaw, isFetching: distFetching } = useStatusDistribution(
-ready && !isAllShops ? effectiveShopId : fallbackShopId,
-resolvedDays,
-);
+  const shopIds = useMemo(() => {
+    if (isAllShops) return shopList.map((s) => s.id);
+    return shopId ? [shopId] : [];
+  }, [isAllShops, shopList, shopId]);
 
-const chartLoading = dailyFetching || distFetching;
+  const { todayStats, dailyStats, isLoading, shopCount } = useDashboardStats({
+    shopIds,
+    range: fetchRange,
+    days: period.spanDays * 2,
+    enabled: loaded && shopIds.length > 0,
+  });
 
-// 全店汇总提示（后端未支持时）
-useEffect(() => {
-if (isAllShops && !BACKEND_ALL_SHOPS_READY) {
-message.info('全店汇总功能开发中，当前展示已选门店数据');
-}
-}, [isAllShops]);
+  // ---- 本期 / 上一期切片（YYYY-MM-DD 可直接字典序比较）----
+  const currentItems = dailyStats.filter(
+    (d) => d.date >= period.startStr && d.date <= period.endStr,
+  );
+  const previousItems = dailyStats.filter(
+    (d) => d.date >= period.prevStartStr && d.date <= period.prevEndStr,
+  );
+  const currentSum = sumItems(currentItems);
+  const previousSum = sumItems(previousItems);
 
-// 手动刷新：精准 invalidate
-const handleRefresh = () => {
-const targetShopId = isAllShops ? undefined : effectiveShopId;
-void queryClient.invalidateQueries({ queryKey: queryKeys.orders.statsToday(targetShopId) });
-void queryClient.invalidateQueries({ queryKey: queryKeys.orders.statsDaily(targetShopId, resolvedDays) });
-void queryClient.invalidateQueries({ queryKey: queryKeys.orders.statsStatus(targetShopId, resolvedDays) });
-};
+  // ---- 文案 ----
+  const isToday = !customRange && preset === '1';
+  const scopeSuffix = '';
+  const rangeLabel = customRange
+    ? `${period.startStr} ~ ${period.endStr}`
+    : isToday
+      ? '今日'
+      : `近${preset}天`;
+  const compareLabel = isToday ? '较昨日' : '较上一周期';
+  const compareRangeText = isToday
+    ? period.prevStartStr
+    : `${period.prevStartStr} ~ ${period.prevEndStr}`;
 
-  // 派生展示数据
-  const dailyStats = (dailyRaw || []).map((d: ApiDailyStatsItem) => {
+  const loading = isLoading;
+
+  const statCards = [
+    {
+      key: 'orders',
+      title: `${rangeLabel}订单${scopeSuffix}`,
+      value: currentSum.orders,
+      icon: <ShoppingCartOutlined />,
+      color: brand.primary,
+      bgColor: brand.primaryLight,
+      current: currentSum.orders,
+      previous: previousSum.orders,
+      compareTip: `上一周期（${compareRangeText}）：${previousSum.orders} 单`,
+    },
+    {
+      key: 'revenue',
+      title: `${rangeLabel}营收${scopeSuffix}`,
+      value: formatPrice(currentSum.revenue),
+      icon: <MoneyCollectOutlined />,
+      color: brand.success,
+      bgColor: brand.successSoft,
+      current: currentSum.revenue,
+      previous: previousSum.revenue,
+      compareTip: `上一周期（${compareRangeText}）：${formatPrice(previousSum.revenue)}`,
+    },
+    {
+      key: 'pending',
+      title: `当前待处理${scopeSuffix}`,
+      value: todayStats.pendingCount,
+      icon: <ClockCircleOutlined />,
+      color: brand.warning,
+      bgColor: brand.warningSoft,
+      current: undefined,
+      previous: undefined,
+      compareTip: undefined,
+    },
+  ];
+
+  // ---- 图表（营收转元展示，字段名直接中文化以统一 tooltip）----
+  const chartData = currentItems.map((d) => {
     const parts = d.date.split('-');
     return {
       date: parts.length >= 3 ? `${parts[1]}-${parts[2]}` : d.date,
-      orders: d.orders,
-      revenue: Math.round((d.revenue || 0) / 100),
+      订单数: d.orders,
+      营收: Number(((d.revenue || 0) / 100).toFixed(2)),
     };
   });
 
-  const rangeOrders = dailyStats.reduce((s, d) => s + d.orders, 0);
-  const rangeRevenue = dailyStats.reduce((s, d) => s + d.revenue, 0);
-  const rangeCompleted = (distRaw || [])
-    .filter((item) => item.status === 'completed')
-    .reduce((s, item) => s + (item.count || 0), 0);
-
-  const statusStats = (distRaw || []).map((item: StatusDistributionItem) => ({
-    type: getStatusText(item.status),
-    value: item.count,
-  }));
-  const pieData = statusStats.length > 0 ? statusStats : [{ type: '暂无数据', value: 1 }];
-
-const isToday = range === '1';
-const isCustom = range === 'custom';
-
-const displayOrders = isToday ? (stats?.totalOrders || 0) : rangeOrders;
-const displayRevenue = isToday
-? (stats?.totalRevenue ? formatPrice(stats.totalRevenue).replace('¥', '') : '0.00')
-: rangeRevenue.toFixed(2);
-const displayCompleted = isToday ? (stats?.completedCount || 0) : rangeCompleted;
-
-const rangeTitle =
-isToday ? '今日' : isAllShops ? '全店汇总' : isCustom ? getCustomRangeLabel(customRange) : `近${range}天`;
-
-const statCards = [
-{
-title: `${rangeTitle}订单`,
-value: displayOrders,
-icon: <ShoppingCartOutlined />,
-color: brand.primary,
-bgColor: brand.primaryLight,
-},
-{
-title: `${rangeTitle}营收`,
-value: displayRevenue,
-suffix: '元',
-icon: <MoneyCollectOutlined />,
-color: brand.success,
-bgColor: brand.successSoft,
-},
-{
-title: '当前待处理',
-value: stats?.pendingCount || 0,
-icon: <ClockCircleOutlined />,
-color: brand.warning,
-bgColor: brand.warningSoft,
-},
-{
-title: `${rangeTitle}已完成`,
-value: displayCompleted,
-icon: <CheckCircleOutlined />,
-color: brand.success,
-bgColor: brand.successSoft,
-},
-];
-
   const lineConfig = {
-    data: dailyStats,
+    data: chartData,
     xField: 'date',
-    yField: 'orders',
+    yField: '订单数',
     smooth: true,
-    point: { size: 5, shape: 'diamond' as const },
-    label: { style: { fill: brand.chartAxis, fontSize: 'var(--tf-font-xs)' } },
+    point: { size: 4, shape: 'diamond' as const },
+    label: {
+      content: ({ 订单数 }: { 订单数: number }) => (订单数 > 0 ? String(订单数) : ''),
+      style: {
+        fill: brand.textPrimary,
+        fontSize: 11,
+        fontWeight: 500,
+        textBaseline: 'bottom' as const,
+      },
+      offset: 8,
+    },
     color: brand.primary,
+    tooltip: {
+      title: (d: { date: string }) => {
+        const [m, dd] = d.date.split('-');
+        return `${dayjs().year()}-${String(m).padStart(2, '0')}-${dd}`;
+      },
+    },
   };
 
   const revenueConfig = {
-    data: dailyStats,
+    data: chartData,
     xField: 'date',
-    yField: 'revenue',
+    yField: '营收',
     smooth: true,
-    point: { size: 5, shape: 'circle' as const },
-    label: { style: { fill: brand.chartAxis, fontSize: 'var(--tf-font-xs)' } },
+    point: { size: 4, shape: 'circle' as const },
+    label: {
+      content: ({ 营收 }: { 营收: number }) => (营收 > 0 ? String(营收) : ''),
+      style: {
+        fill: brand.textPrimary,
+        fontSize: 11,
+        fontWeight: 500,
+        textBaseline: 'bottom' as const,
+      },
+      offset: 8,
+    },
     color: brand.success,
+    tooltip: {
+      title: (d: { date: string }) => {
+        const [m, dd] = d.date.split('-');
+        return `${dayjs().year()}-${String(m).padStart(2, '0')}-${dd}`;
+      },
+    },
   };
 
-  const pieConfig = {
-    data: pieData,
-    angleField: 'value',
-    colorField: 'type',
-    radius: 0.8,
-    innerRadius: 0.6,
-    label: { text: 'type', style: { fontSize: 'var(--tf-font-xs)' } },
-    legend: { position: 'bottom' as const },
-    interaction: { elementHighlight: true },
+  const handleRefresh = () => {
+    // 统一失效 orders/stats 前缀，覆盖单店与全店汇总下的所有分片
+    void queryClient.invalidateQueries({ queryKey: ['orders', 'stats'] });
   };
 
-const rangeLabel = isAllShops
-? '全店汇总'
-: isCustom
-? getCustomRangeLabel(customRange)
-: RANGE_OPTIONS.find((o) => o.value === range)?.label || '近7天';
+  const headerTitle = isAllShops
+    ? '数据看板 · 全店汇总'
+    : currentShop?.name
+      ? `数据看板 · ${currentShop.name}`
+      : '数据看板';
 
   return (
     <div className="tf-page">
-<PageHeaderActions
-icon={<RiseOutlined style={{ marginRight: 8 }} />}
-title={isAllShops ? '数据看板 · 全店汇总' : currentShop?.name ? `数据看板 · ${currentShop.name}` : '数据看板'}
-onRefresh={handleRefresh}
-/>
+      <PageHeaderActions
+        icon={<RiseOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
+        title={headerTitle}
+        onRefresh={handleRefresh}
+      />
 
-<div style={{ marginBottom: 'var(--tf-space-4)' }}>
-<Segmented
-options={canSwitchShops ? [...RANGE_OPTIONS, ALL_SHOPS_RANGE_OPTION] : RANGE_OPTIONS}
-value={isAllShops ? 'all' : range}
-onChange={(v) => {
-const next = String(v) as RangeKey;
-setRange(next);
-if (next !== 'custom') {
-setCustomRange(null);
-}
-}}
-/>
-{(isAllShops || range === 'custom') && (
-<RangePicker
-value={customRange}
-onChange={(dates) => {
-const d = dates as [dayjs.Dayjs, dayjs.Dayjs] | null;
-setCustomRange(d);
-}}
-style={{ display: 'inline-flex', verticalAlign: 'middle', marginLeft: 8 }}
-/>
-)}
-</div>
+      <div style={{ marginBottom: 'var(--tf-space-4)' }}>
+        <DashboardRangeControl
+          preset={preset}
+          onPresetChange={setPreset}
+          customRange={customRange}
+          onCustomRangeChange={setCustomRange}
+          isAllShops={isAllShops}
+          shopCount={shopCount}
+          disabled={!loaded}
+        />
+      </div>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 'var(--tf-space-6)' }}>
         {statCards.map((card) => (
-          <Col xs={24} sm={12} lg={6} key={card.title}>
-            <StatisticCard
+          <Col xs={24} sm={12} lg={8} key={card.key}>
+            <DashboardStatCard
               title={card.title}
               value={card.value}
-              suffix={card.suffix}
               icon={card.icon}
               color={card.color}
               bgColor={card.bgColor}
+              current={card.current}
+              previous={card.previous}
+              compareLabel={compareLabel}
+              compareTip={card.compareTip}
+              loading={loading}
             />
           </Col>
         ))}
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginBottom: 'var(--tf-space-6)' }}>
-        <Col xs={24} lg={14}>
+        <Col xs={24} lg={12}>
           <Card
-            title={<Space><LineChartOutlined /><span>{rangeLabel}订单趋势</span></Space>}
-            bordered={false}
+            title={
+              <Space>
+                <LineChartOutlined />
+                <span>
+                  {rangeLabel}订单趋势{scopeSuffix}
+                </span>
+              </Space>
+            }
+            variant="borderless"
             style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
           >
-            {chartLoading ? (
-              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Spin />
-              </div>
+            {loading ? (
+              <Skeleton active paragraph={{ rows: 6 }} />
             ) : (
-              <div style={{ height: 300 }}><Line {...lineConfig} /></div>
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={10}>
-<Card
-title={<Space><PieChartOutlined /><span>{isAllShops ? '全店订单状态分布' : isToday ? '今日订单状态分布' : `近${range}天订单状态分布`}</span></Space>}
-bordered={false}
-style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
->
-            {chartLoading ? (
-              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Spin />
+              <div style={{ height: 300 }}>
+                <Line {...lineConfig} />
               </div>
-            ) : (
-              <div style={{ height: 300 }}><Pie {...pieConfig} /></div>
             )}
-          </Card>
+              </Card>
         </Col>
-      </Row>
-
-      <Row gutter={[16, 16]} style={{ marginBottom: 'var(--tf-space-6)' }}>
-        <Col span={24}>
+        <Col xs={24} lg={12}>
           <Card
-            title={<Space><LineChartOutlined /><span>{rangeLabel}营收趋势（元）</span></Space>}
-            bordered={false}
+            title={
+              <Space>
+                <LineChartOutlined />
+                <span>
+                  {rangeLabel}营收趋势（元）{scopeSuffix}
+                </span>
+              </Space>
+            }
+            variant="borderless"
             style={{ borderRadius: brand.radius, boxShadow: brand.shadow }}
           >
-            {chartLoading ? (
-              <div style={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Spin />
-              </div>
+            {loading ? (
+              <Skeleton active paragraph={{ rows: 6 }} />
             ) : (
-              <div style={{ height: 280 }}><Line {...revenueConfig} /></div>
+              <div style={{ height: 300 }}>
+                <Line {...revenueConfig} />
+              </div>
             )}
           </Card>
         </Col>

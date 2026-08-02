@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Typography, Tag, DatePicker } from 'antd';
+import React, { useState, useMemo, useRef } from 'react';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, Popconfirm, Typography, Tag, DatePicker, Alert, List } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { EditOutlined, DeleteOutlined, GiftOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { Promotion } from '@/services/promotion';
+import { Promotion, checkPromotionConflicts } from '@/services/promotion';
 import {
   usePromotions,
   useCreatePromotion,
@@ -15,6 +16,7 @@ import { formatTime } from '@/utils/format';
 import { useShopContext } from '@/hooks/useShopContext';
 import { isRequestErrorHandled } from '@/utils/request';
 import PageHeaderActions from '@/components/PageHeaderActions';
+import AllShopsScopeAlert from '@/components/AllShopsScopeAlert';
 import { useCrudModal } from '@/hooks/useCrudModal';
 import TableCard from '@/components/TableCard';
 
@@ -88,34 +90,12 @@ const {
 const [submitting, setSubmitting] = useState(false);
 const [conflictModalVisible, setConflictModalVisible] = useState(false);
 const [pendingSubmitData, setPendingSubmitData] = useState<Record<string, unknown> | null>(null);
-const [conflictRecord, setConflictRecord] = useState<Promotion | undefined>();
+const [conflictList, setConflictList] = useState<Promotion[]>([]);
+const [checkingConflict, setCheckingConflict] = useState(false);
 const [deletingId, setDeletingId] = useState<string | null>(null);
-
-const checkTimeConflict = (record: {
-  id?: string;
-  type: string;
-  status: string;
-  startDate?: string;
-  endDate?: string;
-}): Promotion | undefined => {
-  if (loading) return undefined;
-
-  return promotions.find((p) => {
-    if (p.id === record.id) return false;
-    if (p.type !== record.type) return false;
-    if (p.status !== record.status) return false;
-
-    const pStart = p.startDate;
-    const pEnd = p.endDate;
-    const rStart = record.startDate;
-    const rEnd = record.endDate;
-
-    if (!pStart && !pEnd) return true;
-    if (!rStart && !rEnd) return true;
-
-        return (pStart ?? '') < (rEnd ?? '') && (pEnd ?? '') > (rStart ?? '');
-  });
-};
+// 与 useCrudModal 同款 ref 守卫：validateFields 是异步的，锁必须在校验「之前」落下，
+// 否则连点两次会双双穿透 state 的渲染期旧值造成重复创建。
+const submittingRef = useRef(false);
 
 const performSubmit = async (data: Record<string, unknown>, isCreate: boolean) => {
   setSubmitting(true);
@@ -140,6 +120,10 @@ const performSubmit = async (data: Record<string, unknown>, isCreate: boolean) =
 };
 
 const handleSubmit = async () => {
+  if (submittingRef.current) return;
+  submittingRef.current = true;
+  // 冲突弹窗打开期间保持上锁，直到用户在弹窗里做出选择才释放
+  let keepLocked = false;
   try {
     const values = await form.validateFields();
     const { dateRange, type, threshold, discount, ...rest } = values as {
@@ -162,19 +146,33 @@ const handleSubmit = async () => {
       data.endDate = dateRange[1].toISOString();
     }
 
-    const conflict = checkTimeConflict({
-      id: editingPromotion?.id,
-      type: type || editingPromotion?.type || '',
-      status: 'active',
-      startDate: data.startDate as string | undefined,
-      endDate: data.endDate as string | undefined,
-    });
+    const effectiveType = type || editingPromotion?.type || '';
+    const effectiveStatus = (rest.status as string) || 'active';
 
-    if (conflict) {
-      setPendingSubmitData(data);
-      setConflictRecord(conflict);
-      setConflictModalVisible(true);
-      return;
+    // 仅启用中的活动才会真正参与算价，停用的不必打扰用户
+    if (effectiveStatus === 'active' && effectiveType) {
+      setCheckingConflict(true);
+      try {
+        const result = await checkPromotionConflicts({
+          type: effectiveType,
+          startTime: data.startDate as string | undefined,
+          endTime: data.endDate as string | undefined,
+          excludeId: editingPromotion?.id,
+          shopId,
+        });
+        if (result?.hasConflict && result.conflicts?.length) {
+          setPendingSubmitData(data);
+          setConflictList(result.conflicts);
+          setConflictModalVisible(true);
+          keepLocked = true;
+          return;
+        }
+      } catch (error) {
+        // 冲突检测只是「提醒」，检测本身失败不应该挡住正常保存
+        console.warn('促销冲突检测失败，跳过提醒直接保存:', error);
+      } finally {
+        setCheckingConflict(false);
+      }
     }
 
     await performSubmit(data, !editingPromotion);
@@ -184,17 +182,41 @@ const handleSubmit = async () => {
     if (!isRequestErrorHandled(error)) {
       message.error('操作失败');
     }
+  } finally {
+    if (!keepLocked) submittingRef.current = false;
   }
 };
 
+/** 用户选择「仍然保存」：带着已校验的数据继续提交 */
 const handleConflictConfirm = async () => {
   setConflictModalVisible(false);
-  if (pendingSubmitData) {
-    const data = pendingSubmitData;
-    setPendingSubmitData(null);
-    setConflictRecord(undefined);
-    await performSubmit(data, !!editingPromotion);
+  const data = pendingSubmitData;
+  setPendingSubmitData(null);
+  setConflictList([]);
+  try {
+    if (data) {
+      await performSubmit(data, !editingPromotion);
+    }
+  } finally {
+    submittingRef.current = false;
   }
+};
+
+/** 用户选择「返回修改」：关掉提示回到表单，释放提交锁 */
+const handleConflictCancel = () => {
+  setConflictModalVisible(false);
+  setPendingSubmitData(null);
+  setConflictList([]);
+  submittingRef.current = false;
+};
+
+/** 有效期展示：缺任一端即为开区间，需要如实告知用户而不是笼统写“永久” */
+const formatPromotionRange = (record: Pick<Promotion, 'startDate' | 'endDate'>): string => {
+  const { startDate, endDate } = record;
+  if (!startDate && !endDate) return '长期有效';
+  if (startDate && !endDate) return `${formatTime(startDate)} 起长期有效`;
+  if (!startDate && endDate) return `即刻起至 ${formatTime(endDate)}`;
+  return `${formatTime(startDate)} ~ ${formatTime(endDate)}`;
 };
 
 const selectedType = Form.useWatch('type', form);
@@ -267,12 +289,7 @@ const handleDelete = async (id: string) => {
       title: '有效期',
       key: 'dateRange',
       width: 160,
-      render: (_: Promotion, record: Promotion) => {
-        if (record.startDate && record.endDate) {
-          return `${formatTime(record.startDate)} ~ ${formatTime(record.endDate)}`;
-        }
-        return '永久';
-      },
+      render: (_: Promotion, record: Promotion) => formatPromotionRange(record),
     },
     {
       title: '操作',
@@ -319,12 +336,14 @@ const filteredPromotions = useMemo(
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<GiftOutlined style={{ marginRight: 8 }} />}
+        icon={<GiftOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
         title={currentShop?.name ? `促销管理 · ${currentShop.name}` : '促销管理'}
         addText="新增促销"
         onAdd={handleAdd}
         onRefresh={() => promotionsQuery.refetch()}
       />
+
+      <AllShopsScopeAlert />
 
       <TableCard>
         <SearchFilterBar
@@ -352,23 +371,46 @@ const filteredPromotions = useMemo(
 </TableCard>
 
 <Modal
-  title="时间段冲突警告"
+  title="促销时间段重叠提醒"
   open={conflictModalVisible}
   onOk={handleConflictConfirm}
   confirmLoading={submitting}
-  onCancel={() => setConflictModalVisible(false)}
-  okText="仍然创建/更新"
-  cancelText="取消"
-  width={520}
+  onCancel={handleConflictCancel}
+  okText="仍然保存"
+  cancelText="返回修改"
+  width={560}
 >
-  <p>当前时间段内已有其他<strong>{conflictRecord ? promotionTypeMap[conflictRecord.type]?.text || conflictRecord.type : ''}</strong>活动：</p>
-  {conflictRecord && (
-    <ul>
-      <li>活动名称：{conflictRecord.name}</li>
-      <li>有效期：{conflictRecord.startDate && conflictRecord.endDate ? `${formatTime(conflictRecord.startDate)} ~ ${formatTime(conflictRecord.endDate)}` : '永久'}</li>
-    </ul>
-  )}
-  <p style={{ marginTop: 12, color: 'var(--tf-text-tertiary)' }}>如确定要继续创建/更新，请点击"仍然创建/更新"。</p>
+  <Alert
+    type="warning"
+    showIcon
+    message={`检测到 ${conflictList.length} 个同类型活动与当前时间段重叠`}
+    description="系统允许多个促销叠加生效，这里只是提醒你确认是否符合预期。"
+    style={{ marginBottom: 'var(--tf-space-3)'}}
+  />
+  <List
+    size="small"
+    bordered
+    dataSource={conflictList}
+    renderItem={(item) => (
+      <List.Item>
+        <List.Item.Meta
+          title={
+            <Space size={6}>
+              <Text strong>{item.name}</Text>
+              <Tag color={promotionTypeMap[item.type]?.color || 'default'}>
+                {promotionTypeMap[item.type]?.text || item.type}
+              </Tag>
+            </Space>
+          }
+          description={
+            <Text type="secondary" style={{ fontSize: 'var(--tf-font-xs)' }}>
+              {formatPromotionRange(item)}
+            </Text>
+          }
+        />
+      </List.Item>
+    )}
+  />
 </Modal>
 
 <Modal
@@ -376,12 +418,12 @@ const filteredPromotions = useMemo(
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={closeModal}
-        confirmLoading={submitting}
+        confirmLoading={submitting || checkingConflict}
         okText="保存"
         width={520}
-        destroyOnClose
+        destroyOnHidden
       >
-        <Form form={form} layout="vertical" disabled={submitting}>
+        <Form form={form} layout="vertical" disabled={submitting || checkingConflict}>
           <Form.Item name="name" label="活动名称" rules={[{ required: true, message: '请输入活动名称' }]}>
             <Input />
           </Form.Item>

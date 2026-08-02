@@ -11,8 +11,8 @@ import {
   Switch,
   Table,
   Typography,
-  message,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import type { ColumnsType } from 'antd/es/table';
 import { QrcodeOutlined } from '@ant-design/icons';
 import { ShopTable, buildTableQrImageUrl } from '@/services/table';
@@ -192,7 +192,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
 
   return (
     <div>
-      <Space wrap style={{ marginBottom: 12 }} size={8}>
+      <Space wrap style={{ marginBottom: 'var(--tf-space-3)'}} size={8}>
         <Button
           type="primary"
           disabled={saving}
@@ -212,7 +212,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
       </Space>
 
       {!compact ? (
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 'var(--tf-space-2)'}}>
           <Text type="secondary" style={{ fontSize: 12 }}>
             桌台按店铺绑定。开发可用普通二维码；正式环境请用微信小程序码。
           </Text>
@@ -262,7 +262,7 @@ const ShopTablesPanel: React.FC<ShopTablesPanelProps> = ({ shopId, compact }) =>
         confirmLoading={saving}
         cancelButtonProps={{ disabled: saving }}
         maskClosable={!saving}
-        destroyOnClose
+        destroyOnHidden
         okText="保存"
       >
         <Form form={form} layout="vertical" initialValues={{ active: true, sortOrder: 0 }}>

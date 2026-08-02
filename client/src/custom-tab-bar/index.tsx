@@ -1,9 +1,15 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useAuthStore } from '../stores/authStore';
 import Icon from '../components/Icon';
 import type { IconName } from '../components/Icon';
+import {
+  getCurrentTabPath,
+  getTabBarSelectedPath,
+  setTabBarSelectedPath,
+  subscribeTabBarSelectedPath,
+} from '../utils/tab-bar';
 import './index.scss';
 
 interface TabItem {
@@ -40,14 +46,28 @@ function tabsForRole(role?: string): TabItem[] {
 export default function CustomTabBar() {
   const role = useAuthStore((s) => s.user?.role);
   const tabs = useMemo(() => tabsForRole(role), [role]);
+  const [selectedPath, setSelectedPath] = useState(() => getTabBarSelectedPath());
 
-  // 当前页面路径（每个 tab 页拥有独立的 tabBar 实例）
-  const currentPath = Taro.getCurrentInstance().router?.path
-    ? `/${Taro.getCurrentInstance().router!.path!.replace(/^\//, '').split('?')[0]}`
-    : '';
+  // 订阅外部同步（页面 onShow / 角色跳转），并在角色切换后按当前页校正
+  useEffect(() => {
+    const syncFromCurrentPage = () => {
+      const current = getCurrentTabPath() || getTabBarSelectedPath();
+      if (current) {
+        setTabBarSelectedPath(current);
+        setSelectedPath(current);
+      }
+    };
+
+    syncFromCurrentPage();
+    return subscribeTabBarSelectedPath((path) => {
+      setSelectedPath(path);
+    });
+  }, [role]);
 
   const handleTap = (item: TabItem) => {
-    if (currentPath === item.pagePath) return;
+    if (selectedPath === item.pagePath) return;
+    // 先更新激活态，避免 switchTab 后自定义 tabBar 不重渲染导致高亮滞后
+    setTabBarSelectedPath(item.pagePath);
     Taro.switchTab({ url: item.pagePath });
   };
 
@@ -55,7 +75,7 @@ export default function CustomTabBar() {
     <View className='custom-tab-bar'>
       <View className='custom-tab-bar__inner'>
         {tabs.map((item) => {
-          const active = currentPath === item.pagePath;
+          const active = selectedPath === item.pagePath;
           return (
             <View
               key={item.pagePath}

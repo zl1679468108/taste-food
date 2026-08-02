@@ -3,7 +3,7 @@ import { ScrollView, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
-import { Order, OrderStatus } from '../../types/order';
+import { Order } from '../../types/order';
 import { PaginatedData } from '../../types/api';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
@@ -13,22 +13,19 @@ import EmptyState from '../../components/EmptyState';
 import SkeletonLoader from '../../components/SkeletonLoader';
 import ListEndTip from '../../components/ListEndTip';
 import FooterBar from '../../components/FooterBar';
+import { useSyncTabBar } from '../../hooks/useSyncTabBar';
+import { TAB_BAR_PATHS } from '../../utils/tab-bar';
 import './index.scss';
 
 const FILTER_TABS = [
   { key: '', label: '全部' },
-  { key: OrderStatus.PENDING_PAYMENT, label: '待支付' },
-  { key: OrderStatus.PAID, label: '已支付' },
-  { key: OrderStatus.ACCEPTED, label: '已接单' },
-  { key: OrderStatus.PREPARING, label: '制作中' },
-  { key: OrderStatus.READY_FOR_PICKUP, label: '待取餐' },
-  { key: OrderStatus.DELIVERING, label: '配送中' },
-  { key: OrderStatus.COMPLETED, label: '已完成' },
-  { key: OrderStatus.CANCELLED, label: '已取消' },
-  { key: OrderStatus.REJECTED, label: '已拒单' },
+  { key: 'active', label: '进行中' },
+  { key: 'review', label: '待评价' },
+  { key: 'refund', label: '退款售后' },
 ];
 
 const OrderListPage = () => {
+  useSyncTabBar(TAB_BAR_PATHS.orderList);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const user = useAuthStore((s) => s.user);
 
@@ -97,13 +94,11 @@ const OrderListPage = () => {
       if (seq !== requestSeqRef.current) return;
 
       const { items, total } = response.data;
-      // 前端兜底：确保列表与当前筛选状态一致
-      const matched = currentFilter
-        ? (items || []).filter((item) => item.status === currentFilter)
-        : items || [];
+      // 分组筛选(active/review/refund)由服务端解析；前端不再按单状态二次过滤
+      const list = items || [];
       const maxPage = Math.ceil((total || 0) / pageSize);
 
-      setOrders((prev) => (pageNum === 1 ? matched : [...prev, ...matched]));
+      setOrders((prev) => (pageNum === 1 ? list : [...prev, ...list]));
       setLoadError(false);
       setCanRetry(false);
       setPage(pageNum);
@@ -230,8 +225,20 @@ const OrderListPage = () => {
         <View className='order-list-page__body'>
           <EmptyState
             icon='order'
-            title={activeFilter ? '这里还没有订单' : '还没有订单'}
-            description={activeFilter ? '换个状态看看，或去点一份喜欢的' : '去点一份喜欢的吧'}
+            title={
+              activeFilter === 'refund'
+                ? '暂无退款售后'
+                : activeFilter
+                  ? '这里还没有订单'
+                  : '还没有订单'
+            }
+            description={
+              activeFilter === 'refund'
+                ? '取消、拒单和退款申请会出现在这里'
+                : activeFilter
+                  ? '换个状态看看，或去点一份喜欢的'
+                  : '去点一份喜欢的吧'
+            }
           />
           <FooterBar
             actionOnly

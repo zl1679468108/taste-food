@@ -54,7 +54,7 @@ function proxyHint(msg: string): string {
     process.env.HTTP_PROXY ||
     process.env.http_proxy;
   if (proxy) {
-    return ` 已检测到代理 ${proxy}，请确认 Node 以 --use-env-proxy 启动（npm start/start:dev 已默认开启）。`;
+    return ` 已检测到代理 ${proxy}，请确认 Node 以 --use-env-proxy 启动（npm start 已默认开启）。`;
   }
   return ' 本机 DNS 可能无法解析 supabase.co，可配置 HTTPS_PROXY 或修复 DNS。';
 }

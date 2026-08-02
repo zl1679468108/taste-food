@@ -10,6 +10,8 @@ export interface User {
   createdAt: string;
   updatedAt?: string;
   registerDate?: string;
+  /** 最后登录时间 ISO；从未登录为空 */
+  lastLoginAt?: string;
 }
 
 export interface CreateUserPayload {
@@ -27,7 +29,7 @@ export interface UpdateUserPayload {
   shopId?: string | null;
 }
 
-export const getUsers = (params: { page: number; pageSize: number; role?: string }) =>
+export const getUsers = (params: { page: number; pageSize: number; role?: string; keyword?: string }) =>
   request.get('/api/users', { params }) as Promise<{ items: User[]; total: number }>;
 
 export const getUser = (id: string) =>

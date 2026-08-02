@@ -20,6 +20,7 @@ export interface Shop {
   logoUrl: string;
   status: string;
   deliveryRange: number;
+  deliveryConfirmRadiusM?: number;
   deliveryFee: number;
   minOrderAmount: number;
   businessHours?: BusinessHours;

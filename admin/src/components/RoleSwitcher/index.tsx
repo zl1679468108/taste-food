@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Button, Select, Space, message, Typography } from 'antd';
+import { Button, Select, Space, Typography } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { SwapOutlined } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
 import {
@@ -9,6 +10,7 @@ import {
   homePathForRole,
   type UserRoleItem,
 } from '@/services/auth';
+import { computeAccess } from '@/utils/computeAccess';
 
 const { Text } = Typography;
 
@@ -85,18 +87,12 @@ const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ compact = false }) => {
       await setInitialState((prev: any) => ({
         ...prev,
         currentUser,
-        admin: {
-          canOps: result.role === 'admin' || result.role === 'merchant',
-          canPlatform: result.role === 'admin' && !result.shopId,
-          canMerchant: result.role === 'merchant',
-          canAdmin: result.role === 'admin' || result.role === 'merchant',
-          canPlatformAdmin: result.role === 'admin' && !result.shopId,
-        },
+        admin: computeAccess(result),
       }));
       setValue(nextKey);
       message.success(`已切换为${roleLabel[result.role] || result.role}`);
       // 角色变化会同时改变菜单权限和店铺上下文，整页导航确保两者从新会话一致初始化。
-      window.location.href = homePathForRole(result.role);
+      window.location.href = homePathForRole(result.role, result.shopId);
     } catch {
       // interceptor
     } finally {

@@ -60,6 +60,11 @@ interface MediaAssetRow {
 /** 开发环境内存元数据回退（无 Supabase / 表写入失败时） */
 const memoryMediaAssets: Map<string, MediaAsset> = new Map();
 
+/** 开发环境无对象存储时，导出文件回退内存（key = storage path） */
+const memoryExportFiles: Map<string, { buffer: Buffer; contentType: string }> = new Map();
+/** 已确认存在的桶，避免每次上传都去探测 */
+const ensuredBuckets = new Set<string>();
+
 const ALLOWED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
 const MIME_MAP: Record<string, string> = {
   jpg: 'image/jpeg',
@@ -73,6 +78,7 @@ const MAX_BATCH_SIZE = 30;
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   private readonly BUCKET = 'menu-images';
+  private readonly EXPORT_BUCKET = 'export-files';
   private readonly MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
   private generateFileName(originalName: string, shopId: string): string {
@@ -223,6 +229,46 @@ export class StorageService {
     return memoryMediaAssets.get(id) || null;
   }
 
+  /**
+   * 校验 storage path 归属：素材表有记录时以记录的 shop_id 为准，
+   * 无记录（历史孤儿对象）时退回路径前缀 `${shopId}/` 判定。
+   */
+  private async assertPathOwnedByShop(path: string, shopId: string): Promise<void> {
+    if (hasSupabase() && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('tf_media_assets')
+          .select('shop_id')
+          .eq('path', path)
+          .maybeSingle();
+        if (!error && data) {
+          if ((data as { shop_id: string }).shop_id !== shopId) {
+            throw new NotFoundException('图片不存在');
+          }
+          return;
+        }
+      } catch (e) {
+        if (e instanceof NotFoundException) throw e;
+        this.logger.warn('[Storage] 校验图片归属异常:', e);
+      }
+    }
+
+    for (const asset of memoryMediaAssets.values()) {
+      if (asset.path === path) {
+        if (asset.shopId !== shopId) {
+          throw new NotFoundException('图片不存在');
+        }
+        return;
+      }
+    }
+
+    // 无元数据可依据：按存放约定校验路径首段
+    const owner = path.split('/')[0];
+    if (owner !== shopId) {
+      throw new NotFoundException('图片不存在');
+    }
+  }
+
   private async findUsagesByUrls(
     shopId: string,
     urls: string[],
@@ -347,6 +393,97 @@ export class StorageService {
     };
   }
 
+
+  /**
+   * 骑手送达凭证照片上传
+   * 路径: {shopId}/delivery-proofs/{orderId}/{ts}-{rand}.ext
+   */
+  async uploadDeliveryProof(
+    buffer: Buffer,
+    originalName: string,
+    shopId: string,
+    orderId: string,
+    _userId?: string,
+    mimeType?: string,
+  ): Promise<UploadImageResult> {
+    const resolvedShopId = this.requireShopId(shopId);
+    const resolvedOrderId = (orderId || '').trim();
+    if (!resolvedOrderId) {
+      throw new BadRequestException('orderId 不能为空');
+    }
+
+    const { ext, mime: fallbackMime } = this.validateImageFile(
+      buffer,
+      originalName || 'proof.jpg',
+    );
+    const mime = this.resolveMime(ext, mimeType || fallbackMime);
+    const fileName = originalName || `proof.${ext}`;
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 8);
+    const storagePath = `${resolvedShopId}/delivery-proofs/${resolvedOrderId}/${timestamp}-${random}.${ext}`;
+
+    if (!hasSupabase() || !supabase) {
+      assertMemoryFallbackAllowed('StorageService.uploadDeliveryProof');
+      const placeholderUrl = `memory://${this.BUCKET}/${storagePath}`;
+      const asset = this.toMemoryAsset({
+        shopId: resolvedShopId,
+        url: placeholderUrl,
+        path: storagePath,
+        fileName,
+        mime,
+        sizeBytes: buffer.length,
+      });
+      memoryMediaAssets.set(asset.id, asset);
+      this.logger.warn(
+        `[Storage] Supabase 不可用，送达照片使用内存占位: ${placeholderUrl}`,
+      );
+      return {
+        id: asset.id,
+        url: asset.url,
+        path: asset.path,
+        fileName: asset.fileName,
+        mime: asset.mime,
+        sizeBytes: asset.sizeBytes,
+      };
+    }
+
+    const { data, error } = await supabase.storage
+      .from(this.BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: mime,
+        upsert: false,
+      });
+
+    if (error) {
+      this.logger.error('[Storage] 送达照片上传失败:', error);
+      throw new BadRequestException(`图片上传失败: ${error.message}`);
+    }
+
+    const { data: urlData } = supabase.storage
+      .from(this.BUCKET)
+      .getPublicUrl(storagePath);
+
+    const url = urlData?.publicUrl || '';
+    const asset = this.toMemoryAsset({
+      shopId: resolvedShopId,
+      url,
+      path: data?.path || storagePath,
+      fileName,
+      mime,
+      sizeBytes: buffer.length,
+    });
+
+    const saved = await this.persistAssetMeta(asset);
+    return {
+      id: saved.id,
+      url: saved.url,
+      path: saved.path,
+      fileName: saved.fileName,
+      mime: saved.mime,
+      sizeBytes: saved.sizeBytes,
+    };
+  }
+
   /**
    * 批量上传，上限 30 张；单张失败不阻断其余文件
    */
@@ -449,14 +586,21 @@ export class StorageService {
 
   /**
    * 按素材 id 删除：仍被菜品引用则 400；否则删 storage + 资产行
+   *
+   * @param shopId 调用方所属店铺（来自 JWT），必须与素材归属一致，防止跨店删图
    */
-  async deleteMedia(id: string): Promise<void> {
+  async deleteMedia(id: string, shopId: string): Promise<void> {
     if (!id?.trim()) {
       throw new BadRequestException('素材 id 不能为空');
     }
+    const resolvedShopId = this.requireShopId(shopId);
 
     const asset = await this.findAssetById(id);
     if (!asset) {
+      throw new NotFoundException('素材不存在');
+    }
+    if (asset.shopId !== resolvedShopId) {
+      // 不泄露他店素材是否存在
       throw new NotFoundException('素材不存在');
     }
 
@@ -504,11 +648,16 @@ export class StorageService {
 
   /**
    * 兼容旧接口：按 storage path 删除对象（不处理素材表）
+   *
+   * @param shopId 调用方所属店铺（来自 JWT）。所有对象都以 `${shopId}/` 为前缀存放，
+   *               且素材表若有记录则以记录归属为准，双重校验防止跨店删图。
    */
-  async deleteImage(path: string): Promise<void> {
+  async deleteImage(path: string, shopId: string): Promise<void> {
     if (!path?.trim()) {
       throw new BadRequestException('图片路径不能为空');
     }
+    const resolvedShopId = this.requireShopId(shopId);
+    await this.assertPathOwnedByShop(path, resolvedShopId);
 
     if (!hasSupabase() || !supabase) {
       // 尝试按 path 清理内存元数据
@@ -537,5 +686,93 @@ export class StorageService {
     } catch (e) {
       this.logger.warn('[Storage] 同步清理素材行失败:', e);
     }
+  }
+
+  /**
+   * 创建（若不存在）私有存储桶，用于存放导出文件等非公开资源。
+   */
+  private async ensureBucket(bucket: string): Promise<void> {
+    if (ensuredBuckets.has(bucket)) return;
+    if (!hasSupabase() || !supabase) return;
+    try {
+      const { data } = await supabase.storage.getBucket(bucket);
+      if (data) {
+        ensuredBuckets.add(bucket);
+        return;
+      }
+      const { error } = await supabase.storage.createBucket(bucket, {
+        public: false,
+        fileSizeLimit: 50 * 1024 * 1024,
+      });
+      if (error && !/already exists/i.test(error.message)) {
+        this.logger.warn(`[Storage] 创建桶 ${bucket} 失败: ${error.message}`);
+      }
+      ensuredBuckets.add(bucket);
+    } catch (e) {
+      this.logger.warn(`[Storage] 检查/创建桶 ${bucket} 异常:`, e);
+      ensuredBuckets.add(bucket);
+    }
+  }
+
+  /**
+   * 通用文件上传（导出文件等）。无 Supabase 时回退内存 Map。
+   * @returns 实际存储桶与路径
+   */
+  async uploadBuffer(
+    buffer: Buffer,
+    path: string,
+    opts?: { bucket?: string; contentType?: string },
+  ): Promise<{ bucket: string; path: string }> {
+    const bucket = opts?.bucket || this.EXPORT_BUCKET;
+    const contentType =
+      opts?.contentType ||
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if (!buffer || buffer.length === 0) {
+      throw new BadRequestException('文件内容为空');
+    }
+
+    if (!hasSupabase() || !supabase) {
+      assertMemoryFallbackAllowed('StorageService.uploadBuffer');
+      memoryExportFiles.set(path, { buffer, contentType });
+      this.logger.warn(`[Storage] Supabase 不可用，导出文件回退内存: ${path}`);
+      return { bucket, path };
+    }
+
+    await this.ensureBucket(bucket);
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(path, buffer, { contentType, upsert: true });
+    if (error) {
+      this.logger.error('[Storage] 通用上传失败:', error);
+      throw new BadRequestException(`文件上传失败: ${error.message}`);
+    }
+    return { bucket, path };
+  }
+
+  /**
+   * 读取已上传的文件（导出文件下载用）。无匹配时返回 null。
+   */
+  async downloadBuffer(
+    path: string,
+    bucket?: string,
+  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+    const b = bucket || this.EXPORT_BUCKET;
+    const fallbackType =
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+    if (!hasSupabase() || !supabase) {
+      const item = memoryExportFiles.get(path);
+      if (!item) return null;
+      return { buffer: item.buffer, contentType: item.contentType || fallbackType };
+    }
+
+    const { data, error } = await supabase.storage.from(b).download(path);
+    if (error || !data) {
+      this.logger.warn(`[Storage] 下载文件失败 ${path}: ${error?.message || '空数据'}`);
+      return null;
+    }
+    const arr = await data.arrayBuffer();
+    return { buffer: Buffer.from(arr), contentType: data.type || fallbackType };
   }
 }

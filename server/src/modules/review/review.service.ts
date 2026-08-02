@@ -122,6 +122,13 @@ export class ReviewService {
           }
           this.logger.warn(`[Review] 写入失败，回退内存: ${error.message}`);
         } else if (data) {
+          void this.orderService.notifyShopStaff({
+            shopId: order.shopId,
+            type: 'new_review',
+            title: '新的顾客评价',
+            content: `订单 ${order.orderNo} 收到 ${rating} 星评价${content ? `：${content}` : ''}`,
+            relatedId: orderId,
+          });
           return this.toRecord(data as ReviewRow);
         }
       } catch (e) {
@@ -132,6 +139,13 @@ export class ReviewService {
 
     assertMemoryFallbackAllowed('ReviewService');
     memoryReviews.set(orderId, record);
+    void this.orderService.notifyShopStaff({
+      shopId: order.shopId,
+      type: 'new_review',
+      title: '新的顾客评价',
+      content: `订单 ${order.orderNo} 收到 ${rating} 星评价${content ? `：${content}` : ''}`,
+      relatedId: orderId,
+    });
     return record;
   }
 

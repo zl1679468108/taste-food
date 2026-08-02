@@ -3,8 +3,12 @@ import assert from 'node:assert/strict';
 import { NotFoundException } from '@nestjs/common';
 import { DeliveryType, PromotionStatus, PromotionType } from '../src/common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../src/common/constants/shop';
-import { PromotionController } from '../src/modules/promotion/promotion.controller';
+import {
+  PromotionController,
+  MerchantPromotionController,
+} from '../src/modules/promotion/promotion.controller';
 import { PromotionService } from '../src/modules/promotion/promotion.service';
+import type { PromotionResponseDto } from '../src/modules/promotion/dto/promotion.dto';
 import { createOrderService } from './helpers/order-service';
 
 function uniqueShopId(prefix: string): string {
@@ -155,7 +159,9 @@ test('promotion update and remove enforce shop ownership', async () => {
 
 test('promotion controller falls back to DEFAULT_SHOP_ID when admin shop is unbound', async () => {
   const service = new PromotionService();
-  const controller = new PromotionController(service);
+  // T300.5 后管理态读写迁至 MerchantPromotionController（/api/merchant/promotions）；
+  // PromotionController 仅保留顾客侧公开 GET /api/promotions。
+  const controller = new MerchantPromotionController(service);
 
   // 未绑定 shopId 时 create 应落到 DEFAULT_SHOP_ID
   const createdResp = await controller.create({
@@ -167,12 +173,26 @@ test('promotion controller falls back to DEFAULT_SHOP_ID when admin shop is unbo
   assert.equal(createdResp.data.shopId, DEFAULT_SHOP_ID);
 
   const managed = await controller.findAllForManagement(undefined, undefined, undefined);
-  assert.ok(managed.data.some((p) => p.id === createdResp.data.id));
+  assert.ok(managed.data.some((p: PromotionResponseDto) => p.id === createdResp.data.id));
 
   await controller.update(createdResp.data.id, { name: '已更新默认店铺活动' }, undefined, undefined);
   const updated = await service.findOne(createdResp.data.id);
   assert.equal(updated.name, '已更新默认店铺活动');
   await controller.remove(createdResp.data.id, undefined, undefined);
+});
+
+test('顾客侧 PromotionController 仅暴露公开查询，不含管理态写方法', () => {
+  const service = new PromotionService();
+  const publicController = new PromotionController(service);
+  assert.equal(typeof publicController.findAll, 'function');
+  // 管理态方法不应回流到公开控制器（防止 T300 双入口拆分被回滚）
+  for (const method of ['create', 'update', 'remove', 'findAllForManagement']) {
+    assert.equal(
+      (publicController as unknown as Record<string, unknown>)[method],
+      undefined,
+      `公开控制器不应存在管理态方法 ${method}`,
+    );
+  }
 });
 
 test('order creation applies the largest active full-discount promotion only', async () => {

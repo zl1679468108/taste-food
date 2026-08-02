@@ -11,6 +11,7 @@ import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
 import {
+  isValidGeoPoint,
   normalizeGeoPoint,
   resolveGeoPoint,
 } from '../../common/utils/tencent-map';
@@ -136,11 +137,15 @@ export class AddressService {
     const existing = await this.findByUserId(userId);
     const isDefault = shouldDefault || existing.length === 0;
 
-    const resolved = await resolveGeoPoint({
-      address: dto.detail,
-      latitude: dto.latitude,
-      longitude: dto.longitude,
-    });
+    const resolved = normalizeGeoPoint(dto.latitude, dto.longitude)
+      || await resolveGeoPoint({
+        address: dto.detail,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      });
+    if (!resolved || !isValidGeoPoint(resolved)) {
+      throw new BadRequestException('地址坐标无效，请通过地图选点后保存');
+    }
 
     const record: AddressRecord = {
       id,
@@ -149,8 +154,8 @@ export class AddressService {
       contactName: dto.contactName.trim(),
       contactPhone: dto.contactPhone.trim(),
       detail: dto.detail.trim(),
-      latitude: resolved?.latitude,
-      longitude: resolved?.longitude,
+      latitude: resolved.latitude,
+      longitude: resolved.longitude,
       tag: dto.tag?.trim() || undefined,
       isDefault,
       createdAt: now,
@@ -237,6 +242,14 @@ export class AddressService {
 
     if (!next.contactName || !next.detail) {
       throw new BadRequestException('联系人与地址不能为空');
+    }
+    if (
+      !isValidGeoPoint({
+        latitude: next.latitude as number,
+        longitude: next.longitude as number,
+      })
+    ) {
+      throw new BadRequestException('地址坐标必填，请通过地图选点后保存');
     }
 
     if (hasSupabase() && supabase) {

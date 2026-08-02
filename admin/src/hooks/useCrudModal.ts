@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { Form, FormInstance, message } from 'antd';
+import { Form, FormInstance } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { isRequestErrorHandled } from '@/utils/request';
 
 export interface UseCrudModalOptions<T> {

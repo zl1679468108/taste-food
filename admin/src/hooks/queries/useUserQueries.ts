@@ -8,7 +8,7 @@ import { STALE_TIMES } from '@/lib/queryClient';
 
 // ---- 查询 ----
 
-export function useUsers(params: { page: number; pageSize: number; role?: string }) {
+export function useUsers(params: { page: number; pageSize: number; role?: string; keyword?: string }) {
   return useQuery({
     queryKey: queryKeys.users.list(params),
     queryFn: () => getUsers(params),

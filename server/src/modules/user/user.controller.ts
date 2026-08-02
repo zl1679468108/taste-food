@@ -10,6 +10,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { PlatformOnly } from '../../common/decorators/shop-scope.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
@@ -26,13 +27,14 @@ export class UserController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('role') role?: string,
+    @Query('keyword') keyword?: string,
     @CurrentUser() user?: CurrentUserPayload,
   ): Promise<ApiResponse<PaginatedUsers>> {
     const p = parseInt(page || '1', 10) || 1;
     const ps = parseInt(pageSize || '20', 10) || 20;
     // 商家仅看本店绑定账号；平台管理员看全部
     const shopFilter = user?.shopId || undefined;
-    const users = await this.userService.getUsers(p, ps, role, shopFilter);
+    const users = await this.userService.getUsers(p, ps, role, shopFilter, keyword);
     return success(users);
   }
 
@@ -45,6 +47,7 @@ export class UserController {
 
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  @PlatformOnly()
   async getUserDetail(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserPayload,

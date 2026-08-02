@@ -24,6 +24,42 @@ export class InboxService {
 
   constructor(private readonly orderGateway: OrderGateway) {}
 
+  /**
+   * 推送 notification:new 到该用户的个人房间（user:${userId}）。
+   *
+   * 携带服务端权威 unreadCount，让前端角标可以直接对齐而不是本地 +1 累加
+   * ——多标签页 / 多设备下本地累加会漂移。
+   * 未读数查询失败不影响消息本体送达，此时省略 unreadCount，由前端回退到本地累加。
+   */
+  private async pushNotification(record: InboxNotification): Promise<void> {
+    try {
+      let unreadCount: number | undefined;
+      try {
+        unreadCount = await this.unreadCount(record.userId);
+      } catch (e) {
+        this.logger.warn(
+          `[Inbox] unreadCount 查询失败，本次推送不带未读数: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+
+      // 先构造成变量再传入：对象字面量会触发 TS 的多余属性检查，
+      // 而 gateway 的入参类型（不在本次可改范围内）没有声明 unreadCount。
+      const notification: InboxNotification & { unreadCount?: number } = {
+        ...record,
+        ...(unreadCount === undefined ? {} : { unreadCount }),
+      };
+
+      this.orderGateway.emitNotificationToUser({
+        userId: record.userId,
+        notification,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `[Inbox] WS push failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
   async create(input: {
     userId: string;
     type: string;
@@ -60,43 +96,16 @@ export class InboxService {
         .select('*')
         .single();
       if (!error && data) {
-        try {
-          this.orderGateway.emitNotificationToUser({
-            userId: record.userId,
-            notification: {
-              id: record.id,
-              title: record.title,
-              content: record.content,
-              createdAt: record.createdAt,
-            },
-          });
-        } catch (e) {
-          this.logger.warn(
-            `[Inbox] WS push failed: ${e instanceof Error ? e.message : e}`,
-          );
-        }
-        return this.toRecord(data);
+        const full = this.toRecord(data);
+        await this.pushNotification(full);
+        return full;
       }
       this.logger.warn(`[Inbox] insert failed: ${error?.message}`);
     }
 
     assertMemoryFallbackAllowed('InboxService');
     memory.set(record.id, record);
-    try {
-      this.orderGateway.emitNotificationToUser({
-        userId: record.userId,
-        notification: {
-          id: record.id,
-          title: record.title,
-          content: record.content,
-          createdAt: record.createdAt,
-        },
-      });
-    } catch (e) {
-      this.logger.warn(
-        `[Inbox] WS push failed: ${e instanceof Error ? e.message : e}`,
-      );
-    }
+    await this.pushNotification(record);
     return record;
   }
 

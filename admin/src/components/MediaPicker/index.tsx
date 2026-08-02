@@ -9,9 +9,9 @@ import {
   Empty,
   Image,
   Popconfirm,
-  message,
   Tooltip,
 } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import {
   CheckOutlined,
   CloudUploadOutlined,
@@ -205,9 +205,9 @@ export const MediaPickerModal: React.FC<MediaPickerModalProps> = ({
       okButtonProps={{ disabled: !selectedUrl }}
       cancelText="取消"
       width={780}
-      destroyOnClose
+      destroyOnHidden
       className="tf-media-picker-modal"
-      styles={{ body: { paddingTop: 12 } }}
+      styles={{ body: { paddingTop: 'var(--tf-space-3)'} }}
     >
       <input
         ref={batchInputRef}

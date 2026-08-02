@@ -12,6 +12,10 @@ import {
 } from '@nestjs/common';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import {
+  MerchantOnly,
+  PlatformOnly,
+} from '../../common/decorators/shop-scope.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
@@ -24,8 +28,15 @@ import {
   BusinessHoursResponseDto,
 } from './dto/shop.dto';
 import { TableService } from './table.service';
-import { CreateShopTableDto, UpdateShopTableDto, ShopTableDto } from './dto/table.dto';
+import { ShopTableDto } from './dto/table.dto';
 
+/**
+ * 店铺资源。
+ *
+ * 路由保持中性前缀 `/api/shops/**`：GET 列表/详情/营业时段/在座桌台
+ * 都是 client/ 顾客侧主链路，不可改名。
+ * 双入口隔离改由装饰器表达：开店/关店 @PlatformOnly，本店资料写 @MerchantOnly。
+ */
 @Controller('shops')
 export class ShopController {
   constructor(
@@ -60,77 +71,8 @@ export class ShopController {
     return success(tables);
   }
 
-  /** 管理：全部桌台 */
-  @Get(':id/tables/manage')
-  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
-  async listManageTables(
-    @Param('id') id: string,
-    @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<ShopTableDto[]>> {
-    if (userShopId && id !== userShopId) {
-      throw new ForbiddenException('无权查看其他店铺桌台');
-    }
-    const tables = await this.tableService.list(id, { includeInactive: true });
-    return success(tables);
-  }
-
-  @Post(':id/tables/seed')
-  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
-  @HttpCode(HttpStatus.CREATED)
-  async seedTables(
-    @Param('id') id: string,
-    @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<ShopTableDto[]>> {
-    if (userShopId && id !== userShopId) {
-      throw new ForbiddenException('无权操作其他店铺桌台');
-    }
-    const tables = await this.tableService.seed(id);
-    return success(tables, '已初始化默认桌台');
-  }
-
-  @Post(':id/tables')
-  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
-  @HttpCode(HttpStatus.CREATED)
-  async createTable(
-    @Param('id') id: string,
-    @Body() dto: CreateShopTableDto,
-    @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<ShopTableDto>> {
-    if (userShopId && id !== userShopId) {
-      throw new ForbiddenException('无权操作其他店铺桌台');
-    }
-    const table = await this.tableService.create(id, dto);
-    return success(table, '桌台已创建');
-  }
-
-  @Patch(':id/tables/:tableId')
-  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
-  async updateTable(
-    @Param('id') id: string,
-    @Param('tableId') tableId: string,
-    @Body() dto: UpdateShopTableDto,
-    @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<ShopTableDto>> {
-    if (userShopId && id !== userShopId) {
-      throw new ForbiddenException('无权操作其他店铺桌台');
-    }
-    const table = await this.tableService.update(id, tableId, dto);
-    return success(table, '桌台已更新');
-  }
-
-  @Delete(':id/tables/:tableId')
-  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
-  async deleteTable(
-    @Param('id') id: string,
-    @Param('tableId') tableId: string,
-    @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<null>> {
-    if (userShopId && id !== userShopId) {
-      throw new ForbiddenException('无权操作其他店铺桌台');
-    }
-    await this.tableService.remove(id, tableId);
-    return success(null, '桌台已删除');
-  }
+  // 桌台管理（含停用桌台、增删改）已迁至 MerchantTableController：
+  // /api/merchant/shops/:id/tables
 
   @Get(':id')
   @Public()
@@ -143,21 +85,19 @@ export class ShopController {
 
   @Post()
   @Roles(UserRole.ADMIN)
+  @PlatformOnly()
   @HttpCode(HttpStatus.CREATED)
   async createShop(
     @Body() dto: CreateShopDto,
-    @CurrentUser('shopId') userShopId?: string,
   ): Promise<ApiResponse<ShopResponseDto>> {
-    // 仅平台管理员（未绑定单一店铺）可创建店铺
-    if (userShopId) {
-      throw new ForbiddenException('仅平台管理员可创建店铺');
-    }
+    // 开店属平台治理动作，@PlatformOnly 已挡掉一切绑店账号
     const shop = await this.shopService.create(dto);
     return success(shop, '店铺创建成功');
   }
 
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  @MerchantOnly()
   async updateShop(
     @Param('id') id: string,
     @Body() dto: UpdateShopDto,
@@ -171,9 +111,10 @@ export class ShopController {
     return success(shop, '店铺更新成功');
   }
 
-  /** 仅更新营业时段（Admin） */
+  /** 仅更新营业时段（商家本店） */
   @Patch(':id/business-hours')
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  @MerchantOnly()
   async updateBusinessHours(
     @Param('id') id: string,
     @Body() dto: UpdateBusinessHoursDto,
@@ -190,6 +131,7 @@ export class ShopController {
 
   @Patch(':id/status')
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  @MerchantOnly()
   async toggleShopStatus(
     @Param('id') id: string,
     @CurrentUser('shopId') userShopId?: string,
@@ -203,14 +145,9 @@ export class ShopController {
 
   @Delete(':id')
   @Roles(UserRole.ADMIN)
-  async deleteShop(
-    @Param('id') id: string,
-    @CurrentUser('shopId') userShopId?: string,
-  ): Promise<ApiResponse<null>> {
-    // 仅平台管理员可删除店铺；商家不可删店
-    if (userShopId) {
-      throw new ForbiddenException('仅平台管理员可删除店铺');
-    }
+  @PlatformOnly()
+  async deleteShop(@Param('id') id: string): Promise<ApiResponse<null>> {
+    // 关店属平台治理动作，@PlatformOnly 已挡掉一切绑店账号
     await this.shopService.delete(id);
     return success(null, '店铺删除成功');
   }

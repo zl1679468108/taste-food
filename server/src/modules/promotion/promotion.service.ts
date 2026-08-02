@@ -124,6 +124,118 @@ export class PromotionService {
       .map((p) => this.toResponse(p));
   }
 
+  /**
+   * 将时间字符串解析为 epoch 毫秒。
+   * null/undefined/空串代表开区间边界，由调用方传入 fallback（-Infinity / +Infinity）。
+   * 统一走 Date.parse 转 UTC 时间戳比较，规避字符串字典序比较在时区偏移
+   * （如 `2026-01-01T00:00:00+08:00` 与 `2025-12-31T16:00:00Z` 实为同一时刻）下的错误结论。
+   */
+  private toEpoch(value: string | null | undefined, fallback: number): number {
+    if (!value) return fallback;
+    const ms = Date.parse(value);
+    if (Number.isNaN(ms)) {
+      throw new BadRequestException(`时间格式非法: ${value}`);
+    }
+    return ms;
+  }
+
+  /**
+   * 半开区间 [start, end) 重叠判定：a.start < b.end && b.start < a.end。
+   * 边界相接（前一个活动 end === 后一个活动 start）不算冲突。
+   * 无开始时间 => -∞（即刻生效）；无结束时间 => +∞（长期有效），
+   * 因此「两个都无结束时间」必然重叠。
+   */
+  private isOverlapping(
+    aStart: number,
+    aEnd: number,
+    bStart: number,
+    bEnd: number,
+  ): boolean {
+    return aStart < bEnd && bStart < aEnd;
+  }
+
+  /**
+   * 检测同店铺、同类型、状态为 active 的促销是否与给定时间段重叠。
+   * 仅 active 参与判定：停用/过期活动不会实际参与算价，不构成业务冲突。
+   *
+   * 重叠判定在内存中完成而非下推到 SQL —— null 边界在 SQL 里需要写成
+   * 多组 OR (is null / lte / gt) 组合，既难读也容易漏分支。
+   */
+  async findConflicts(params: {
+    shopId: string;
+    type: string;
+    startTime?: string;
+    endTime?: string;
+    excludeId?: string;
+  }): Promise<PromotionResponseDto[]> {
+    const { shopId, type, startTime, endTime, excludeId } = params;
+
+    // 多租户归属校验：没有明确店铺归属直接拒绝，避免退化成全表扫描
+    if (!shopId) {
+      throw new BadRequestException('缺少店铺归属');
+    }
+    if (!type) {
+      throw new BadRequestException('缺少促销类型 type');
+    }
+
+    const targetStart = this.toEpoch(startTime, Number.NEGATIVE_INFINITY);
+    const targetEnd = this.toEpoch(endTime, Number.POSITIVE_INFINITY);
+
+    if (targetStart >= targetEnd) {
+      throw new BadRequestException('开始时间必须早于结束时间');
+    }
+
+    try {
+      let candidates: PromotionRecord[];
+
+      if (hasSupabase() && supabase) {
+        // shop_id + type + status 三重过滤全部下推，确保 A 店查不到 B 店数据
+        const { data, error } = await supabase
+          .from('tf_promotions')
+          .select('*')
+          .eq('shop_id', shopId)
+          .eq('type', type)
+          .eq('status', PromotionStatus.ACTIVE)
+          .order('start_date', { ascending: true });
+
+        if (error) {
+          throw new BadRequestException(error.message);
+        }
+        candidates = (data || []).map((row) => this.normalize(row));
+      } else {
+        assertMemoryFallbackAllowed('PromotionService');
+        candidates = Array.from(memoryPromotions.values()).filter(
+          (p) =>
+            p.shop_id === shopId &&
+            p.type === type &&
+            p.status === PromotionStatus.ACTIVE,
+        );
+      }
+
+      return candidates
+        .filter((p) => p.id !== excludeId)
+        .filter((p) => {
+          const pStart = this.toEpoch(p.start_date, Number.NEGATIVE_INFINITY);
+          const pEnd = this.toEpoch(p.end_date, Number.POSITIVE_INFINITY);
+          return this.isOverlapping(targetStart, targetEnd, pStart, pEnd);
+        })
+        .sort((a, b) => {
+          const av = this.toEpoch(a.start_date, Number.NEGATIVE_INFINITY);
+          const bv = this.toEpoch(b.start_date, Number.NEGATIVE_INFINITY);
+          if (av === bv) return 0;
+          return av < bv ? -1 : 1;
+        })
+        .map((p) => this.toResponse(p));
+    } catch (e) {
+      if (e instanceof BadRequestException || e instanceof NotFoundException) {
+        throw e;
+      }
+      throw new BadRequestException(
+        `促销冲突检测失败: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   async findOne(id: string): Promise<PromotionResponseDto> {
     if (hasSupabase() && supabase) {
       const { data, error } = await supabase

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Button, List, Space, Tag, Typography, Empty, Spin, message } from 'antd';
+import { Button, List, Space, Tag, Typography, Empty, Spin } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { BellOutlined, CheckOutlined } from '@ant-design/icons';
 import { type InboxNotification } from '@/services/notification';
 import {
@@ -7,20 +8,26 @@ import {
   useMarkNotificationRead,
   useMarkAllNotificationsRead,
 } from '@/hooks/queries';
+import { useKeywordFilter } from '@/hooks/useKeywordFilter';
 import { formatTime } from '@/utils/format';
 import { brand } from '@/theme';
 import TableCard from '@/components/TableCard';
 import PageHeaderActions from '@/components/PageHeaderActions';
+import SearchFilterBar from '@/components/SearchFilterBar';
 
 const { Text, Paragraph } = Typography;
 
-const MessagesPage: React.FC = () => {
-  const [page, setPage] = useState(1);
+// 消息中心数据量小，一次性拉全量后在本地过滤（避免分页导致的"只能看第 1 页"问题）
+const MESSAGES_PAGE_SIZE = 1000;
 
-  const notificationsQuery = useNotifications(page, 20);
-  const items = notificationsQuery.data?.items ?? [];
-  const total = notificationsQuery.data?.total ?? 0;
+const MessagesPage: React.FC = () => {
+  const [keyword, setKeyword] = useState('');
+
+  const notificationsQuery = useNotifications(1, MESSAGES_PAGE_SIZE);
+  const allItems = notificationsQuery.data?.items ?? [];
   const loading = notificationsQuery.isPending;
+
+  const items = useKeywordFilter(allItems, keyword, ['title', 'content']);
 
   const markReadMutation = useMarkNotificationRead();
   const markAllReadMutation = useMarkAllNotificationsRead();
@@ -59,7 +66,7 @@ const MessagesPage: React.FC = () => {
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<BellOutlined style={{ marginRight: 8 }} />}
+        icon={<BellOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
         title="消息中心"
         onRefresh={() => void notificationsQuery.refetch()}
         extra={
@@ -77,15 +84,26 @@ const MessagesPage: React.FC = () => {
 
       <TableCard
         title="站内消息"
-        extra={<Text type="secondary">共 {total} 条</Text>}
+        extra={<Text type="secondary">共 {items.length} 条</Text>}
       >
+        <SearchFilterBar
+          searchPlaceholder="搜索消息标题/内容"
+          onSearch={setKeyword}
+          onSearchClear={() => setKeyword('')}
+        />
         <Spin spinning={loading}>
           {items.length === 0 ? (
-            <Empty description="暂无消息" style={{ padding: 48 }} />
+            <Empty description="暂无消息" style={{ padding: 'var(--tf-space-12)'}} />
           ) : (
             <List
               itemLayout="vertical"
               dataSource={items}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                pageSizeOptions: ['10', '20', '50'],
+                showTotal: (t) => `共 ${t} 条`,
+              }}
               renderItem={(item) => (
                 <List.Item
                   key={item.id}

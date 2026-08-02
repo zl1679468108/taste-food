@@ -58,7 +58,7 @@ beforeEach(() => {
     expect(mockPost).toHaveBeenCalledWith(
       '/auth/wechat-login',
       { code: 'customer_code' },
-      { showError: true },
+      { showError: true, skipAuthRedirect: true },
     );
     expect(taro.setStorageSync).toHaveBeenCalledWith('token', 'customer-token');
     expect(useAuthStore.getState()).toMatchObject({

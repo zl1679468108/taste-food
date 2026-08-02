@@ -120,11 +120,10 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(room);
       this.logger.log(`客户端加入 ${room} 房间: ${client.id} (role=${payload.role})`);
     } else if (payload.role === UserRole.ADMIN) {
-      // admin 缺失 shopId 视为配置异常，拒绝连接避免越权
-      this.logger.warn(`管理员 ${payload.userId} 缺失 shopId，拒绝连接`);
-      client.emit('error', { message: '管理员账号未绑定店铺' });
-      client.disconnect();
-      return;
+      // 平台管理员（无 shopId）允许连接：仅加入个人房间收通知，不进任何 shop 房间
+      this.logger.log(
+        `平台管理员 ${payload.userId} 无 shopId，仅加入个人房间接收通知: ${client.id}`,
+      );
     }
 
   // 顾客额外加入个人房间（用于跨设备推送）
@@ -327,6 +326,10 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
       title: string;
       content: string;
       createdAt: string;
+      type?: string;
+      relatedType?: string;
+      relatedId?: string;
+      isRead?: boolean;
     };
   }): void {
     if (!this.server) {
@@ -335,9 +338,12 @@ export class OrderGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
     this.server
       .to(`user:${payload.userId}`)
-      .emit('notification:new', payload.notification);
+      .emit('notification:new', {
+        ...payload.notification,
+        isRead: payload.notification.isRead ?? false,
+      });
     this.logger.log(
-      `[WS] notification:new userId=${payload.userId}, id=${payload.notification.id}`,
+      `[WS] notification:new userId=${payload.userId}, id=${payload.notification.id}, type=${payload.notification.type || ''}`,
     );
   }
 }

@@ -21,8 +21,9 @@ export const getAuditLogs = (params: {
   pageSize?: number;
   method?: string;
   action?: string;
+  keyword?: string;
 }) =>
-  request.get('/api/audit-logs', { params }) as Promise<{
+  request.get('/api/platform/audit-logs', { params }) as Promise<{
     items: AuditLog[];
     total: number;
     page: number;

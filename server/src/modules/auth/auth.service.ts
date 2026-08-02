@@ -6,6 +6,7 @@ import { supabase, hasSupabase, isSupabaseConfigured, isSupabaseConnectivityErro
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { hashPassword, verifyPassword } from '../../common/utils/password';
+import { normalizeShopIdForRole } from '../../common/utils/admin-shop-scope';
 import { WechatLoginDto, LoginResponseDto, RegisterDto, PasswordLoginDto } from './dto/auth.dto';
 import { TokenService } from './token.service';
 
@@ -63,10 +64,10 @@ const DEV_MOCK_USERS: Record<
     nickName: '平台管理员',
     shopId: null,
   },
-  // 单店商家
+  // 单店商家：role=merchant + 绑定 shopId（v29 语义，不再用 admin+shopId 二义账号）
   merchant_code: {
     openid: 'mock_merchant_openid_001',
-    role: UserRole.ADMIN,
+    role: UserRole.MERCHANT,
     nickName: '商家管理员',
     shopId: DEFAULT_SHOP_ID,
   },
@@ -121,7 +122,8 @@ const initMemoryUsers = () => {
   const merchant: UserRecord = {
     id: merchantId,
     openid: merchantOpenid,
-    role: UserRole.ADMIN,
+    // v29 语义：商家为 role=merchant + 绑定 shopId，不再建 admin+shopId 二义账号
+    role: UserRole.MERCHANT,
     shopId: DEFAULT_SHOP_ID,
     nickName: '商家管理员',
     avatarUrl: '',
@@ -167,10 +169,8 @@ export class AuthService {
   }
 
   /**
-   * admin（商家）若未绑定店铺，补 DEFAULT_SHOP_ID。
-   * 平台管理员可保持 shopId 为空以跨店查看（由上层传入 null 且 role 语义区分）。
-   * 骑手不强制绑定店铺，支持跨店取餐。
-   * customer 保持无 shopId。
+   * 平台管理员判定：role=admin 且未绑店（或在白名单 openid 内）。
+   * 平台管理员保持 shopId 为空以跨店治理。
    */
   private isPlatformAdmin(openid: string, role: UserRole, shopId?: string | null): boolean {
     if (role !== UserRole.ADMIN) return false;
@@ -179,6 +179,13 @@ export class AuthService {
     return shopId === null;
   }
 
+  /**
+   * 归一化会话 shopId（**只读**路径）。
+   *
+   * 注意：此函数不得用于「建号/写库」——否则会重新制造 admin+shopId 二义账号。
+   * 对 role=admin 仅做历史数据的读时归并：库里已存在的 admin+shopId 旧账号
+   * 仍按商家识别（isShopOperator 兜底），但不会由本服务新造出来。
+   */
   private normalizeShopId(
     role: UserRole,
     shopId?: string | null,
@@ -188,7 +195,7 @@ export class AuthService {
       // 平台管理员始终不绑店
       if (openid && this.isPlatformAdmin(openid, role, shopId)) return undefined;
       if (shopId === null || shopId === undefined || shopId === '') return undefined;
-      // 历史误把商家写成 admin 的兼容：有 shopId 则保留
+      // 历史遗留 admin+shopId 行：读时保留，便于按商家识别；新账号一律用 merchant
       return shopId;
     }
     if (role === UserRole.MERCHANT) {
@@ -235,35 +242,17 @@ export class AuthService {
     };
   }
 
-  /** 商家 admin 无 shopId 时补 DEFAULT_SHOP_ID（内存 + 尽量回写 DB）；骑手不强制绑店 */
+  /**
+   * 会话 shopId 归一（仅内存视图，不回写库）。
+   *
+   * 历史实现会把 shopId 回写到 role=admin 的用户行，从而在库里持久化出
+   * admin+shopId 的二义账号。v29 后商家一律是 role=merchant，故此处只做读时归一。
+   */
   private async ensureAdminShopBinding(user: UserRecord): Promise<UserRecord> {
     const shopId = this.normalizeShopId(user.role, user.shopId, user.openid);
     const next: UserRecord = { ...user, shopId };
     memoryUsers.set(next.id, next);
     openidToUser.set(next.openid, next);
-
-    const needWrite =
-      !!shopId &&
-      !user.shopId &&
-      user.role === UserRole.ADMIN &&
-      hasSupabase() &&
-      !!supabase;
-    if (needWrite && supabase) {
-      try {
-        const { error } = await supabase
-          .from('tf_users')
-          .update({ shop_id: shopId })
-          .eq('id', user.id)
-          .is('shop_id', null);
-        if (error) {
-          this.logger.warn(`[Auth] 回写 admin shopId 失败: ${error.message}`);
-        }
-      } catch (e) {
-        this.logger.warn(
-          `[Auth] 回写 admin shopId 异常: ${e instanceof Error ? e.message : e}`,
-        );
-      }
-    }
     return next;
   }
 
@@ -445,6 +434,9 @@ export class AuthService {
     userId: string,
     fallback?: UserRecord,
   ): Promise<UserRoleItem[]> {
+    // 审批通过但历史 upsert 失败时，这里自愈补写角色行
+    await this.syncRolesFromApprovedApplications(userId, fallback);
+
     const fallbackRoles = fallback ? this.inferFallbackRoles(fallback) : [];
     if (hasSupabase() && supabase) {
       const { data, error } = await supabase
@@ -462,6 +454,44 @@ export class AuthService {
       }
     }
     return this.mergeRoleItems(memoryUserRoles.get(userId) || [], fallbackRoles);
+  }
+
+  /** 已通过的角色申请若未落到 tf_user_roles，则补写（修复历史 42P10 upsert 失败） */
+  private async syncRolesFromApprovedApplications(
+    userId: string,
+    fallback?: UserRecord,
+  ): Promise<void> {
+    if (!hasSupabase() || !supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('tf_role_applications')
+        .select('apply_role')
+        .eq('user_id', userId)
+        .eq('status', 'approved');
+      if (error || !data?.length) return;
+
+      const roles: UserRoleItem[] = [];
+      for (const row of data) {
+        if (row.apply_role === 'rider') {
+          roles.push({ role: UserRole.RIDER, shopId: null, status: 'active' });
+        } else if (row.apply_role === 'merchant') {
+          roles.push({
+            role: UserRole.MERCHANT,
+            shopId: fallback?.shopId || null,
+            status: 'active',
+          });
+        }
+      }
+      if (roles.length) {
+        // 顾客身份始终保留，便于切回
+        roles.push({ role: UserRole.CUSTOMER, shopId: null, status: 'active' });
+        await this.ensureActiveUserRoles(userId, roles);
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[Auth] sync approved roles failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   private inferFallbackRoles(user: UserRecord): UserRoleItem[] {
@@ -732,7 +762,8 @@ export class AuthService {
     if (hasSupabase() && supabase) {
       const { error } = await supabase
         .from('tf_users')
-        .update({ role, shop_id: nextShopId || null })
+        // T301 写时防御：切到 admin 时强制清空 shop_id，杜绝二义账号
+        .update({ role, shop_id: normalizeShopIdForRole(role, nextShopId) })
         .eq('id', userId);
       if (error) throw new BadRequestException(`切换角色失败: ${error.message}`);
     }
@@ -780,13 +811,10 @@ export class AuthService {
           phone: '13800000001',
         });
       }
-      await supabase.from('tf_user_roles').upsert(
-        [
-          { user_id: id, role: UserRole.MERCHANT, shop_id: shopId, status: 'active' },
-          { user_id: id, role: UserRole.CUSTOMER, shop_id: null, status: 'active' },
-        ],
-        { onConflict: 'user_id,role,shop_id' },
-      );
+      await this.ensureActiveUserRoles(id, [
+        { role: UserRole.MERCHANT, shopId: shopId, status: 'active' },
+        { role: UserRole.CUSTOMER, shopId: null, status: 'active' },
+      ]);
     }
 
     const user: UserRecord = {
@@ -869,7 +897,8 @@ export class AuthService {
             id: uuidv4(),
             openid,
             role,
-            shop_id: shopId || null,
+            // T301 写时防御：admin 一律不落 shop_id
+            shop_id: normalizeShopIdForRole(role, shopId),
             nick_name: nickName,
             avatar_url: dto.avatarUrl || '',
           })

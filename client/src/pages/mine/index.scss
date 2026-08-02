@@ -84,6 +84,14 @@
     letter-spacing: 0;
   }
 
+  &__hint {
+    display: block;
+    margin-top: $space-1;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    color: $text-secondary;
+  }
+
   &--grid {
     .mine-panel__head {
       padding-bottom: $space-1;
@@ -181,6 +189,25 @@
     font-size: $font-xs;
     line-height: $leading-normal;
     color: $text-secondary;
+  }
+
+  &__badge {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 $space-1;
+    border-radius: $radius-pill;
+    background: $danger;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  &__badge-text {
+    font-size: $font-2xs;
+    line-height: $leading-tight;
+    font-weight: $weight-semibold;
+    color: $text-inverse;
   }
 }
 

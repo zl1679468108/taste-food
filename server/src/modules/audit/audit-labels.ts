@@ -56,6 +56,8 @@ const PATH_ACTION_RULES: Array<{ test: RegExp; label: string | ((method: string)
     label: '设置默认地址',
   },
   { test: /\/favorites\/toggle(?:\/|$|\?)/, label: '切换收藏' },
+  { test: /\/orders\/[^/]+\/force-complete(?:\/|$|\?)/, label: '强制完成订单' },
+  { test: /\/orders\/[^/]+\/deliver(?:\/|$|\?)/, label: '骑手确认送达' },
 ];
 
 export function getResourceLabel(resource?: string): string {
@@ -115,6 +117,10 @@ export function buildAuditSummary(
   }
   if (b.reply != null && String(b.reply).trim() !== '') {
     extras.push('含回复');
+  }
+  if (b.reason != null && String(b.reason).trim() !== '') {
+    const reason = String(b.reason).trim();
+    extras.push(`原因=${reason.length > 40 ? reason.slice(0, 40) + '…' : reason}`);
   }
 
   let summary = action;

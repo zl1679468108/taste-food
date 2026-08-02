@@ -24,18 +24,27 @@ async function createCompletedOrder(
     userId: options.userId || `user-${Date.now()}-${Math.random()}`,
     deliveryType,
     address: deliveryType === DeliveryType.DELIVERY ? '杭州市西湖区测试地址 1 号' : undefined,
+    deliveryLatitude: deliveryType === DeliveryType.DELIVERY ? 30.2741 : undefined,
+    deliveryLongitude: deliveryType === DeliveryType.DELIVERY ? 120.1551 : undefined,
+    contactName: deliveryType === DeliveryType.DELIVERY ? '测试用户' : undefined,
+    contactPhone: deliveryType === DeliveryType.DELIVERY ? '13800138000' : undefined,
     tableNo: deliveryType === DeliveryType.DINE_IN ? 'A01' : undefined,
     items: [{ menuItemId: 'menu-1', name: '测试菜品', quantity: 1 }],
-  });
+  } as any);
 
   if (deliveryType === DeliveryType.DELIVERY) {
-    return moveOrderThrough(service, order.id, [
+    const ready = await moveOrderThrough(service, order.id, [
       OrderStatus.PAID,
       OrderStatus.ACCEPTED,
       OrderStatus.PREPARING,
-      OrderStatus.DELIVERING,
-      OrderStatus.COMPLETED,
+      OrderStatus.READY_FOR_DELIVERY,
     ]);
+    await service.grabOrder(ready.id, 'rider-review');
+    return service.forceCompleteOrder(
+      ready.id,
+      { userId: 'merchant-review', role: 'merchant' },
+      '测试完成',
+    );
   }
 
   return moveOrderThrough(service, order.id, [

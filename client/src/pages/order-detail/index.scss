@@ -189,6 +189,122 @@
 }
 
 /* 底部操作栏 */
+
+/* 状态摘要：预计时间 / 倒计时 / 联系 */
+.status-summary {
+  background: $bg-card;
+  margin: 0 $page-padding-x $section-gap;
+  border-radius: $radius-lg;
+  padding: $space-3 $card-padding;
+  box-shadow: $shadow-sm;
+}
+
+.status-summary__main {
+  margin-bottom: $space-2;
+}
+
+.status-summary__title {
+  display: block;
+  font-size: $font-lg;
+  font-weight: $weight-semibold;
+  color: $text-primary;
+  line-height: $leading-snug;
+}
+
+.status-summary__hint {
+  display: block;
+  margin-top: $space-1;
+  font-size: $font-sm;
+  color: $text-secondary;
+  line-height: $leading-normal;
+}
+
+.status-summary__banner {
+  margin-top: $space-2;
+  padding: $space-2 $space-3;
+  border-radius: $radius-md;
+  background: $bg-muted;
+
+  &--warning {
+    background: $bg-tip;
+  }
+
+  &--danger {
+    background: $gradient-red;
+  }
+
+  &--info {
+    background: $primary-light;
+  }
+}
+
+.status-summary__banner-text {
+  font-size: $font-sm;
+  line-height: $leading-normal;
+  color: $text-primary;
+}
+
+.status-summary__banner--warning .status-summary__banner-text {
+  color: $text-tip-title;
+}
+
+.status-summary__banner--danger .status-summary__banner-text {
+  color: $text-danger;
+}
+
+.status-summary__banner--info .status-summary__banner-text {
+  color: $primary-dark;
+}
+
+.status-summary__eta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: $space-2;
+  padding-top: $space-2;
+  border-top: 1px solid $divider;
+}
+
+.status-summary__eta-label {
+  font-size: $font-sm;
+  color: $text-tertiary;
+  line-height: $leading-normal;
+}
+
+.status-summary__eta-value {
+  font-size: $font-base;
+  font-weight: $weight-semibold;
+  color: $primary;
+  line-height: $leading-normal;
+}
+
+.status-summary__contacts {
+  display: flex;
+  gap: $space-2;
+  margin-top: $space-3;
+}
+
+.status-summary__contact-btn {
+  flex: 1;
+  height: 36px;
+  border-radius: $radius-pill;
+  background: $primary-light;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:active {
+    opacity: 0.75;
+  }
+}
+
+.status-summary__contact-text {
+  font-size: $font-sm;
+  font-weight: $weight-medium;
+  color: $primary;
+  line-height: $leading-normal;
+}
+
 .order-actions {
   position: fixed;
   bottom: 0;
@@ -306,23 +422,6 @@
     max-width: 70%;
   }
 
-  &__expand {
-    flex-shrink: 0;
-    padding: 2px 8px;
-    border-radius: $radius-pill;
-    background: $bg-muted;
-    border: 1px solid $divider;
-
-    &:active {
-      opacity: 0.75;
-    }
-  }
-
-  &__expand-text {
-    font-size: $font-xs;
-    color: $text-secondary;
-    line-height: $leading-normal;
-  }
 
   &__map-wrap {
     position: relative;
@@ -407,61 +506,6 @@
     flex-shrink: 0;
   }
 
-
-  &__meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: $space-2;
-    margin-top: $space-3;
-    padding: $space-2 $space-1 0;
-    border-top: 1px solid $divider;
-  }
-
-  &__meta-item {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    min-width: 0;
-  }
-
-  &__meta-text {
-    font-size: $font-xs;
-    color: $text-secondary;
-    line-height: $leading-snug;
-  }
-
-  &__meta-line {
-    width: 20px;
-    height: 2px;
-    border-radius: 1px;
-    background: linear-gradient(90deg, rgba($primary, 0.25), $primary);
-    flex-shrink: 0;
-  }
-
-  &__legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: $radius-full;
-    flex-shrink: 0;
-
-    &--shop {
-      background: $primary;
-      box-shadow: 0 0 0 3px $primary-soft;
-    }
-
-    &--route {
-      background: $info;
-      box-shadow: 0 0 0 3px rgba($info, 0.16);
-    }
-
-    &--dest {
-      background: $success;
-      box-shadow: 0 0 0 3px rgba($success, 0.16);
-    }
-  }
 }
 
 /* 订单评价（BottomSheet 内） */
@@ -643,63 +687,28 @@
   line-height: $leading-normal;
 }
 
+.map-fullscreen__action {
+  min-width: 64px;
+  padding: $space-1 0;
+  text-align: right;
+
+  &:active {
+    opacity: 0.7;
+  }
+}
+
+.map-fullscreen__action-text {
+  font-size: $font-sm;
+  font-weight: $weight-medium;
+  color: $primary;
+  line-height: $leading-normal;
+}
+
 .map-fullscreen__map {
   flex: 1;
   width: 100%;
   min-height: 0;
   background: $bg-map;
-}
-
-.map-fullscreen__legend {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  gap: $space-2;
-  padding: $space-3 $page-padding-x;
-  padding-bottom: calc(#{$space-3} + env(safe-area-inset-bottom));
-  background: $bg-card;
-  border-top: 1px solid $divider;
-  box-shadow: $shadow-top;
-}
-
-.map-fullscreen__legend-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.map-fullscreen__legend-text {
-  font-size: $font-xs;
-  color: $text-secondary;
-  line-height: $leading-snug;
-}
-
-.map-fullscreen__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: $radius-full;
-  flex-shrink: 0;
-
-  &--shop {
-    background: $primary;
-    box-shadow: 0 0 0 3px $primary-soft;
-  }
-
-  &--route {
-    background: $primary;
-    opacity: 0.55;
-  }
-
-  &--dest {
-    background: #00C853;
-    box-shadow: 0 0 0 3px rgba(0, 200, 83, 0.18);
-  }
-
-  &--rider {
-    background: #2196F3;
-    box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.18);
-  }
 }
 
 
@@ -772,4 +781,171 @@
 .info-row__value--danger {
   color: $text-danger;
   font-weight: $weight-medium;
+}
+
+/* T246.5 取餐码卡片：到店报号，字号需远距离可读 */
+.pickup-code-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: $bg-card;
+  margin: 0 $page-padding-x $section-gap;
+  padding: $space-4 $card-padding;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-sm;
+
+  &__label {
+    font-size: $font-sm;
+    color: $text-secondary;
+  }
+
+  &__value {
+    margin-top: $space-1;
+    font-size: $font-6xl;
+    font-weight: $weight-bold;
+    line-height: $leading-tight;
+    letter-spacing: 4px;
+    color: $primary;
+  }
+
+  &__hint {
+    margin-top: $space-2;
+    font-size: $font-xs;
+    color: $text-tertiary;
+    text-align: center;
+  }
+}
+
+/* T246.4 自取门店信息卡 */
+.pickup-shop-card {
+  background: $bg-card;
+  margin: 0 $page-padding-x $section-gap;
+  padding: $space-3 $card-padding;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-sm;
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__name {
+    font-size: $font-md;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+  }
+
+  &__badge {
+    padding: 2px $space-2;
+    border-radius: $radius-pill;
+    background: $primary-ghost;
+    color: $primary;
+    font-size: $font-2xs;
+  }
+
+  &__address {
+    display: block;
+    margin-top: $space-2;
+    font-size: $font-sm;
+    line-height: $leading-normal;
+    color: $text-secondary;
+  }
+
+  &__actions {
+    display: flex;
+    gap: $space-2;
+    margin-top: $space-3;
+  }
+
+  &__btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    border-radius: $radius-pill;
+    border: 1px solid $border-color;
+    background: $bg-card;
+
+    &--primary {
+      border-color: $primary;
+      background: $primary-ghost;
+    }
+
+    &:active {
+      opacity: 0.75;
+    }
+  }
+
+  &__btn-text {
+    font-size: $font-sm;
+    font-weight: $weight-medium;
+    color: $text-primary;
+  }
+
+  &__btn--primary &__btn-text {
+    color: $primary;
+  }
+
+  &__tip {
+    display: block;
+    margin-top: $space-2;
+    font-size: $font-2xs;
+    color: $text-tertiary;
+  }
+}
+
+/* 送达凭证 */
+.delivery-proof {
+  background: $bg-card;
+  margin: 0 $page-padding-x $section-gap;
+  border-radius: $radius-lg;
+  padding: $space-3 $card-padding;
+  box-shadow: $shadow-sm;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: $space-2;
+  }
+
+  &__title {
+    color: $text-primary;
+    font-size: $font-base;
+    font-weight: $weight-semibold;
+  }
+
+  &__time {
+    color: $text-tertiary;
+    font-size: $font-xs;
+  }
+
+  &__meta {
+    margin-bottom: $space-3;
+  }
+
+  &__meta-text {
+    color: $text-secondary;
+    font-size: $font-sm;
+  }
+
+  &__photos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: $space-2;
+  }
+
+  &__photo {
+    width: 96px;
+    height: 96px;
+    border-radius: $radius-md;
+    background: $bg-muted;
+  }
+
+  &__empty {
+    color: $text-hint;
+    font-size: $font-sm;
+  }
 }

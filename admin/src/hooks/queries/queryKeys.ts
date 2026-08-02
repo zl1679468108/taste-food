@@ -22,18 +22,23 @@ export const queryKeys = {
       ['menuItems', 'list', params] as const,
     detail: (id: string) => ['menuItems', 'detail', id] as const,
   },
+  specGroups: {
+    all: () => ['specGroups'] as const,
+    list: (shopId: string) => ['specGroups', 'list', shopId] as const,
+  },
 
   // ---------- order ----------
   orders: {
     all: () => ['orders'] as const,
-    list: (params: { shopId: string; status?: string; page: number; pageSize: number }) =>
+    list: (params: { shopId: string; allShops?: boolean; status?: string; page: number; pageSize: number }) =>
       ['orders', 'list', params] as const,
     detail: (id: string) => ['orders', 'detail', id] as const,
     statsToday: (shopId?: string) => ['orders', 'stats', 'today', shopId] as const,
-    statsDaily: (shopId: string | undefined, days: number) =>
-      ['orders', 'stats', 'daily', shopId, days] as const,
-    statsStatus: (shopId?: string, days?: number) =>
-      ['orders', 'stats', 'status', shopId, days] as const,
+    statsDaily: (
+      shopId: string | undefined,
+      days: number,
+      rangeKey?: string,
+    ) => ['orders', 'stats', 'daily', shopId, days, rangeKey || ''] as const,
   },
 
   // ---------- promotion ----------
@@ -71,6 +76,13 @@ export const queryKeys = {
     all: () => ['auditLogs'] as const,
     list: (params: { page: number; pageSize: number; method?: string }) =>
       ['auditLogs', 'list', params] as const,
+  },
+
+  // ---------- 批量异步导出（T267） ----------
+  exportJobs: {
+    all: () => ['exportJobs'] as const,
+    list: (params: { shopId: string; status?: string; page?: number; pageSize?: number }) =>
+      ['exportJobs', 'list', params] as const,
   },
 
   // ---------- table ----------

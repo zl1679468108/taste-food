@@ -33,6 +33,7 @@ export class UpdateAddressDto {
   @MaxLength(200)
   detail?: string;
 
+  /** 腾讯地图 GCJ-02 纬度；改地址文案后须重新选点 */
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

@@ -28,6 +28,9 @@ export interface RoleApplication {
   reviewedAt?: string;
   createdAt: string;
   updatedAt: string;
+  userNickname?: string;
+  userPhone?: string;
+  username?: string;
 }
 
 const memoryApps = new Map<string, RoleApplication>();
@@ -134,6 +137,7 @@ export class RoleApplicationService {
   }
 
   async listAll(status?: string): Promise<RoleApplication[]> {
+    let apps: RoleApplication[];
     if (hasSupabase() && supabase) {
       let q = supabase
         .from('tf_role_applications')
@@ -141,7 +145,27 @@ export class RoleApplicationService {
         .order('created_at', { ascending: false });
       if (status) q = q.eq('status', status);
       const { data, error } = await q;
-      if (!error) return (data || []).map((r) => this.toRecord(r));
+      apps = !error ? (data || []).map((r) => this.toRecord(r)) : [];
+      // 用用户 id 列表批量查询用户信息，补充到返回记录中
+      const userIds = Array.from(new Set(apps.map((a) => a.userId).filter(Boolean)));
+      if (userIds.length > 0) {
+        const userMap = new Map<string, { nickName?: string; phone?: string }>();
+        const { data: users } = await supabase
+          .from('tf_users')
+          .select('id, nick_name, phone')
+          .in('id', userIds);
+        for (const u of users || []) {
+          userMap.set(u.id, { nickName: u.nick_name || undefined, phone: u.phone || undefined });
+        }
+        for (const app of apps) {
+          const info = userMap.get(app.userId);
+          if (info) {
+            app.userNickname = info.nickName;
+            app.userPhone = info.phone;
+          }
+        }
+      }
+      return apps;
     }
     assertMemoryFallbackAllowed('RoleApplicationService');
     let all = Array.from(memoryApps.values());
@@ -220,7 +244,7 @@ export class RoleApplicationService {
         userId: app.userId,
         type: 'role_application_rejected',
         title: '申请被驳回',
-        content: `原因：${next.rejectReason || '未填写'}。可修改资料后重新申请。`,
+        content: `原因：${next.rejectReason || '未填写'}\n建议：可修改资料后重新申请。`,
         relatedType: 'role_application',
         relatedId: id,
       });
@@ -393,26 +417,10 @@ export class RoleApplicationService {
         .eq('id', app.userId);
       if (userErr) throw new BadRequestException(`更新用户角色失败: ${userErr.message}`);
 
-      await supabase.from('tf_user_roles').upsert(
-        {
-          user_id: app.userId,
-          role: UserRole.MERCHANT,
-          shop_id: shopId,
-          status: 'active',
-        },
-        { onConflict: 'user_id,role,shop_id' },
-      );
-
-      // 确保顾客角色仍在
-      await supabase.from('tf_user_roles').upsert(
-        {
-          user_id: app.userId,
-          role: UserRole.CUSTOMER,
-          shop_id: null,
-          status: 'active',
-        },
-        { onConflict: 'user_id,role,shop_id' },
-      );
+      // 注意：唯一索引是 (user_id, role, COALESCE(shop_id, ...)) 表达式索引，
+      // 不能用 onConflict: user_id,role,shop_id 的 upsert（会 42P10 静默失败）
+      await this.ensureUserRole(app.userId, UserRole.MERCHANT, shopId);
+      await this.ensureUserRole(app.userId, UserRole.CUSTOMER, null);
     } else {
       assertMemoryFallbackAllowed('RoleApplicationService');
       // 内存路径由 AuthService 暴露接口更好；此处仅记日志
@@ -422,19 +430,62 @@ export class RoleApplicationService {
 
   private async approveRider(app: RoleApplication) {
     if (hasSupabase() && supabase) {
-      // 不改当前 role，除非当前是 customer 且用户未登录其它角色——保留当前 role，仅写入 user_roles
-      await supabase.from('tf_user_roles').upsert(
-        {
-          user_id: app.userId,
-          role: UserRole.RIDER,
-          shop_id: null,
-          status: 'active',
-        },
-        { onConflict: 'user_id,role,shop_id' },
-      );
+      // 保留当前 active role（多为 customer），仅补写 rider 到多角色表
+      await this.ensureUserRole(app.userId, UserRole.RIDER, null);
+      await this.ensureUserRole(app.userId, UserRole.CUSTOMER, null);
     } else {
       assertMemoryFallbackAllowed('RoleApplicationService');
       this.logger.log(`[RoleApp] memory approve rider user=${app.userId}`);
+    }
+  }
+
+  /**
+   * 写入/激活 tf_user_roles 一行。
+   * 不能依赖 PostgREST upsert(onConflict: user_id,role,shop_id)：
+   * 表上只有 COALESCE(shop_id) 表达式唯一索引，会报 42P10 且历史代码未检查 error。
+   */
+  private async ensureUserRole(
+    userId: string,
+    role: string,
+    shopId: string | null,
+  ): Promise<void> {
+    if (!hasSupabase() || !supabase) return;
+
+    let query = supabase
+      .from('tf_user_roles')
+      .select('id, status')
+      .eq('user_id', userId)
+      .eq('role', role)
+      .limit(1);
+    query = shopId ? query.eq('shop_id', shopId) : query.is('shop_id', null);
+
+    const { data, error } = await query;
+    if (error) {
+      throw new BadRequestException(`查询用户角色失败: ${error.message}`);
+    }
+
+    if (data && data.length > 0) {
+      if (data[0].status !== 'active') {
+        const { error: updateError } = await supabase
+          .from('tf_user_roles')
+          .update({ status: 'active', updated_at: new Date().toISOString() })
+          .eq('id', data[0].id);
+        if (updateError) {
+          throw new BadRequestException(`激活用户角色失败: ${updateError.message}`);
+        }
+      }
+      return;
+    }
+
+    const { error: insertError } = await supabase.from('tf_user_roles').insert({
+      user_id: userId,
+      role,
+      shop_id: shopId,
+      status: 'active',
+    });
+    // 23505：并发下表达式唯一索引可能撞车，视为已存在
+    if (insertError && insertError.code !== '23505') {
+      throw new BadRequestException(`写入用户角色失败: ${insertError.message}`);
     }
   }
 

@@ -2,8 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getCategories, createCategory, updateCategory, deleteCategory,
   getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem,
-  Category, MenuItem,
+  batchUpdateMenuItemStatus,
+  getSpecGroups, createSpecGroup, updateSpecGroup, deleteSpecGroup,
+  Category, MenuItem, SpecGroup, SpecOption, BatchMenuItemStatusParams,
 } from '@/services/menu';
+import type { CreateSpecGroupInput } from '@/services/menu';
 import { queryKeys } from './queryKeys';
 import { STALE_TIMES } from '@/lib/queryClient';
 
@@ -27,6 +30,17 @@ export function useMenuItems(params: { shopId: string; categoryId?: string; sear
       getMenuItems({ shop_id: params.shopId, category_id: params.categoryId, search: params.search }),
     enabled: !!params.shopId,
     staleTime: STALE_TIMES.STANDARD,
+  });
+}
+
+// ---- 规格组查询（店铺级，编辑菜品绑定时用） ----
+
+export function useSpecGroups(shopId: string) {
+  return useQuery({
+    queryKey: queryKeys.specGroups.list(shopId),
+    queryFn: () => getSpecGroups(shopId),
+    enabled: !!shopId,
+    staleTime: STALE_TIMES.STATIC,
   });
 }
 
@@ -85,3 +99,40 @@ export function useDeleteMenuItem() {
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.menuItems.all() }),
   });
 }
+
+/** 批量上/下架菜品 */
+export function useBatchUpdateMenuItemStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (params: BatchMenuItemStatusParams) => batchUpdateMenuItemStatus(params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.menuItems.all() }),
+  });
+}
+
+// ---- 规格组变更 ----
+export function useCreateSpecGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateSpecGroupInput) => createSpecGroup(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['specGroups'] }),
+  });
+}
+
+export function useUpdateSpecGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<CreateSpecGroupInput> }) =>
+      updateSpecGroup(id, data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['specGroups'] }),
+  });
+}
+
+export function useDeleteSpecGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteSpecGroup(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['specGroups'] }),
+  });
+}
+
+export type { SpecGroup, SpecOption } from '@/services/menu';

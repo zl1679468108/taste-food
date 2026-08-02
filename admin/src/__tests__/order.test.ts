@@ -1,4 +1,4 @@
-import { getOrders, getOrderStats, updateOrderStatus } from '../services/order';
+import { getOrders, getOrderStats, updateOrderStatus, cancelOrder, resolveCancelRequest } from '../services/order';
 
 // Mock request —— 与 auth.test.ts 保持一致：default export 形式
 jest.mock('../utils/request', () => ({
@@ -52,6 +52,41 @@ describe('Order API 服务', () => {
       await updateOrderStatus('order123', 'completed');
 
       expect(request.post).toHaveBeenCalledWith('/api/orders/order123/status', { status: 'completed' });
+    });
+  });
+
+  describe('updateOrderStatus with estimatedMinutes', () => {
+    it('应该把 estimatedMinutes 一并提交', async () => {
+      const mockResponse = { success: true };
+      const request = require('../utils/request').default;
+      request.post.mockResolvedValue(mockResponse);
+
+      await updateOrderStatus('order123', 'accepted', undefined, 20);
+
+      expect(request.post).toHaveBeenCalledWith('/api/orders/order123/status', {
+        status: 'accepted',
+        estimatedMinutes: 20,
+      });
+    });
+  });
+
+  describe('cancelOrder', () => {
+    it('应该调用 cancel 接口', async () => {
+      const request = require('../utils/request').default;
+      request.post.mockResolvedValue({ id: 'order123' });
+      await cancelOrder('order123', '顾客要求');
+      expect(request.post).toHaveBeenCalledWith('/api/orders/order123/cancel', { reason: '顾客要求' });
+    });
+  });
+
+  describe('resolveCancelRequest', () => {
+    it('应该调用 cancel-request/resolve 接口', async () => {
+      const request = require('../utils/request').default;
+      request.post.mockResolvedValue({ id: 'order123' });
+      await resolveCancelRequest('order123', { approve: true });
+      expect(request.post).toHaveBeenCalledWith('/api/orders/order123/cancel-request/resolve', {
+        approve: true,
+      });
     });
   });
 });

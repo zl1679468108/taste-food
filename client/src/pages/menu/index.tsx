@@ -12,9 +12,10 @@ import { Category, MenuItem, SpecGroup, SpecOption } from '../../types/menu';
 import { DEFAULT_SHOP_ID } from '../../env';
 import { loadMenuCache, saveMenuCache } from '../../utils/menu-cache';
 import {
-  applyDineParamsFromRouter,
   clearDineContext,
   loadDineContext,
+  parseDineParams,
+  saveDineContext,
   type DineContext,
 } from '../../utils/dine-context';
 import SkeletonLoader from '../../components/SkeletonLoader';
@@ -24,6 +25,8 @@ import BottomSheet from '../../components/BottomSheet';
 import EmptyState from '../../components/EmptyState';
 import FooterBar from '../../components/FooterBar';
 import { usePullRefresh } from '../../hooks/usePullRefresh';
+import { useSyncTabBar } from '../../hooks/useSyncTabBar';
+import { setTabBarSelectedPath, TAB_BAR_PATHS } from '../../utils/tab-bar';
 import { useKeyedAsyncAction } from '../../hooks/useAsyncAction';
 import './index.scss';
 
@@ -94,6 +97,15 @@ function readCachedSpecs(itemId: string): SpecGroup[] | null {
 
 function writeCachedSpecs(itemId: string, specs: SpecGroup[]): void {
   setCache(getSpecsCacheKey(itemId), specs || []);
+}
+
+/** 菜单列表一次返回的 specs 写入本地缓存，后续加购不再打 /specs */
+function seedSpecsCacheFromItems(items: MenuItem[]): void {
+  (items || []).forEach((item) => {
+    if (Array.isArray((item as any).specs)) {
+      writeCachedSpecs(item.id, (item as any).specs as SpecGroup[]);
+    }
+  });
 }
 
 
@@ -220,6 +232,8 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dineContext, setDineContext] = useState<DineContext | null>(null);
+  /** 用户手动清除后，忽略仍残留在 router 上的同一桌号，直到扫到新桌号 */
+  const ignoredDineTableNoRef = useRef<string | null>(null);
   const [canRetry, setCanRetry] = useState(false);
   const [cartPopupVisible, setCartPopupVisible] = useState(false);
   const [specPopupVisible, setSpecPopupVisible] = useState(false);
@@ -270,11 +284,15 @@ export default function MenuPage() {
     const authState = useAuthStore.getState();
     if (!authState.isLoggedIn) return;
     if (authState.user?.role === 'rider') {
-      Taro.switchTab({ url: '/pages/rider/index' });
+      setTabBarSelectedPath(TAB_BAR_PATHS.rider);
+      Taro.switchTab({ url: TAB_BAR_PATHS.rider });
     } else if (authState.user?.role === 'merchant') {
-      Taro.switchTab({ url: '/pages/admin/index' });
+      setTabBarSelectedPath(TAB_BAR_PATHS.admin);
+      Taro.switchTab({ url: TAB_BAR_PATHS.admin });
     }
   }, []);
+
+  useSyncTabBar(TAB_BAR_PATHS.menu);
 
   useDidShow(() => {
     redirectNonCustomerRole();
@@ -304,15 +322,64 @@ export default function MenuPage() {
 
 
   // 扫码入座：解析 tableNo / scene，持久化堂食上下文
-  useEffect(() => {
+  // tab 页常驻，需在 useDidShow 中重复解析，避免二次扫码/带参进入不刷新
+  const refreshDineContext = useCallback(() => {
     try {
-      const params = (Taro.getCurrentInstance().router?.params || {}) as Record<string, string | undefined>;
-      const ctx = applyDineParamsFromRouter(params);
-      setDineContext(ctx);
+      const routerParams = (Taro.getCurrentInstance().router?.params || {}) as Record<
+        string,
+        string | undefined
+      >;
+      // 冷启动 / 扫普通链接码：补充 enter/launch 的 query（tableNo 等）
+      // 注意：enter.scene 是微信“进入场景数字”(如 1047)，不是桌号业务 scene，绝不能当桌号
+      let launchParams: Record<string, string | undefined> = {};
+      try {
+        const enter =
+          (typeof (Taro as any).getEnterOptionsSync === 'function'
+            ? (Taro as any).getEnterOptionsSync()
+            : null) ||
+          (typeof Taro.getLaunchOptionsSync === 'function'
+            ? Taro.getLaunchOptionsSync()
+            : null) ||
+          {};
+        const query = (enter.query || {}) as Record<string, string | undefined>;
+        launchParams = { ...query };
+        // 部分基础库会把小程序码业务 scene 放在 query.scene
+        if (query.scene) {
+          launchParams.scene = String(query.scene);
+        }
+      } catch {
+        // ignore
+      }
+      const params = { ...launchParams, ...routerParams };
+      const parsed = parseDineParams(params);
+      if (parsed?.tableNo) {
+        if (ignoredDineTableNoRef.current && parsed.tableNo === ignoredDineTableNoRef.current) {
+          setDineContext(loadDineContext());
+          return;
+        }
+        ignoredDineTableNoRef.current = null;
+        setDineContext(
+          saveDineContext({
+            shopId: parsed.shopId,
+            tableNo: parsed.tableNo,
+            source: 'qr',
+          }),
+        );
+        return;
+      }
+      setDineContext(loadDineContext());
     } catch {
       setDineContext(loadDineContext());
     }
   }, []);
+
+  useEffect(() => {
+    refreshDineContext();
+  }, [refreshDineContext]);
+
+  useDidShow(() => {
+    refreshDineContext();
+  });
 
   useEffect(() => {
     return () => {
@@ -362,11 +429,15 @@ export default function MenuPage() {
     setCategories(filterCategoriesByKeyword(categoryItems, searchKeywordRef.current));
     setListBottomSpacer(0);
     categoryOffsetsRef.current = [];
+    // 规格随菜品一次返回：预热缓存，加购无需再请求 /specs
+    seedSpecsCacheFromItems(menuItemsData);
+    seedSpecsCacheFromItems(popularItems);
   }, []);
 
   /** 仅有缓存 items 时的临时展示（冷启动先出图，网络回来后整表替换） */
   const applyCachedItems = useCallback((items: MenuItem[]) => {
     if (!items.length) return;
+    seedSpecsCacheFromItems(items);
     const prev = allCategoriesRef.current.length > 0
       ? allCategoriesRef.current
       : categoriesRef.current;
@@ -786,7 +857,15 @@ export default function MenuPage() {
     setLoadingSpecs(false);
   }
 
-  async function fetchItemSpecs(itemId: string, options?: { force?: boolean }): Promise<SpecGroup[]> {
+  async function fetchItemSpecs(
+    itemId: string,
+    options?: { force?: boolean; embedded?: SpecGroup[] | null },
+  ): Promise<SpecGroup[]> {
+    // 列表/详情已内嵌 specs（含空数组）→ 视为权威结果，不再打 /specs
+    if (!options?.force && Array.isArray(options?.embedded)) {
+      writeCachedSpecs(itemId, options.embedded);
+      return options.embedded;
+    }
     if (!options?.force) {
       const cached = readCachedSpecs(itemId);
       if (cached) return cached;
@@ -809,6 +888,10 @@ export default function MenuPage() {
     setSpecExtraPrice(0);
     setSpecPopupVisible(true);
 
+    // 列表一次返回的 specs 优先
+    if (Array.isArray((item as any).specs)) {
+      writeCachedSpecs(item.id, (item as any).specs as SpecGroup[]);
+    }
     const cached = readCachedSpecs(item.id);
     if (cached) {
       applySpecSelectionState(item, cached);
@@ -822,7 +905,8 @@ export default function MenuPage() {
     setItemSpecs([]);
     setLoadingSpecs(true);
     try {
-      const specs = await fetchItemSpecs(item.id);
+      const embeddedSpecs = Array.isArray(item.specs) ? item.specs : null;
+      const specs = await fetchItemSpecs(item.id, { embedded: embeddedSpecs });
       if (specsRequestSeqRef.current !== requestSeq) return;
       applySpecSelectionState(item, specs);
     } catch (error) {
@@ -924,65 +1008,64 @@ export default function MenuPage() {
 
   /** 点击 +：直接加购到购物车栏，不唤起 picker（缺默认必选规格时才降级） */
   async function handleQuickAdd(item: MenuItem, event?: any) {
-    // 1) 内存缓存命中：用默认规格直加
-    const cached = readCachedSpecs(item.id);
+    const embedded = Array.isArray(item.specs) ? item.specs : null;
+    if (embedded) writeCachedSpecs(item.id, embedded);
+
+    // 1) 已有规格数据（内嵌或缓存）：用默认规格直加
+    const cached = embedded || readCachedSpecs(item.id);
     if (cached) {
+      if (cached.length === 0) {
+        // 明确无规格
+        playQuickAddFeedback(event);
+        const expectedTop = menuScrollTopRef.current;
+        lockMenuScrollPosition();
+        cartStore.addItem({
+          menuItemId: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: 1,
+          specDesc: '',
+          specOptionIds: [],
+          imageUrl: item.imageUrl || '',
+        });
+        pinMenuItemIntoView(item.id, expectedTop);
+        Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 800 });
+        return;
+      }
       if (tryDirectAddWithSpecs(item, cached, event)) return;
       await openSpecPopup(item);
       Taro.showToast({ title: '请选择规格', icon: 'none' });
       return;
     }
 
-    // 2) 明确无规格：乐观直加，后台仅确认是否其实有规格
-    if (!itemHasSpecs(item)) {
-      playQuickAddFeedback(event);
-      const expectedTop = menuScrollTopRef.current;
-      lockMenuScrollPosition();
-      cartStore.addItem({
-        menuItemId: item.id,
-        name: item.name,
-        price: item.price,
-        quantity: 1,
-        specDesc: '',
-        specOptionIds: [],
-        imageUrl: item.imageUrl || '',
-      });
-      pinMenuItemIntoView(item.id, expectedTop);
-      Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 800 });
-
-      try {
-        const specs = await fetchItemSpecs(item.id);
-        if (!specs.length) return;
-        // 实际有规格：回滚无规格直加，再按默认规格静默重加（避免二次 toast）
-        cartStore.updateQuantity(`${item.id}_default`, -1);
-        const { specsData, defaultSpecs, defaultOptionIds } = buildSpecsSelection(specs);
-        const missingRequired = specsData
-          .filter((sg) => sg.isRequired && !defaultOptionIds[sg.id])
-          .map((sg) => sg.name);
-        if (missingRequired.length > 0) {
-          await openSpecPopup(item);
-          Taro.showToast({ title: '请选择规格', icon: 'none' });
-          return;
-        }
-        addItemToCartDirect(item, specsData, defaultSpecs, defaultOptionIds, 1, undefined, { silent: true });
-      } catch (error) {
-        console.error('确认规格失败:', error);
-      }
-      return;
-    }
-
-    // 3) 已知有规格但无缓存：拉规格后默认直加；缺默认必选再开 picker
+    // 2) 无内嵌/缓存：仅此时请求；兼容旧后端
     try {
       Taro.showLoading({ title: '加购中', mask: true });
-      const specs = await fetchItemSpecs(item.id);
+      const specs = await fetchItemSpecs(item.id, { embedded });
       Taro.hideLoading();
+      if (!specs.length) {
+        playQuickAddFeedback(event);
+        const expectedTop = menuScrollTopRef.current;
+        lockMenuScrollPosition();
+        cartStore.addItem({
+          menuItemId: item.id,
+          name: item.name,
+          price: item.price,
+          quantity: 1,
+          specDesc: '',
+          specOptionIds: [],
+          imageUrl: item.imageUrl || '',
+        });
+        pinMenuItemIntoView(item.id, expectedTop);
+        Taro.showToast({ title: '已加入购物车', icon: 'success', duration: 800 });
+        return;
+      }
       if (tryDirectAddWithSpecs(item, specs, event)) return;
       await openSpecPopup(item);
       Taro.showToast({ title: '请选择规格', icon: 'none' });
     } catch (error) {
       Taro.hideLoading();
       console.error('快速加购失败:', error);
-      // 降级：打开 picker 让用户手动处理
       await openSpecPopup(item);
     }
   }
@@ -1345,6 +1428,7 @@ export default function MenuPage() {
           <Text
             className='dine-banner__clear'
             onClick={() => {
+              ignoredDineTableNoRef.current = dineContext?.tableNo || null;
               clearDineContext();
               setDineContext(null);
               Taro.showToast({ title: '已清除桌号', icon: 'none' });
@@ -1504,7 +1588,7 @@ export default function MenuPage() {
                             >
                               <Text className='spec-option__name'>{opt.name}</Text>
                               {opt.priceAdjust > 0 && (
-                                <Text className='spec-option__price'>+¥{opt.priceAdjust / 100}</Text>
+                                <Text className='spec-option__price'>+{formatPriceWithSymbol(opt.priceAdjust)}</Text>
                               )}
                             </View>
                           ))}

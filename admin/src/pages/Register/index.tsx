@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Button, Card, Form, Input, Typography, Space, Divider, message } from 'antd';
+import { Button, Card, Form, Input, Typography, Space, Divider } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import {
   UserOutlined,
   LockOutlined,
@@ -68,7 +69,7 @@ const RegisterPage: React.FC = () => {
         alignItems: 'center',
         justifyContent: 'center',
         background: `linear-gradient(135deg, ${brand.primary} 0%, ${brand.primaryDark} 100%)`,
-        padding: '20px',
+        padding: 'var(--tf-space-5)',
       }}
     >
       <Card
@@ -88,14 +89,14 @@ const RegisterPage: React.FC = () => {
                 width: 56,
                 height: 56,
                 borderRadius: 12,
-                marginBottom: 12,
+                marginBottom: 'var(--tf-space-3)',
                 display: 'block',
                 marginLeft: 'auto',
                 marginRight: 'auto',
                 boxShadow: '0 8px 20px rgba(255, 107, 53, 0.28)',
               }}
             />
-            <Title level={3} style={{ marginBottom: 8 }}>
+            <Title level={3} style={{ marginBottom: 'var(--tf-space-2)'}}>
               注册账号
             </Title>
             <Text type="secondary">注册即为顾客，登录后可在「我的中心」申请商家/骑手</Text>

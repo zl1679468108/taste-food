@@ -1,11 +1,23 @@
-import { useState, useEffect, useRef } from 'react';
-import { View, Text, Textarea, Map as TaroMap } from '@tarojs/components';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, Textarea, Map as TaroMap, Image } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { get, post, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
-import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
-import { DELIVERY_TYPE_MAP, getOrderStatusLabel, getCustomerOrderStatusHint } from '../../utils/constants';
+import { formatPriceWithSymbol, formatTime, shortOrderId, pickupCode } from '../../utils/format';
+import {
+  DELIVERY_TYPE_MAP,
+  getOrderStatusLabel,
+  getCustomerOrderStatusHint,
+  getCustomerAfterSaleTitle,
+  getCustomerAfterSaleHint,
+  buildAfterSaleSteps,
+  PAYMENT_TIMEOUT_MINUTES,
+  ORDER_URGE_COOLDOWN_MINUTES,
+  CUSTOMER_CANCELLABLE_STATUSES,
+  CUSTOMER_CANCEL_REQUESTABLE_STATUSES,
+} from '../../utils/constants';
+import AfterSalePanel from '../../components/AfterSalePanel';
 import {
   DeliveryTrackPoint,
   Order,
@@ -29,6 +41,58 @@ type MapPoint = {
   latitude: number;
   longitude: number;
 };
+
+/** 全屏配送地图 id：用 MapContext.includePoints 做一次性适配，避免 prop 持续回拉视口 */
+const FULLSCREEN_MAP_ID = 'order-detail-fullscreen-map';
+const MAP_FIT_PADDING = [120, 64, 100, 64];
+
+const URGEABLE_STATUSES: OrderStatus[] = [
+  OrderStatus.ACCEPTED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY_FOR_DELIVERY,
+  OrderStatus.READY_FOR_PICKUP,
+];
+
+function formatPayCountdown(totalSec: number): string {
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function callPhone(phone?: string) {
+  if (!phone) return;
+  Taro.makePhoneCall({ phoneNumber: phone }).catch(() => {
+    Taro.showToast({ title: '拨打失败', icon: 'none' });
+  });
+}
+
+/** T246.4 门店导航：有坐标才唤起地图，无坐标由调用方降级为复制地址 */
+function openShopLocation(order: Order) {
+  const latitude = Number(order.shopLatitude);
+  const longitude = Number(order.shopLongitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+  Taro.openLocation({
+    latitude,
+    longitude,
+    name: order.shopName || '门店',
+    address: order.shopAddress || '',
+    scale: 18,
+  }).catch(() => {
+    Taro.showToast({ title: '打开地图失败', icon: 'none' });
+  });
+}
+
+/** T246.4 无坐标时的降级：复制地址到剪贴板 */
+function copyShopAddress(address?: string) {
+  if (!address) return;
+  Taro.setClipboardData({ data: address })
+    .then(() => {
+      Taro.showToast({ title: '地址已复制', icon: 'success' });
+    })
+    .catch(() => {
+      Taro.showToast({ title: '复制失败', icon: 'none' });
+    });
+}
 
 const OrderDetailPage = () => {
   // Store 订阅（函数组件中正确订阅变化）
@@ -62,15 +126,54 @@ const OrderDetailPage = () => {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [cancelSheetVisible, setCancelSheetVisible] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [cancelMode, setCancelMode] = useState<'cancel' | 'request'>('cancel');
+  const [payRemainSec, setPayRemainSec] = useState<number | null>(null);
+  const [payment, setPayment] = useState<{
+    transactionId: string;
+    orderId: string;
+    amount: number;
+    status: string;
+    paidAt?: string;
+    provider?: string;
+  } | null>(null);
+  const [paymentLoaded, setPaymentLoaded] = useState(false);
 
   // 写操作强守卫（ref 判定，可挡同一 tick 内的连点，避免重复支付/重复退款/重复评价）
   const payAction = useAsyncAction();
   const cancelAction = useAsyncAction();
   const reviewAction = useAsyncAction();
   const reorderAction = useAsyncAction();
+  const urgeAction = useAsyncAction();
 
   // orderId 跨渲染持久化（不触发重渲染）
   const orderIdRef = useRef<string>('');
+  // 全屏地图适配点（render 期写入，供 MapContext 一次性 includePoints）
+  const mapIncludePointsRef = useRef<MapPoint[]>([]);
+  // 进入全屏时冻结中心，避免父组件重渲染把用户缩放/拖动拉回
+  const fullscreenCenterRef = useRef<MapPoint>({ latitude: 28.682, longitude: 115.8579 });
+  const [fullscreenCenter, setFullscreenCenter] = useState<MapPoint>({
+    latitude: 28.682,
+    longitude: 115.8579,
+  });
+
+  /** 一次性把全屏地图适配到起终点/轨迹，不持续绑定 includePoints prop */
+  const fitFullscreenRoute = useCallback((retry = 0) => {
+    const points = mapIncludePointsRef.current;
+    if (!points.length) return;
+    try {
+      const ctx = Taro.createMapContext(FULLSCREEN_MAP_ID);
+      ctx.includePoints({
+        points,
+        padding: MAP_FIT_PADDING,
+      });
+    } catch (error) {
+      if (retry < 3) {
+        setTimeout(() => fitFullscreenRoute(retry + 1), 180);
+        return;
+      }
+      console.warn('全屏地图适配路线失败:', error);
+    }
+  }, []);
 
   /** 加载配送轨迹 */
   const loadDeliveryTrack = async (orderId: string) => {
@@ -111,6 +214,30 @@ const OrderDetailPage = () => {
     }
   };
 
+  /** 加载支付/退款记录（售后进度用） */
+  const loadPayment = async (orderId: string) => {
+    setPaymentLoaded(false);
+    try {
+      const res = await get<{
+        transactionId: string;
+        orderId: string;
+        amount: number;
+        status: string;
+        paidAt?: string;
+        provider?: string;
+      } | null>(`/orders/${orderId}/payment`, undefined, {
+        useCache: false,
+        showError: false,
+      });
+      setPayment(res.data || null);
+    } catch (error) {
+      console.error('加载支付记录失败:', error);
+      setPayment(null);
+    } finally {
+      setPaymentLoaded(true);
+    }
+  };
+
   /** 加载订单详情 */
   const loadOrder = async (orderId: string) => {
     setLoading(true);
@@ -130,6 +257,8 @@ const OrderDetailPage = () => {
       } else {
         setReview(null);
       }
+      // 详情页拉支付记录：用于退款售后进度（无记录则 null）
+      loadPayment(orderId);
     } catch (error: any) {
       setLoading(false);
       setOrder(null);
@@ -215,6 +344,34 @@ const OrderDetailPage = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** 打开全屏地图时：冻结中心 + 延迟一次性适配路线（可缩放拖动，不再被 prop 拉回） */
+  useEffect(() => {
+    if (!mapFullscreen) return;
+    setFullscreenCenter(fullscreenCenterRef.current);
+    const timer = setTimeout(() => fitFullscreenRoute(), 320);
+    return () => clearTimeout(timer);
+  }, [mapFullscreen, fitFullscreenRoute]);
+
+  /** 待支付倒计时（PAYMENT_TIMEOUT_MINUTES） */
+  useEffect(() => {
+    if (!order || order.status !== OrderStatus.PENDING_PAYMENT || !order.createdAt) {
+      setPayRemainSec(null);
+      return;
+    }
+    const calc = () => {
+      const deadline =
+        new Date(order.createdAt).getTime() + PAYMENT_TIMEOUT_MINUTES * 60 * 1000;
+      return Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+    };
+    setPayRemainSec(calc());
+    const timer = setInterval(() => {
+      const left = calc();
+      setPayRemainSec(left);
+      if (left <= 0) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [order?.id, order?.status, order?.createdAt]);
 
   /** 再来一单：回填购物车商品与备注（发票需在确认页重新填写） */
   const reorder = () =>
@@ -303,14 +460,15 @@ const OrderDetailPage = () => {
       }
     });
 
-  /** 打开取消原因弹层 */
-  const openCancelSheet = () => {
+  /** 打开取消/申请取消原因弹层 */
+  const openCancelSheet = (mode: 'cancel' | 'request' = 'cancel') => {
     if (!order) return;
+    setCancelMode(mode);
     setCancelReason('');
     setCancelSheetVisible(true);
   };
 
-  /** 取消订单：待支付/已支付可自主取消；商家接单后不可自行取消；原因必填 */
+  /** 取消订单或申请取消：原因必填 */
   const cancelOrder = () =>
     cancelAction.run(async () => {
       if (!order) return;
@@ -324,16 +482,37 @@ const OrderDetailPage = () => {
         return;
       }
       try {
-        // 顾客取消走专用 /cancel（含本人校验与已支付退款），不要走商家专用 /status
-        await post(`/orders/${order.id}/cancel`, { reason });
-        setCancelSheetVisible(false);
-        setCancelReason('');
-        Taro.showToast({ title: '订单已取消', icon: 'success' });
+        if (cancelMode === 'request') {
+          await post(`/orders/${order.id}/cancel-request`, { reason });
+          setCancelSheetVisible(false);
+          setCancelReason('');
+          Taro.showToast({ title: '已提交取消申请', icon: 'success' });
+        } else {
+          // 顾客取消走专用 /cancel（含本人校验与已支付退款），不要走商家专用 /status
+          await post(`/orders/${order.id}/cancel`, { reason });
+          setCancelSheetVisible(false);
+          setCancelReason('');
+          Taro.showToast({ title: '订单已取消', icon: 'success' });
+        }
         loadOrder(order.id);
       } catch (error: any) {
         // 重复提交被请求层拦截，属正常行为，不提示用户
         if (isDuplicateSubmitError(error)) return;
-        console.error('取消订单失败:', error);
+        console.error(cancelMode === 'request' ? '申请取消失败:' : '取消订单失败:', error);
+      }
+    });
+
+  /** 催单 */
+  const urgeOrder = () =>
+    urgeAction.run(async () => {
+      if (!order) return;
+      try {
+        await post(`/orders/${order.id}/urge`);
+        Taro.showToast({ title: '已催单，商家会尽快处理', icon: 'success' });
+        loadOrder(order.id);
+      } catch (error: any) {
+        if (isDuplicateSubmitError(error)) return;
+        console.error('催单失败:', error);
       }
     });
 
@@ -385,9 +564,57 @@ const OrderDetailPage = () => {
     );
   }
 
-  const statusText = getOrderStatusLabel(order.status, order.deliveryType);
-  const statusHint = getCustomerOrderStatusHint(order.status, order.deliveryType);
+  const afterSaleInput = {
+    status: order.status,
+    cancelRequestedAt: order.cancelRequestedAt,
+    cancelRequestReason: order.cancelRequestReason,
+    cancelReason: order.cancelReason,
+    rejectReason: order.rejectReason,
+    updatedAt: order.updatedAt,
+    // 支付未返回前不传 status，避免「无需退款」闪一下再变「退款成功」
+    paymentStatus: paymentLoaded ? payment?.status || null : undefined,
+  };
+  const afterSaleSteps = buildAfterSaleSteps(afterSaleInput);
+  const afterSaleTitle = getCustomerAfterSaleTitle(afterSaleInput);
+  const afterSaleHint = getCustomerAfterSaleHint(afterSaleInput);
+  // 终态售后等支付结果再展示进度，申请中可立即展示
+  const showAfterSalePanel =
+    afterSaleSteps.length > 0 &&
+    (!!order.cancelRequestedAt || paymentLoaded);
+  const statusText =
+    afterSaleTitle || getOrderStatusLabel(order.status, order.deliveryType);
+  const statusHint =
+    afterSaleHint || getCustomerOrderStatusHint(order.status, order.deliveryType);
   const deliveryTypeText = DELIVERY_TYPE_MAP[order.deliveryType] || order.deliveryType;
+  // T246.4/T246.5 自取专属：门店信息卡 + 取餐码
+  const isPickupOrder = order.deliveryType === DeliveryType.PICKUP;
+  const shopAddressText = (order.shopAddress || '').trim();
+  const hasShopCoords =
+    Number.isFinite(Number(order.shopLatitude)) &&
+    Number.isFinite(Number(order.shopLongitude));
+  // 取餐码在「已接单 ~ 待取餐」阶段才有意义，待支付/已取消不展示
+  const orderPickupCode = isPickupOrder ? pickupCode(order.id, order.orderNo) : '';
+  const showPickupCode =
+    !!orderPickupCode &&
+    [
+      OrderStatus.PAID,
+      OrderStatus.ACCEPTED,
+      OrderStatus.PREPARING,
+      OrderStatus.READY_FOR_PICKUP,
+    ].includes(order.status);
+  const canDirectCancel = CUSTOMER_CANCELLABLE_STATUSES.includes(order.status);
+  const canRequestCancel =
+    CUSTOMER_CANCEL_REQUESTABLE_STATUSES.includes(order.status) && !order.cancelRequestedAt;
+  const canUrge = URGEABLE_STATUSES.includes(order.status);
+  const urgeCooldownLeftMin = (() => {
+    if (!order.lastUrgedAt) return 0;
+    const nextAt =
+      new Date(order.lastUrgedAt).getTime() + ORDER_URGE_COOLDOWN_MINUTES * 60 * 1000;
+    return Math.max(0, Math.ceil((nextAt - Date.now()) / 60000));
+  })();
+  const urgeDisabled = urgeAction.pending || urgeCooldownLeftMin > 0;
+  const etaLabel =
+    order.deliveryType === DeliveryType.DELIVERY ? '预计送达' : '预计出餐';
   const subtotal = order.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const total = order.total;
   const lastTrackPoint = deliveryTrack[deliveryTrack.length - 1];
@@ -442,6 +669,11 @@ const OrderDetailPage = () => {
     if (lastTrackPoint) {
       push({ latitude: lastTrackPoint.latitude, longitude: lastTrackPoint.longitude });
     }
+  }
+  mapIncludePointsRef.current = mapIncludePoints;
+  // 仅在非全屏时更新冻结中心候选，全屏期间保持用户视口
+  if (!mapFullscreen) {
+    fullscreenCenterRef.current = mapCenter;
   }
 
   const deliveryPolyline = routePoints.length >= 2
@@ -547,7 +779,74 @@ const OrderDetailPage = () => {
         statusHistory={timelineStatusHistory}
       />
 
-      {(order.cancelReason || order.rejectReason) && (
+      <View className='status-summary'>
+        <View className='status-summary__main'>
+          <Text className='status-summary__title'>{statusText}</Text>
+          {statusHint ? (
+            <Text className='status-summary__hint'>{statusHint}</Text>
+          ) : null}
+        </View>
+
+        {order.status === OrderStatus.PENDING_PAYMENT && payRemainSec !== null ? (
+          <View
+            className={`status-summary__banner ${
+              payRemainSec > 0
+                ? 'status-summary__banner--warning'
+                : 'status-summary__banner--danger'
+            }`}
+          >
+            <Text className='status-summary__banner-text'>
+              {payRemainSec > 0
+                ? `请在 ${formatPayCountdown(payRemainSec)} 内完成支付，超时将自动取消`
+                : `支付已超时（${PAYMENT_TIMEOUT_MINUTES} 分钟），请刷新查看订单状态或重新下单`}
+            </Text>
+          </View>
+        ) : null}
+
+        {order.estimatedCompletion ? (
+          <View className='status-summary__eta'>
+            <Text className='status-summary__eta-label'>{etaLabel}</Text>
+            <Text className='status-summary__eta-value'>
+              {formatTime(order.estimatedCompletion, 'MM-DD HH:mm')}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* 取消申请中的详细进度并入本卡，避免双卡割裂 */}
+
+        {(order.shopPhone || order.riderPhone) ? (
+          <View className='status-summary__contacts'>
+            {order.shopPhone ? (
+              <View
+                className='status-summary__contact-btn'
+                onClick={() => callPhone(order.shopPhone)}
+              >
+                <Text className='status-summary__contact-text'>联系商家</Text>
+              </View>
+            ) : null}
+            {order.riderPhone ? (
+              <View
+                className='status-summary__contact-btn'
+                onClick={() => callPhone(order.riderPhone)}
+              >
+                <Text className='status-summary__contact-text'>联系骑手</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {showAfterSalePanel ? (
+          <AfterSalePanel
+            embedded
+            steps={afterSaleSteps}
+            refundAmount={payment?.amount ?? order.total}
+            paymentStatus={payment?.status}
+          />
+        ) : null}
+      </View>
+
+      {/* 原因卡：进度面板未覆盖完整原因时仍展示 */}
+      {(order.cancelReason || order.rejectReason) && !showAfterSalePanel ? (
         <View className='info-card order-reason-card'>
           {order.cancelReason ? (
             <View className='info-row'>
@@ -562,7 +861,65 @@ const OrderDetailPage = () => {
             </View>
           ) : null}
         </View>
-      )}
+      ) : null}
+
+      {/* T246.5 取餐码：到店报号，字号放大便于店员核对 */}
+      {showPickupCode ? (
+        <View className='pickup-code-card'>
+          <Text className='pickup-code-card__label'>取餐码</Text>
+          <Text className='pickup-code-card__value'>{orderPickupCode}</Text>
+          <Text className='pickup-code-card__hint'>
+            {order.status === OrderStatus.READY_FOR_PICKUP
+              ? '餐品已备好，请到店向店员报号取餐'
+              : '出餐后请到店向店员报号取餐'}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* T246.4 自取门店信息：地址 + 导航/复制 + 拨号 */}
+      {isPickupOrder ? (
+        <View className='pickup-shop-card'>
+          <View className='pickup-shop-card__head'>
+            <Text className='pickup-shop-card__name'>{order.shopName || '门店'}</Text>
+            <Text className='pickup-shop-card__badge'>到店自取</Text>
+          </View>
+          <Text className='pickup-shop-card__address'>
+            {shopAddressText || '门店地址暂未设置，请致电门店确认'}
+          </Text>
+          <View className='pickup-shop-card__actions'>
+            {shopAddressText ? (
+              hasShopCoords ? (
+                <View
+                  className='pickup-shop-card__btn pickup-shop-card__btn--primary'
+                  onClick={() => openShopLocation(order)}
+                >
+                  <Text className='pickup-shop-card__btn-text'>一键导航</Text>
+                </View>
+              ) : (
+                <View
+                  className='pickup-shop-card__btn'
+                  onClick={() => copyShopAddress(shopAddressText)}
+                >
+                  <Text className='pickup-shop-card__btn-text'>复制地址</Text>
+                </View>
+              )
+            ) : null}
+            {order.shopPhone ? (
+              <View
+                className='pickup-shop-card__btn'
+                onClick={() => callPhone(order.shopPhone)}
+              >
+                <Text className='pickup-shop-card__btn-text'>拨打门店</Text>
+              </View>
+            ) : null}
+          </View>
+          {shopAddressText && !hasShopCoords ? (
+            <Text className='pickup-shop-card__tip'>
+              门店暂未设置地图坐标，暂不支持导航，可复制地址后在地图 App 搜索
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {order.deliveryType === DeliveryType.DELIVERY && (
         <View className='delivery-map'>
@@ -580,14 +937,6 @@ const OrderDetailPage = () => {
                         ? '等待骑手上报位置'
                         : '待开始配送'}
               </Text>
-              {hasMapPoints ? (
-                <View
-                  className='delivery-map__expand'
-                  onClick={() => setMapFullscreen(true)}
-                >
-                  <Text className='delivery-map__expand-text'>全屏</Text>
-                </View>
-              ) : null}
             </View>
           </View>
           {hasMapPoints ? (
@@ -643,26 +992,55 @@ const OrderDetailPage = () => {
               </View>
             </View>
           ) : null}
-          <View className='delivery-map__meta'>
-            <View className='delivery-map__meta-item'>
-              <View className='delivery-map__legend-dot delivery-map__legend-dot--shop' />
-              <Text className='delivery-map__meta-text'>商家</Text>
-            </View>
-            <View className='delivery-map__meta-line' />
-            <View className='delivery-map__meta-item'>
-              <View className='delivery-map__legend-dot delivery-map__legend-dot--route' />
-              <Text className='delivery-map__meta-text'>
-                {lastTrackPoint ? '配送中' : '预估路线'}
-              </Text>
-            </View>
-            <View className='delivery-map__meta-line' />
-            <View className='delivery-map__meta-item'>
-              <View className='delivery-map__legend-dot delivery-map__legend-dot--dest' />
-              <Text className='delivery-map__meta-text'>送达</Text>
-            </View>
-          </View>
         </View>
       )}
+
+      {/* 送达凭证：完成后顾客/商家可见 */}
+      {order.deliveryType === DeliveryType.DELIVERY && order.deliveryProof ? (
+        <View className='delivery-proof'>
+          <View className='delivery-proof__header'>
+            <Text className='delivery-proof__title'>送达凭证</Text>
+            <Text className='delivery-proof__time'>
+              {formatTime(order.deliveryProof.deliveredAt, 'MM-DD HH:mm')}
+            </Text>
+          </View>
+          <View className='delivery-proof__meta'>
+            <Text className='delivery-proof__meta-text'>
+              {order.deliveryProof.forceReason
+                ? `强制完成 · ${order.deliveryProof.forceReason}`
+                : typeof order.deliveryProof.confirmDistanceM === 'number'
+                  ? `距收货点 ${Math.round(order.deliveryProof.confirmDistanceM)} 米${
+                      order.deliveryProof.confirmRadiusM
+                        ? ` · 围栏 ${Math.round(order.deliveryProof.confirmRadiusM)} 米`
+                        : ''
+                    }`
+                  : order.deliveryProof.confirmSource === 'rider'
+                    ? '骑手已确认送达'
+                    : '已确认送达'}
+            </Text>
+          </View>
+          {order.deliveryProof.photos?.length ? (
+            <View className='delivery-proof__photos'>
+              {order.deliveryProof.photos.map((photo, idx) => (
+                <Image
+                  key={`${photo.url}-${idx}`}
+                  className='delivery-proof__photo'
+                  src={photo.url}
+                  mode='aspectFill'
+                  onClick={() => {
+                    Taro.previewImage({
+                      current: photo.url,
+                      urls: order.deliveryProof!.photos.map((p) => p.url),
+                    });
+                  }}
+                />
+              ))}
+            </View>
+          ) : (
+            <Text className='delivery-proof__empty'>暂无现场照片</Text>
+          )}
+        </View>
+      ) : null}
 
       {/* 配送信息：方式 → 地址/桌号 → 联系人 → 电话 → 备注 → 发票 */}
       <View className='info-card'>
@@ -766,13 +1144,58 @@ const OrderDetailPage = () => {
       </View>
       {/* 底部操作栏 */}
       <View className='order-actions'>
-        {/* 取消按钮：待支付/已支付均可取消（已支付触发退款） */}
-        {[OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status) && (
+        {/* 售后处理中：引导联系商家 */}
+        {order.cancelRequestedAt && !canDirectCancel && !canRequestCancel ? (
+          <View className='order-actions__tip'>
+            <Text>取消申请处理中，可联系商家加速处理</Text>
+          </View>
+        ) : null}
+        {order.cancelRequestedAt && order.shopPhone ? (
+          <View
+            className='order-actions__btn order-actions__btn--secondary'
+            onClick={() => callPhone(order.shopPhone)}
+          >
+            联系商家
+          </View>
+        ) : null}
+        {/* 取消按钮：待支付/已支付可自主取消（已支付触发退款） */}
+        {canDirectCancel && (
           <View
             className='order-actions__btn order-actions__btn--danger'
-            onClick={() => openCancelSheet()}
+            onClick={() => openCancelSheet('cancel')}
           >
             取消订单
+          </View>
+        )}
+        {/* 接单后不可直接取消：申请取消 */}
+        {canRequestCancel && (
+          <View
+            className='order-actions__btn order-actions__btn--danger'
+            onClick={() => openCancelSheet('request')}
+          >
+            申请取消
+          </View>
+        )}
+        {/* 进行中催单 */}
+        {canUrge && (
+          <View
+            className={`order-actions__btn order-actions__btn--secondary ${urgeDisabled ? 'order-actions__btn--loading' : ''}`}
+            onClick={() => {
+              if (urgeCooldownLeftMin > 0) {
+                Taro.showToast({
+                  title: `请 ${urgeCooldownLeftMin} 分钟后再催单`,
+                  icon: 'none',
+                });
+                return;
+              }
+              urgeOrder();
+            }}
+          >
+            {urgeAction.pending
+              ? '催单中...'
+              : urgeCooldownLeftMin > 0
+                ? `${urgeCooldownLeftMin} 分钟后可催`
+                : '催单'}
           </View>
         )}
         {/* 支付按钮：仅待支付状态显示，避免已支付订单重复支付 */}
@@ -784,13 +1207,14 @@ const OrderDetailPage = () => {
             {payAction.pending ? '支付中...' : `立即支付 ${formatPriceWithSymbol(total)}`}
           </View>
         )}
+        {/* 无主操作时展示状态提示（已有 tip 在顶部，底部仅补空状态） */}
         {[
           OrderStatus.PAID,
-          OrderStatus.ACCEPTED,
-          OrderStatus.PREPARING,
-          OrderStatus.READY_FOR_PICKUP,
           OrderStatus.DELIVERING,
-        ].includes(order.status) && (
+        ].includes(order.status) &&
+          !canDirectCancel &&
+          !canRequestCancel &&
+          !canUrge && (
           <View className='order-actions__tip'>
             <Text>{statusHint || '商家正在处理您的订单，请耐心等待'}</Text>
           </View>
@@ -931,12 +1355,16 @@ const OrderDetailPage = () => {
       <BottomSheet
         visible={cancelSheetVisible}
         onClose={() => !cancelAction.pending && setCancelSheetVisible(false)}
-        title="取消订单"
+        title={cancelMode === 'request' ? '申请取消' : '取消订单'}
         showClose
       >
         <View className='order-cancel-sheet'>
           <Text className='order-cancel__hint'>
-            请填写取消原因（必填，至少 2 个字），商家/平台审核时会查看
+            {cancelMode === 'request'
+              ? '接单后需商家确认。商家同意后订单关闭，如已支付将原路退款。请填写申请原因（至少 2 个字）'
+              : order.status === OrderStatus.PAID
+                ? '取消后已支付金额将原路退回，请填写取消原因（至少 2 个字）'
+                : '请填写取消原因（至少 2 个字）。未支付订单取消后直接关闭'}
           </Text>
           <Textarea
             className='order-cancel__textarea'
@@ -957,7 +1385,7 @@ const OrderDetailPage = () => {
               className={`order-cancel__btn order-cancel__btn--danger ${cancelAction.pending || !cancelReason.trim() ? 'disabled' : ''}`}
               onClick={() => cancelOrder()}
             >
-              {cancelAction.pending ? '提交中...' : '确认取消'}
+              {cancelAction.pending ? '提交中...' : cancelMode === 'request' ? '提交申请' : '确认取消'}
             </View>
           </View>
         </View>
@@ -973,49 +1401,30 @@ const OrderDetailPage = () => {
               <Text className='map-fullscreen__close-text'>关闭</Text>
             </View>
             <Text className='map-fullscreen__title'>配送轨迹</Text>
-            <Text className='map-fullscreen__status'>
-              {lastTrackPoint
-                ? `更新 ${formatTime(lastTrackPoint.recordedAt, 'HH:mm')}`
-                : '预估路线'}
-            </Text>
+            <View
+              className='map-fullscreen__action'
+              onClick={() => fitFullscreenRoute()}
+            >
+              <Text className='map-fullscreen__action-text'>
+                {lastTrackPoint ? '全览轨迹' : '预估路线'}
+              </Text>
+            </View>
           </View>
           <TaroMap
+            id={FULLSCREEN_MAP_ID}
             className='map-fullscreen__map'
-            latitude={mapCenter.latitude}
-            longitude={mapCenter.longitude}
+            latitude={fullscreenCenter.latitude}
+            longitude={fullscreenCenter.longitude}
             scale={15}
             markers={deliveryMarkers}
             polyline={deliveryPolyline}
             showLocation={false}
             enableScroll
             enableZoom
-            includePoints={mapIncludePoints}
             onError={() => {
               console.warn('全屏配送地图加载失败');
             }}
           />
-          <View className='map-fullscreen__legend'>
-            <View className='map-fullscreen__legend-item'>
-              <View className='map-fullscreen__dot map-fullscreen__dot--shop' />
-              <Text className='map-fullscreen__legend-text'>商家</Text>
-            </View>
-            <View className='map-fullscreen__legend-item'>
-              <View className='map-fullscreen__dot map-fullscreen__dot--route' />
-              <Text className='map-fullscreen__legend-text'>
-                {lastTrackPoint ? '配送中' : '预估路线'}
-              </Text>
-            </View>
-            <View className='map-fullscreen__legend-item'>
-              <View className='map-fullscreen__dot map-fullscreen__dot--dest' />
-              <Text className='map-fullscreen__legend-text'>送达</Text>
-            </View>
-            {lastTrackPoint ? (
-              <View className='map-fullscreen__legend-item'>
-                <View className='map-fullscreen__dot map-fullscreen__dot--rider' />
-                <Text className='map-fullscreen__legend-text'>骑手</Text>
-              </View>
-            ) : null}
-          </View>
         </View>
       ) : null}
     </View>

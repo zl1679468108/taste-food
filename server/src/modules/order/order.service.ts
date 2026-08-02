@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import * as ExcelJS from 'exceljs';
 import { OrderStatus, DeliveryType, PromotionType, ShopStatus, MenuItemStatus } from '../../common/constants/enums';
@@ -10,13 +10,26 @@ import { PromotionService } from '../promotion/promotion.service';
 import { ShopService } from '../shop/shop.service';
 import { AddressService } from '../address/address.service';
 import { MenuService } from '../menu/menu.service';
+import { InboxService } from '../inbox/inbox.service';
 import { supabase, hasSupabase } from '../../database/supabase.client';
 import { assertMemoryFallbackAllowed } from '../../common/utils/memory-guard';
 import { DeliveryTrackPointDto } from './dto/delivery-track.dto';
 import {
+  haversineDistanceMeters,
+  isValidGeoPoint,
   normalizeGeoPoint,
+  resolveDeliveryConfirmRadiusM,
   resolveGeoPoint,
 } from '../../common/utils/tencent-map';
+import { DeliverOrderDto } from './dto/deliver-order.dto';
+import {
+  DELIVERY_CONFIRM_ACCURACY_BUFFER_MAX_M,
+  DELIVERY_CONFIRM_RADIUS_M,
+  DELIVERY_CONFIRM_RADIUS_MAX_M,
+  DELIVERY_CONFIRM_RADIUS_MIN_M,
+  DELIVERY_PROOF_MAX_PHOTOS,
+  DELIVERY_PROOF_MIN_PHOTOS,
+} from '../../common/constants/delivery';
 
 export interface OrderItemRecord {
   id: string;
@@ -64,8 +77,44 @@ export interface OrderRecord {
   statusHistory?: OrderStatusHistoryRecord[];
   /** 当前骑手手上配送中的外送单数量（含当前单） */
   riderDeliveryCount?: number;
+  /** 店铺送达围栏（米） */
+  deliveryConfirmRadiusM?: number;
+  /** 外卖送达凭证 */
+  deliveryProof?: DeliveryProofRecord;
+  estimatedCompletion?: string;
+  cancelRequestedAt?: string;
+  cancelRequestReason?: string;
+  lastUrgedAt?: string;
+  urgeCount?: number;
+  shopPhone?: string;
+  shopName?: string;
+  /** 店铺地址（详情附加，自取订单展示/导航用） */
+  shopAddress?: string;
+  riderPhone?: string;
+  riderName?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface DeliveryProofPhotoRecord {
+  url: string;
+  path?: string;
+  uploadedAt?: string;
+}
+
+export interface DeliveryProofRecord {
+  photos: DeliveryProofPhotoRecord[];
+  deliveredAt: string;
+  confirmLatitude?: number;
+  confirmLongitude?: number;
+  confirmAccuracy?: number;
+  confirmDistanceM?: number;
+  confirmRadiusM?: number;
+  riderId?: string;
+  courierName?: string;
+  courierPhone?: string;
+  confirmSource?: string;
+  forceReason?: string;
 }
 
 export interface DeliveryTrackPointRecord {
@@ -114,6 +163,11 @@ interface OrderRow {
   invoice_needed?: boolean;
   invoice_title?: string;
   invoice_tax_no?: string;
+  estimated_completion?: string;
+  cancel_requested_at?: string;
+  cancel_request_reason?: string;
+  last_urged_at?: string;
+  urge_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -167,13 +221,11 @@ export interface DailyStatsItem {
   revenue: number;
 }
 
-export interface StatusDistributionItem {
-  status: string;
-  count: number;
-}
-
 // Memory fallback storage
 const memoryOrders: Map<string, OrderRecord> = new Map();
+
+/** 送达凭证内存回退（orderId -> proof） */
+const memoryDeliveryProofs: Map<string, DeliveryProofRecord> = new Map();
 const memoryDeliveryTracks: Map<string, DeliveryTrackPointRecord[]> = new Map();
 const memoryOrderStatusHistory: Map<string, OrderStatusHistoryRecord[]> = new Map();
 // 旧库无 rider_id 列时，用内存记录抢单归属（进程内有效）
@@ -189,12 +241,130 @@ const ORDER_STATUS_LABEL: Record<string, string> = {
   paid: '已支付',
   accepted: '已接单',
   preparing: '制作中',
+  ready_for_delivery: '待配送',
   ready_for_pickup: '待取餐',
   delivering: '配送中',
   completed: '已完成',
   cancelled: '已取消',
   rejected: '已拒单',
 };
+
+/** 待支付超时（分钟） */
+const PAYMENT_TIMEOUT_MINUTES = 5;
+/** 催单冷却（分钟） */
+const ORDER_URGE_COOLDOWN_MINUTES = 10;
+
+const CUSTOMER_CANCELLABLE = new Set<OrderStatus>([
+  OrderStatus.PENDING_PAYMENT,
+  OrderStatus.PAID,
+]);
+const MERCHANT_CANCELLABLE = new Set<OrderStatus>([
+  OrderStatus.PENDING_PAYMENT,
+  OrderStatus.PAID,
+  OrderStatus.ACCEPTED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY_FOR_DELIVERY,
+  OrderStatus.READY_FOR_PICKUP,
+]);
+const CANCEL_REQUESTABLE = new Set<OrderStatus>([
+  OrderStatus.ACCEPTED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY_FOR_DELIVERY,
+  OrderStatus.READY_FOR_PICKUP,
+]);
+const ACTIVE_STATUS_GROUP = [
+  OrderStatus.PENDING_PAYMENT,
+  OrderStatus.PAID,
+  OrderStatus.ACCEPTED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY_FOR_DELIVERY,
+  OrderStatus.READY_FOR_PICKUP,
+  OrderStatus.DELIVERING,
+];
+const HISTORY_STATUS_GROUP = [
+  OrderStatus.COMPLETED,
+  OrderStatus.CANCELLED,
+  OrderStatus.REJECTED,
+];
+
+/** 退款售后终态；进行中的取消申请另用 cancel_requested_at 判定 */
+const REFUND_STATUS_GROUP = [
+  OrderStatus.CANCELLED,
+  OrderStatus.REJECTED,
+];
+
+function isRefundStatusGroup(status?: string): boolean {
+  if (!status || !String(status).trim()) return false;
+  const raw = String(status).trim().toLowerCase();
+  return raw === 'refund' || raw === 'after_sale' || raw === 'after-sale';
+}
+
+/** 仅「售后待处理」：顾客已申请取消、商家尚未处理 */
+function isCancelRequestPendingFilter(status?: string): boolean {
+  if (!status || !String(status).trim()) return false;
+  const raw = String(status).trim().toLowerCase();
+  return raw === 'cancel_request' || raw === 'after_sale_pending';
+}
+
+function resolveStatusFilter(status?: string): string[] | undefined {
+  if (!status || !String(status).trim()) return undefined;
+  const raw = String(status).trim().toLowerCase();
+  if (raw === 'active') return [...ACTIVE_STATUS_GROUP];
+  if (raw === 'history') return [...HISTORY_STATUS_GROUP];
+  if (raw === 'review') return [OrderStatus.COMPLETED];
+  if (isRefundStatusGroup(raw)) return [...REFUND_STATUS_GROUP];
+  if (raw.includes(',')) return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return [raw];
+}
+
+/** 退款售后：已取消/已拒单，或正在申请取消 */
+function matchesRefundAfterSale(order: { status: string; cancelRequestedAt?: string | null }): boolean {
+  if (REFUND_STATUS_GROUP.includes(order.status as OrderStatus)) return true;
+  return Boolean(order.cancelRequestedAt);
+}
+
+/** 给 supabase 查询挂上 status / 退款售后 条件 */
+function applyOrderStatusQueryFilter<T extends {
+  eq: Function;
+  in: Function;
+  or: Function;
+  not: Function;
+}>(
+  query: T,
+  status?: string,
+): T {
+  if (isCancelRequestPendingFilter(status)) {
+    return query.not('cancel_requested_at', 'is', null);
+  }
+  if (isRefundStatusGroup(status)) {
+    // cancelled/rejected 或 仍在处理的取消申请
+    return query.or(
+      `status.in.(${REFUND_STATUS_GROUP.join(',')}),cancel_requested_at.not.is.null`,
+    );
+  }
+  const statusList = resolveStatusFilter(status);
+  if (statusList?.length === 1) {
+    return query.eq('status', statusList[0]);
+  }
+  if (statusList && statusList.length > 1) {
+    return query.in('status', statusList);
+  }
+  return query;
+}
+
+/** 关键词模糊匹配：订单号/联系人姓名/联系电话 */
+function applyOrderKeywordFilter<T extends {
+  or: Function;
+}>(
+  query: T,
+  keyword?: string,
+): T {
+  if (!keyword?.trim()) return query;
+  const q = keyword.trim();
+  // Supabase PostgREST: ilike 做大小写不敏感模糊匹配
+  return query.or(`order_no.ilike.%${q}%,contact_name.ilike.%${q}%,contact_phone.ilike.%${q}%`);
+}
+
 
 const DELIVERY_TYPE_LABEL: Record<string, string> = {
   delivery: '外卖配送',
@@ -203,8 +373,9 @@ const DELIVERY_TYPE_LABEL: Record<string, string> = {
 };
 
 @Injectable()
-export class OrderService {
+export class OrderService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(OrderService.name);
+  private paymentTimeoutTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @Inject(forwardRef(() => OrderGateway))
@@ -213,7 +384,37 @@ export class OrderService {
     private readonly shopService: ShopService,
     private readonly menuService: MenuService,
     private readonly addressService: AddressService,
+    private readonly inboxService: InboxService,
   ) {}
+
+  onModuleInit() {
+    // 单测环境不启动定时器，避免挂起 node:test 进程
+    if (process.env.NODE_ENV === 'test') return;
+
+    // 每 60s 扫描一次超时未支付订单
+    this.paymentTimeoutTimer = setInterval(() => {
+      this.cancelExpiredPendingPayments().catch((e) => {
+        this.logger.warn(
+          `[Order] 支付超时扫描失败: ${e instanceof Error ? e.message : e}`,
+        );
+      });
+    }, 60_000);
+    // 允许进程在仅剩该定时器时退出
+    this.paymentTimeoutTimer.unref?.();
+
+    // 启动后稍延迟跑一轮
+    const bootTimer = setTimeout(() => {
+      this.cancelExpiredPendingPayments().catch(() => undefined);
+    }, 5_000);
+    bootTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.paymentTimeoutTimer) {
+      clearInterval(this.paymentTimeoutTimer);
+      this.paymentTimeoutTimer = null;
+    }
+  }
 
   private isMissingColumnError(error: { message?: string } | null | undefined): boolean {
     const msg = String(error?.message || '').toLowerCase();
@@ -296,48 +497,94 @@ export class OrderService {
   }
 
   /**
+   * 从已有 order_no 中解析当日流水段（末4位）。
+   * 仅匹配同 dateKey + 配送类型码的单号，店铺序号段允许任意2位（防店铺序号漂移漏判）。
+   * 不匹配（含 NULL / TMP_ / 旧格式）返回 0。
+   */
+  private parseOrderSeq(
+    orderNo: string | null | undefined,
+    dateKey: string,
+    deliveryCode: string,
+  ): number {
+    if (!orderNo) return 0;
+    const m = orderNo.match(
+      new RegExp(`^TF${dateKey}${deliveryCode}\\d{2}(\\d{4})$`),
+    );
+    if (!m) return 0;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
    * 生成业务订单号：TF + YYYYMMDD + 配送类型码(D/P/I) + 店铺序号2位 + 当日流水4位
    * 例：TF20260726D010001（2026-07-26 外卖 第1家店 第1单）
+   *
+   * 流水采用「高水位」策略：取当日该(店铺+配送类型)组已有 order_no 的最大流水段 +1，
+   * 而非「订单条数 +1」。这样删单后计数变小也不会与既有单号重复（不跳号/不撞号），
+   * 序号只增不减；并发时靠 order_no 唯一索引 + 上层重试兜底。
    */
   private async allocateOrderNo(shopId: string, deliveryType: string): Promise<string> {
     const dateKey = this.formatOrderDateKey();
     const deliveryCode = this.deliveryTypeCode(deliveryType);
     const shopSeq = await this.shopSeqNo(shopId);
     const seqKey = `${shopId}:${dateKey}:${deliveryType}`;
-    let seq = 1;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    let maxSeq = 0;
 
     if (hasSupabase() && supabase) {
       try {
-        const start = new Date();
-        start.setHours(0, 0, 0, 0);
-        const { count, error } = await supabase
+        const { data, error } = await supabase
           .from('tf_orders')
-          .select('id', { count: 'exact', head: true })
+          .select('order_no')
           .eq('shop_id', shopId)
           .eq('delivery_type', deliveryType)
-          .gte('created_at', start.toISOString());
-        if (!error) {
-          seq = (count || 0) + 1;
+          .gte('created_at', start.toISOString())
+          .not('order_no', 'is', null);
+        if (!error && data) {
+          for (const row of data) {
+            const s = this.parseOrderSeq(
+              (row as { order_no?: string }).order_no,
+              dateKey,
+              deliveryCode,
+            );
+            if (s > maxSeq) maxSeq = s;
+          }
         }
       } catch (e) {
         this.logger.warn(
-          `[Order] 统计当日订单序号失败: ${e instanceof Error ? e.message : e}`,
+          `[Order] 统计当日订单最大流水失败: ${e instanceof Error ? e.message : e}`,
         );
       }
     } else {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
       const startMs = start.getTime();
-      const todayCount = Array.from(memoryOrders.values()).filter(
-        (o) => o.shopId === shopId && o.deliveryType === deliveryType && new Date(o.createdAt).getTime() >= startMs,
-      ).length;
-      seq = todayCount + 1;
+      for (const o of memoryOrders.values()) {
+        if (
+          o.shopId === shopId &&
+          o.deliveryType === deliveryType &&
+          new Date(o.createdAt).getTime() >= startMs
+        ) {
+          const s = this.parseOrderSeq(o.orderNo, dateKey, deliveryCode);
+          if (s > maxSeq) maxSeq = s;
+        }
+      }
     }
 
+    // 与同进程内存高水位对齐，避免单进程内并发分配重复
     const mem = memoryOrderSeq.get(seqKey) || 0;
-    seq = Math.max(seq, mem + 1);
+    const seq = Math.max(maxSeq + 1, mem + 1);
     memoryOrderSeq.set(seqKey, seq);
     return this.buildOrderNo(deliveryCode, shopSeq, dateKey, seq);
+  }
+
+  /** 判断是否为 order_no 唯一约束冲突（并发下号撞号），用于创建时重试 */
+  private isDuplicateOrderNoError(err: unknown): boolean {
+    const e = err as { code?: string; message?: string } | null;
+    const code = String(e?.code || '');
+    const msg = (e?.message || '').toLowerCase();
+    if (code === '23505') return true;
+    if (msg.includes('idx_orders_order_no_unique')) return true;
+    return msg.includes('duplicate key') && msg.includes('order_no');
   }
 
   private async persistOrderNo(orderId: string, orderNo: string): Promise<void> {
@@ -381,16 +628,7 @@ export class OrderService {
       .select('*')
       .maybeSingle();
 
-    if (error && this.isMissingColumnError(error)) {
-      const minimal = { status: toStatus, updated_at: now };
-      ({ data, error } = await supabase
-        .from('tf_orders')
-        .update(minimal)
-        .eq('id', id)
-        .eq('status', fromStatus)
-        .select('*')
-        .maybeSingle());
-    }
+    // T181 后 tf_orders 列已齐全，仅 status/updated_at 的 minimal 回退为历史缺列兼容死代码，已移除。
 
     if (error) {
       throw new BadRequestException(`更新订单状态失败: ${error.message}`);
@@ -639,6 +877,11 @@ export class OrderService {
       invoiceNeeded: !!row.invoice_needed,
       invoiceTitle: row.invoice_title || undefined,
       invoiceTaxNo: row.invoice_tax_no || undefined,
+      estimatedCompletion: row.estimated_completion || row.estimatedCompletion || undefined,
+      cancelRequestedAt: row.cancel_requested_at || row.cancelRequestedAt || undefined,
+      cancelRequestReason: row.cancel_request_reason || row.cancelRequestReason || undefined,
+      lastUrgedAt: row.last_urged_at || row.lastUrgedAt || undefined,
+      urgeCount: typeof row.urge_count === 'number' ? row.urge_count : (row.urgeCount || 0),
       items: [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -851,6 +1094,11 @@ export class OrderService {
       dto.contactPhone = undefined;
     }
 
+    // T246.2 按配送类型净化互斥字段：
+    // 客户端切换配送方式时可能残留上一次的桌号/地址，服务端兜底丢弃，
+    // 避免自取单带桌号、堂食单带配送地址这类脏数据落库。
+    this.sanitizeDeliveryFields(dto);
+
     // 堂食必须有桌号，外送必须有地址
     if (dto.deliveryType === DeliveryType.DINE_IN && !dto.tableNo) {
       throw new BadRequestException('堂食订单必须选择桌号');
@@ -980,7 +1228,7 @@ export class OrderService {
       imageUrl: item.imageUrl,
     }));
 
-    // 外卖：快照店铺/配送坐标（腾讯地图 GCJ-02）；坐标缺失时尝试 geocode，仍失败则允许下单但地图降级
+    // 外卖：快照店铺/配送坐标（腾讯地图 GCJ-02）；收货坐标必填（客户端选点 / 地址簿 / geocode），缺失则拒单
     let shopLatitude: number | undefined;
     let shopLongitude: number | undefined;
     let deliveryLatitude: number | undefined;
@@ -1025,13 +1273,25 @@ export class OrderService {
         }
       }
 
-      const deliveryPoint = await resolveGeoPoint({
-        address: dto.address,
-        latitude: incomingLat,
-        longitude: incomingLng,
-      });
+      const deliveryPoint = normalizeGeoPoint(incomingLat, incomingLng)
+        || await resolveGeoPoint({
+          address: dto.address,
+          latitude: incomingLat,
+          longitude: incomingLng,
+        });
       deliveryLatitude = deliveryPoint?.latitude;
       deliveryLongitude = deliveryPoint?.longitude;
+
+      if (
+        !isValidGeoPoint({
+          latitude: deliveryLatitude as number,
+          longitude: deliveryLongitude as number,
+        })
+      ) {
+        throw new BadRequestException(
+          '收货地址缺少有效坐标，请在地址簿地图选点后再下单',
+        );
+      }
     }
 
     const order: OrderRecord = {
@@ -1072,7 +1332,8 @@ export class OrderService {
         imageUrl: item.imageUrl,
       }));
 
-      const { error: rpcErr } = await supabase.rpc('atomic_create_order', {
+      // 业务单号可能在高并发下撞唯一索引，撞号时重新分配并重试（最多3次）
+      const buildAtomicParams = (no: string) => ({
         p_order_id: orderId,
         p_shop_id: dto.shopId,
         p_user_id: dto.userId || '',
@@ -1089,8 +1350,31 @@ export class OrderService {
         p_invoice_needed: !!dto.invoiceNeeded,
         p_invoice_title: dto.invoiceNeeded ? (dto.invoiceTitle || null) : null,
         p_invoice_tax_no: dto.invoiceNeeded ? (dto.invoiceTaxNo || null) : null,
-        p_order_no: orderNo,
+        p_order_no: no,
       });
+
+      let currentOrderNo = orderNo;
+      let rpcErr: { code?: string; message?: string } | null = null;
+      for (let attempt = 0; ; attempt++) {
+        const res = await supabase.rpc(
+          'atomic_create_order',
+          buildAtomicParams(currentOrderNo),
+        );
+        rpcErr = res.error;
+        if (rpcErr && this.isDuplicateOrderNoError(rpcErr) && attempt < 3) {
+          const next = await this.allocateOrderNo(dto.shopId, dto.deliveryType);
+          this.logger.warn(
+            `[Order] 订单号 ${currentOrderNo} 撞号(唯一索引)，重试#${attempt + 1} → ${next}`,
+          );
+          currentOrderNo = next;
+          continue;
+        }
+        break;
+      }
+      // 重试后单号可能已变，同步回内存订单对象供后续 persist / WS 使用
+      if (order.orderNo !== currentOrderNo) {
+        order.orderNo = currentOrderNo;
+      }
 
       if (rpcErr) {
         const msg = rpcErr.message || '';
@@ -1109,7 +1393,7 @@ export class OrderService {
         if (functionMissing) {
           await this.createOrderLegacyFallback({
             orderId,
-            orderNo,
+            orderNo: currentOrderNo,
             dto,
             total,
             deliveryFee,
@@ -1140,7 +1424,7 @@ export class OrderService {
           if (retryErr) {
             await this.createOrderLegacyFallback({
               orderId,
-              orderNo,
+              orderNo: currentOrderNo,
               dto,
               total,
               deliveryFee,
@@ -1212,6 +1496,12 @@ export class OrderService {
       order.items = await this.fetchItems(id);
       order.statusHistory = await this.fetchStatusHistory(order);
       order.riderDeliveryCount = await this.getOrderRiderDeliveryCount(order);
+      order.deliveryProof = await this.fetchDeliveryProof(id);
+      if (order.deliveryType === DeliveryType.DELIVERY) {
+        order.deliveryConfirmRadiusM = await this.resolveShopDeliveryConfirmRadiusM(
+          order.shopId,
+        );
+      }
       return this.ensureDeliveryCoordinates(order);
     }
 
@@ -1220,6 +1510,12 @@ export class OrderService {
     if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
     order.statusHistory = await this.fetchStatusHistory(order);
     order.riderDeliveryCount = await this.getOrderRiderDeliveryCount(order);
+    order.deliveryProof = memoryDeliveryProofs.get(id) || order.deliveryProof;
+    if (order.deliveryType === DeliveryType.DELIVERY) {
+      order.deliveryConfirmRadiusM = await this.resolveShopDeliveryConfirmRadiusM(
+        order.shopId,
+      );
+    }
     return this.ensureDeliveryCoordinates(order);
   }
 
@@ -1679,6 +1975,7 @@ export class OrderService {
     page = 1,
     pageSize = 20,
     status?: string,
+    keyword?: string,
   ): Promise<PaginatedData<OrderRecord>> {
     if (hasSupabase() && supabase) {
       const from = (page - 1) * pageSize;
@@ -1689,9 +1986,8 @@ export class OrderService {
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .range(from, to);
-      if (status) {
-        query = query.eq('status', status);
-      }
+      query = applyOrderStatusQueryFilter(query, status);
+      query = applyOrderKeywordFilter(query, keyword);
       const { data, error, count } = await query;
       if (error) throw new BadRequestException(`查询订单失败: ${error.message}`);
 
@@ -1721,18 +2017,36 @@ export class OrderService {
       .sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
-    if (status) {
-      userOrders = userOrders.filter((o) => o.status === status);
+    if (isCancelRequestPendingFilter(status)) {
+      userOrders = userOrders.filter((o) => Boolean(o.cancelRequestedAt));
+    } else if (isRefundStatusGroup(status)) {
+      userOrders = userOrders.filter((o) => matchesRefundAfterSale(o));
+    } else {
+      const statusList = resolveStatusFilter(status);
+      if (statusList?.length) {
+        const set = new Set(statusList);
+        userOrders = userOrders.filter((o) => set.has(o.status));
+      }
+    }
+    // 内存分支关键词过滤
+    if (keyword?.trim()) {
+      const q = keyword.trim().toLowerCase();
+      userOrders = userOrders.filter((o) =>
+        (o.orderNo || '').toLowerCase().includes(q) ||
+        (o.contactName || '').toLowerCase().includes(q) ||
+        (o.contactPhone || '').toLowerCase().includes(q),
+      );
     }
     return this.paginate(userOrders, page, pageSize);
   }
 
   async findByShopId(
-    shopId: string,
+    shopId?: string,
     status?: string,
     page = 1,
     pageSize = 20,
     isPool = false,
+    keyword?: string,
   ): Promise<PaginatedData<OrderRecord>> {
     if (hasSupabase() && supabase) {
       const from = (page - 1) * pageSize;
@@ -1740,20 +2054,25 @@ export class OrderService {
       let query = supabase
         .from('tf_orders')
         .select('*', { count: 'exact' })
-        .eq('shop_id', shopId)
         .order('created_at', { ascending: false })
         .range(from, to);
+
+      // shopId 为空表示全店查询（平台管理员跨店视角）；否则按店过滤
+      if (shopId) {
+        query = query.eq('shop_id', shopId);
+      }
 
       if (isPool) {
         // 抢单池：待取餐或已开始配送但还没有骑手认领的外送单
         query = query
           .eq('delivery_type', DeliveryType.DELIVERY)
           .is('rider_id', null)
-          .in('status', [OrderStatus.PREPARING, OrderStatus.DELIVERING]);
-      } else if (status) {
-        query = query.eq('status', status);
+          .in('status', [OrderStatus.READY_FOR_DELIVERY, OrderStatus.PREPARING, OrderStatus.DELIVERING]);
+      } else {
+        query = applyOrderStatusQueryFilter(query, status);
       }
-      
+      query = applyOrderKeywordFilter(query, keyword);
+
       const { data, error, count } = await query;
       if (error) throw new BadRequestException(`查询订单失败: ${error.message}`);
 
@@ -1779,7 +2098,7 @@ export class OrderService {
 
     assertMemoryFallbackAllowed('OrderService');
     let filtered = Array.from(memoryOrders.values())
-      .filter((o) => o.shopId === shopId)
+      .filter((o) => !shopId || o.shopId === shopId)
       .sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
@@ -1788,10 +2107,27 @@ export class OrderService {
       filtered = filtered.filter(o =>
         o.deliveryType === DeliveryType.DELIVERY &&
         !o.riderId &&
-        (o.status === OrderStatus.PREPARING || o.status === OrderStatus.DELIVERING),
+        (o.status === OrderStatus.READY_FOR_DELIVERY || o.status === OrderStatus.PREPARING || o.status === OrderStatus.DELIVERING),
       );
-    } else if (status) {
-      filtered = filtered.filter((o) => o.status === status);
+    } else if (isCancelRequestPendingFilter(status)) {
+      filtered = filtered.filter((o) => Boolean(o.cancelRequestedAt));
+    } else if (isRefundStatusGroup(status)) {
+      filtered = filtered.filter((o) => matchesRefundAfterSale(o));
+    } else {
+      const statusList = resolveStatusFilter(status);
+      if (statusList?.length) {
+        const set = new Set(statusList);
+        filtered = filtered.filter((o) => set.has(o.status));
+      }
+    }
+    // 内存分支关键词过滤
+    if (keyword?.trim()) {
+      const q = keyword.trim().toLowerCase();
+      filtered = filtered.filter((o) =>
+        (o.orderNo || '').toLowerCase().includes(q) ||
+        (o.contactName || '').toLowerCase().includes(q) ||
+        (o.contactPhone || '').toLowerCase().includes(q),
+      );
     }
     return this.paginate(filtered, page, pageSize);
   }
@@ -1804,6 +2140,7 @@ export class OrderService {
     page = 1,
     pageSize = 20,
     shopId?: string,
+    keyword?: string,
   ): Promise<PaginatedData<OrderRecord>> {
     if (hasSupabase() && supabase) {
       const from = (page - 1) * pageSize;
@@ -1813,12 +2150,13 @@ export class OrderService {
         .select('*', { count: 'exact' })
         .eq('delivery_type', DeliveryType.DELIVERY)
         .is('rider_id', null)
-        .in('status', [OrderStatus.PREPARING, OrderStatus.DELIVERING])
+        .in('status', [OrderStatus.READY_FOR_DELIVERY, OrderStatus.PREPARING, OrderStatus.DELIVERING])
         .order('created_at', { ascending: false })
         .range(from, to);
       if (shopId) {
         query = query.eq('shop_id', shopId);
       }
+      query = applyOrderKeywordFilter(query, keyword);
 
       const { data, error, count } = await query;
       if (error) throw new BadRequestException(`查询抢单池失败: ${error.message}`);
@@ -1844,7 +2182,11 @@ export class OrderService {
         (o) =>
           o.deliveryType === DeliveryType.DELIVERY &&
           !o.riderId &&
-          (o.status === OrderStatus.PREPARING || o.status === OrderStatus.DELIVERING) &&
+          (
+            o.status === OrderStatus.READY_FOR_DELIVERY ||
+            o.status === OrderStatus.PREPARING ||
+            o.status === OrderStatus.DELIVERING
+          ) &&
           (!shopId || o.shopId === shopId),
       )
       .sort(
@@ -1858,6 +2200,7 @@ export class OrderService {
     status?: string,
     page = 1,
     pageSize = 20,
+    keyword?: string,
   ): Promise<PaginatedData<OrderRecord>> {
     if (hasSupabase() && supabase) {
       const from = (page - 1) * pageSize;
@@ -1871,6 +2214,7 @@ export class OrderService {
       if (status) {
         query = query.eq('status', status);
       }
+      query = applyOrderKeywordFilter(query, keyword);
       const { data, error, count } = await query;
       if (error) throw new BadRequestException(`查询配送单失败: ${error.message}`);
 
@@ -1890,7 +2234,37 @@ export class OrderService {
     const filtered = Array.from(memoryOrders.values())
       .filter((o) => o.riderId === riderId)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    // 内存分支关键词过滤
+    if (keyword?.trim()) {
+      const q = keyword.trim().toLowerCase();
+      const keywordFiltered = filtered.filter((o) =>
+        (o.orderNo || '').toLowerCase().includes(q) ||
+        (o.contactName || '').toLowerCase().includes(q) ||
+        (o.contactPhone || '').toLowerCase().includes(q),
+      );
+      return this.paginate(status ? keywordFiltered.filter(o => o.status === status) : keywordFiltered, page, pageSize);
+    }
     return this.paginate(status ? filtered.filter(o => o.status === status) : filtered, page, pageSize);
+  }
+
+
+  /** 将订单有效支付记录标记为已退款（兼容历史 success 与规范 paid） */
+  private async markPaymentsRefunded(orderId: string): Promise<void> {
+    if (!hasSupabase() || !supabase) return;
+    try {
+      const { error } = await supabase
+        .from('tf_payments')
+        .update({ status: 'refunded', updated_at: new Date().toISOString() })
+        .eq('order_id', orderId)
+        .in('status', ['success', 'paid']);
+      if (error) {
+        this.logger.warn(`[Order] 标记退款失败 order=${orderId}: ${error.message}`);
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 标记退款异常 order=${orderId}: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   async updateStatus(
@@ -1921,13 +2295,27 @@ export class OrderService {
 
       if (dto.status) {
         this.validateStatusTransition(order.status, dto.status);
+        this.assertDeliveryTypeStatus(order, dto.status);
+        // 外卖配送中不可普通改 completed：须骑手 deliver 或 force-complete
+        if (
+          order.deliveryType === DeliveryType.DELIVERY &&
+          order.status === OrderStatus.DELIVERING &&
+          dto.status === OrderStatus.COMPLETED
+        ) {
+          throw new BadRequestException(
+            '外卖配送中订单请由骑手确认送达，或使用强制完成并填写原因',
+          );
+        }
+
         const previousStatus = order.status;
+        const etaExtra = this.buildEstimatedCompletionExtra(previousStatus, dto);
         const reasonExtra =
           dto.status === OrderStatus.REJECTED
             ? { reject_reason: reason }
             : dto.status === OrderStatus.CANCELLED
-              ? { cancel_reason: reason }
+              ? { cancel_reason: reason, cancel_requested_at: null, cancel_request_reason: null }
               : {};
+        const extraFields = { ...reasonExtra, ...etaExtra };
 
         // 优先使用原子 RPC；旧库缺失时降级直更 tf_orders
         const { error: rpcErr } = await supabase.rpc('atomic_update_order_status', {
@@ -1946,21 +2334,28 @@ export class OrderService {
             id,
             previousStatus,
             dto.status,
-            reasonExtra,
+            extraFields,
           );
+          this.applyEstimatedCompletionLocal(updated, etaExtra);
+          if (
+            dto.status === OrderStatus.REJECTED ||
+            dto.status === OrderStatus.CANCELLED
+          ) {
+            await this.markPaymentsRefunded(id);
+          }
           this.emitStatusEvents(updated, previousStatus);
           return updated;
         }
 
-        if (Object.keys(reasonExtra).length > 0) {
+        if (Object.keys(extraFields).length > 0) {
           try {
             await supabase
               .from('tf_orders')
-              .update({ ...reasonExtra, updated_at: new Date().toISOString() })
+              .update({ ...extraFields, updated_at: new Date().toISOString() })
               .eq('id', id);
           } catch (e) {
             this.logger.warn(
-              `[Order] 写入取消/拒单原因失败: ${e instanceof Error ? e.message : String(e)}`,
+              `[Order] 写入状态附加字段失败: ${e instanceof Error ? e.message : String(e)}`,
             );
           }
         }
@@ -1968,9 +2363,16 @@ export class OrderService {
         order.status = dto.status;
         if (dto.status === OrderStatus.REJECTED) order.rejectReason = reason;
         if (dto.status === OrderStatus.CANCELLED) order.cancelReason = reason;
+        this.applyEstimatedCompletionLocal(order, etaExtra);
         order.updatedAt = new Date().toISOString();
         await this.recordStatusHistory(order, dto.status, previousStatus, order.updatedAt);
         order.statusHistory = await this.fetchStatusHistory(order);
+        if (
+          dto.status === OrderStatus.REJECTED ||
+          dto.status === OrderStatus.CANCELLED
+        ) {
+          await this.markPaymentsRefunded(id);
+        }
         this.emitStatusEvents(order, previousStatus);
         return order;
       }
@@ -1994,10 +2396,28 @@ export class OrderService {
 
     if (dto.status) {
       this.validateStatusTransition(order.status, dto.status);
+      this.assertDeliveryTypeStatus(order, dto.status);
+        // 外卖配送中不可普通改 completed：须骑手 deliver 或 force-complete
+        if (
+          order.deliveryType === DeliveryType.DELIVERY &&
+          order.status === OrderStatus.DELIVERING &&
+          dto.status === OrderStatus.COMPLETED
+        ) {
+          throw new BadRequestException(
+            '外卖配送中订单请由骑手确认送达，或使用强制完成并填写原因',
+          );
+        }
+
       const previousStatus = order.status;
+      const etaExtra = this.buildEstimatedCompletionExtra(previousStatus, dto);
       order.status = dto.status;
       if (dto.status === OrderStatus.REJECTED) order.rejectReason = reason;
-      if (dto.status === OrderStatus.CANCELLED) order.cancelReason = reason;
+      if (dto.status === OrderStatus.CANCELLED) {
+        order.cancelReason = reason;
+        order.cancelRequestedAt = undefined;
+        order.cancelRequestReason = undefined;
+      }
+      this.applyEstimatedCompletionLocal(order, etaExtra);
       order.updatedAt = new Date().toISOString();
       memoryOrders.set(id, order);
       await this.recordStatusHistory(order, dto.status, previousStatus, order.updatedAt);
@@ -2025,7 +2445,8 @@ export class OrderService {
     if (userId && order.userId !== userId) {
       throw new BadRequestException('不能取消他人的订单');
     }
-    if (![OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(order.status)) {
+    const cancellable = userId ? CUSTOMER_CANCELLABLE : MERCHANT_CANCELLABLE;
+    if (!cancellable.has(order.status)) {
       throw new BadRequestException(`订单状态为 ${order.status}，不允许取消`);
     }
     const cancelReason = reason?.trim();
@@ -2034,8 +2455,13 @@ export class OrderService {
     }
 
     const previousStatus = order.status;
+    // 商家接单后关单：旧版 atomic_cancel_order 仅允许 pending/paid，走直更+退款更稳
+    const useLegacyDirectCancel =
+      !userId &&
+      ![OrderStatus.PENDING_PAYMENT, OrderStatus.PAID].includes(previousStatus);
 
     if (hasSupabase() && supabase) {
+      if (!useLegacyDirectCancel) {
       // 使用原子 RPC 一次完成：状态校验 + 权限校验 + 退款记录更新 + 订单状态更新 + daily_stats 联动
       const { error: rpcErr } = await supabase.rpc('atomic_cancel_order', {
         p_order_id: id,
@@ -2052,7 +2478,28 @@ export class OrderService {
           id,
           previousStatus,
           OrderStatus.CANCELLED,
-          { cancel_reason: cancelReason },
+          { cancel_reason: cancelReason, cancel_requested_at: null, cancel_request_reason: null },
+        );
+        await this.markPaymentsRefunded(id);
+        try {
+          this.orderGateway.emitOrderUpdated(updated, previousStatus);
+        } catch (e) {
+          this.logger.warn(e instanceof Error ? e.message : String(e));
+        }
+        return updated;
+      }
+      } else {
+        // 接单后商家取消：直更状态 + 支付退款
+        await this.markPaymentsRefunded(id);
+        const updated = await this.updateOrderStatusDirect(
+          id,
+          previousStatus,
+          OrderStatus.CANCELLED,
+          {
+            cancel_reason: cancelReason,
+            cancel_requested_at: null,
+            cancel_request_reason: null,
+          },
         );
         try {
           this.orderGateway.emitOrderUpdated(updated, previousStatus);
@@ -2072,6 +2519,9 @@ export class OrderService {
           `[Order] 写入取消原因失败: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
+
+      // RPC 可能仍只认历史 success；再兜底一次兼容 paid
+      await this.markPaymentsRefunded(id);
 
       order.status = OrderStatus.CANCELLED;
       order.cancelReason = cancelReason;
@@ -2121,8 +2571,14 @@ export class OrderService {
     if (order.deliveryType !== DeliveryType.DELIVERY) {
       throw new BadRequestException('该订单不是外送订单，无需配送');
     }
-    // 骑手可认领待配送外送单；兼容后台已点“开始配送”但 rider_id 仍为空的历史/演示单。
-    if (![OrderStatus.PREPARING, OrderStatus.DELIVERING].includes(order.status)) {
+    // 主路径：ready_for_delivery；兼容旧 preparing/无骑手 delivering
+    if (
+      ![
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.PREPARING,
+        OrderStatus.DELIVERING,
+      ].includes(order.status)
+    ) {
       throw new BadRequestException('当前订单状态不可抢单');
     }
     if (order.riderId) {
@@ -2184,13 +2640,50 @@ export class OrderService {
       this.orderGateway.emitOrderUpdated(updatedOrder, previousStatus);
     } catch (e) { this.logger.warn(e instanceof Error ? e.message : String(e)); }
 
+    // 商家语音播报：骑手已接单 / 到店取餐出发
+    void this.notifyShopStaff({
+      shopId: updatedOrder.shopId,
+      type: 'rider_assigned',
+      title: '骑手已接单',
+      content: `外卖订单 ${this.formatOrderLabel(updatedOrder)} 骑手已接单取餐，正在配送途中`,
+      relatedId: updatedOrder.id,
+    });
+
     return updatedOrder;
+  }
+
+
+  private async resolveShopDeliveryConfirmRadiusM(shopId: string): Promise<number> {
+    try {
+      const shop = await this.shopService.findById(shopId);
+      const raw = (shop as any)?.deliveryConfirmRadiusM;
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return Math.min(
+          DELIVERY_CONFIRM_RADIUS_MAX_M,
+          Math.max(DELIVERY_CONFIRM_RADIUS_MIN_M, Math.round(raw)),
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 读取店铺送达围栏失败，使用默认 ${DELIVERY_CONFIRM_RADIUS_M}m: ${
+          e instanceof Error ? e.message : e
+        }`,
+      );
+    }
+    return DELIVERY_CONFIRM_RADIUS_M;
   }
 
   /**
    * 骑手确认送达
+   * - 仅外送单：必须在收货地址地理围栏内（默认 500m + 精度缓冲）
+   * - 必须上传 1~3 张送达现场照片
+   * - 凭证写入 tf_delivery_info，顾客/商家/骑手订单详情可见
    */
-  async deliverOrder(id: string, riderId: string): Promise<OrderRecord> {
+  async deliverOrder(
+    id: string,
+    riderId: string,
+    dto: DeliverOrderDto,
+  ): Promise<OrderRecord> {
     const order = await this.findById(id);
     const claimedRiderId = order.riderId || memoryRiderClaims.get(id);
     // 有 rider 归属时校验本人；旧库缺 rider_id 且无内存归属时，允许当前骑手完成（演示兼容）
@@ -2200,12 +2693,371 @@ export class OrderService {
     if (order.status !== OrderStatus.DELIVERING) {
       throw new BadRequestException('订单不在配送中');
     }
+    if (order.deliveryType !== DeliveryType.DELIVERY) {
+      throw new BadRequestException('仅外卖配送订单需要骑手确认送达');
+    }
 
-    const completed = await this.updateStatus(id, {
-      status: OrderStatus.COMPLETED,
+    const photoUrls = (dto.photoUrls || [])
+      .map((u) => (typeof u === 'string' ? u.trim() : ''))
+      .filter(Boolean);
+    if (photoUrls.length < DELIVERY_PROOF_MIN_PHOTOS) {
+      throw new BadRequestException(
+        `请至少上传 ${DELIVERY_PROOF_MIN_PHOTOS} 张送达现场照片`,
+      );
+    }
+    if (photoUrls.length > DELIVERY_PROOF_MAX_PHOTOS) {
+      throw new BadRequestException(
+        `送达照片最多 ${DELIVERY_PROOF_MAX_PHOTOS} 张`,
+      );
+    }
+    for (const url of photoUrls) {
+      if (!this.isAllowedProofPhotoUrl(url)) {
+        throw new BadRequestException('送达照片地址无效，请重新上传');
+      }
+    }
+
+    const riderPoint = normalizeGeoPoint(dto.latitude, dto.longitude);
+    if (!riderPoint) {
+      throw new BadRequestException('定位无效，请开启定位后重试');
+    }
+
+    const withCoords = await this.ensureDeliveryCoordinates(order);
+    const destination = normalizeGeoPoint(
+      withCoords.deliveryLatitude,
+      withCoords.deliveryLongitude,
+    );
+    if (!destination || !isValidGeoPoint(destination)) {
+      throw new BadRequestException(
+        '订单缺少收货坐标，无法校验送达位置。请联系顾客确认地址后重试',
+      );
+    }
+
+    const distanceM = Math.round(
+      haversineDistanceMeters(riderPoint, destination),
+    );
+    const baseRadiusM = await this.resolveShopDeliveryConfirmRadiusM(order.shopId);
+    const radiusM = resolveDeliveryConfirmRadiusM({
+      baseRadiusM,
+      accuracyM: dto.accuracy,
+      minM: DELIVERY_CONFIRM_RADIUS_MIN_M,
+      maxM: DELIVERY_CONFIRM_RADIUS_MAX_M,
+      accuracyBufferMaxM: DELIVERY_CONFIRM_ACCURACY_BUFFER_MAX_M,
     });
+
+    if (distanceM > radiusM) {
+      throw new BadRequestException(
+        `当前位置距收货地址约 ${distanceM} 米，超出 ${radiusM} 米送达范围，请靠近后再确认`,
+      );
+    }
+
+    const now = new Date().toISOString();
+    const proof: DeliveryProofRecord = {
+      photos: photoUrls.map((url) => ({ url, uploadedAt: now })),
+      deliveredAt: now,
+      confirmLatitude: riderPoint.latitude,
+      confirmLongitude: riderPoint.longitude,
+      confirmAccuracy:
+        typeof dto.accuracy === 'number' && Number.isFinite(dto.accuracy)
+          ? dto.accuracy
+          : undefined,
+      confirmDistanceM: distanceM,
+      confirmRadiusM: radiusM,
+      riderId,
+      confirmSource: 'rider',
+    };
+
+    await this.upsertDeliveryProof(order, proof);
+
+    const completed = await this.completeOrderInternal(id, OrderStatus.DELIVERING);
+    completed.deliveryProof = proof;
+    memoryDeliveryProofs.set(id, proof);
     memoryRiderClaims.delete(id);
     return completed;
+  }
+
+
+  /**
+   * 商家/管理员强制完成外卖配送单（跳过围栏与拍照，必须写原因，记入送达凭证）
+   */
+  /** T246.3: 顾客自取/堂食自助确认取餐（ready_for_pickup → completed） */
+  async customerCompletePickup(id: string, userId: string): Promise<OrderRecord> {
+    const order = await this.findById(id);
+    if (order.userId !== userId) {
+      throw new ForbiddenException('只能确认自己的订单取餐');
+    }
+    if (order.deliveryType === DeliveryType.DELIVERY) {
+      throw new BadRequestException('外卖订单请在配送完成后确认签收');
+    }
+    if (order.status !== OrderStatus.READY_FOR_PICKUP) {
+      throw new BadRequestException('仅待取餐订单可确认取餐');
+    }
+    const completed = await this.completeOrderInternal(id, OrderStatus.READY_FOR_PICKUP);
+    this.logger.log(`[Order] 顾客自确认取餐完成 orderId=${id} userId=${userId}`);
+    return completed;
+  }
+
+  async forceCompleteOrder(
+    id: string,
+    operator: { userId: string; role: string },
+    reason: string,
+  ): Promise<OrderRecord> {
+    const forceReason = (reason || '').trim();
+    if (forceReason.length < 2) {
+      throw new BadRequestException('强制完成原因至少 2 个字');
+    }
+    const order = await this.findById(id);
+    if (order.deliveryType !== DeliveryType.DELIVERY) {
+      throw new BadRequestException('仅外卖配送订单支持强制完成');
+    }
+    if (order.status !== OrderStatus.DELIVERING) {
+      throw new BadRequestException('仅配送中的外卖订单可强制完成');
+    }
+
+    const now = new Date().toISOString();
+    const source =
+      operator.role === 'admin' || operator.role === 'ADMIN'
+        ? 'admin_force'
+        : 'merchant_force';
+    const radiusM = await this.resolveShopDeliveryConfirmRadiusM(order.shopId);
+    const proof: DeliveryProofRecord = {
+      photos: [],
+      deliveredAt: now,
+      confirmDistanceM: undefined,
+      confirmRadiusM: radiusM,
+      riderId: order.riderId,
+      confirmSource: source,
+      forceReason,
+    };
+    await this.upsertDeliveryProof(order, proof);
+
+    // 直接走状态更新内部路径：先临时绕过 guard —— 使用 updateOrderStatusDirect 风格
+    // 通过私有标记：调用 updateStatus 会被 guard 拦截，故用 completed via internal
+    const completed = await this.completeOrderInternal(id, order.status as OrderStatus);
+    completed.deliveryProof = proof;
+    memoryDeliveryProofs.set(id, proof);
+    memoryRiderClaims.delete(id);
+    this.logger.log(
+      `[Order] 强制完成 orderId=${id} by ${operator.role}/${operator.userId} reason=${forceReason}`,
+    );
+    return completed;
+  }
+
+  /** 内部完成订单（供骑手送达 / 强制完成），不走外卖 completed guard */
+  private async completeOrderInternal(
+    id: string,
+    fromStatus: OrderStatus,
+  ): Promise<OrderRecord> {
+    if (hasSupabase() && supabase) {
+      const { error: rpcErr } = await supabase.rpc('atomic_update_order_status', {
+        p_order_id: id,
+        p_from_status: fromStatus,
+        p_to_status: OrderStatus.COMPLETED,
+      });
+      if (rpcErr) {
+        if (!this.isMissingRpcError(rpcErr)) {
+          throw new BadRequestException(`完成订单失败: ${rpcErr.message}`);
+        }
+        this.logger.warn(
+          `[Order] atomic_update_order_status 不可用，降级直更: ${rpcErr.message}`,
+        );
+        const updated = await this.updateOrderStatusDirect(
+          id,
+          fromStatus,
+          OrderStatus.COMPLETED,
+        );
+        this.emitStatusEvents(updated, fromStatus);
+        return updated;
+      }
+      const order = await this.findById(id);
+      // findById 会再次读 proof；状态可能已是 completed
+      if (order.status !== OrderStatus.COMPLETED) {
+        // RPC 成功但读到旧缓存极少见；再直更一次
+        const updated = await this.updateOrderStatusDirect(
+          id,
+          fromStatus,
+          OrderStatus.COMPLETED,
+        );
+        this.emitStatusEvents(updated, fromStatus);
+        return updated;
+      }
+      await this.recordStatusHistory(
+        order,
+        OrderStatus.COMPLETED,
+        fromStatus,
+        order.updatedAt,
+      );
+      order.statusHistory = await this.fetchStatusHistory(order);
+      this.emitStatusEvents(order, fromStatus);
+      return order;
+    }
+
+    assertMemoryFallbackAllowed('OrderService.completeOrderInternal');
+    const order = memoryOrders.get(id);
+    if (!order) throw new NotFoundException(`订单 ${id} 不存在`);
+    const previousStatus = order.status;
+    order.status = OrderStatus.COMPLETED;
+    order.updatedAt = new Date().toISOString();
+    memoryOrders.set(id, order);
+    await this.recordStatusHistory(order, OrderStatus.COMPLETED, previousStatus, order.updatedAt);
+    order.statusHistory = await this.fetchStatusHistory(order);
+    this.emitStatusEvents(order, previousStatus);
+    return order;
+  }
+
+  private isAllowedProofPhotoUrl(url: string): boolean {
+    if (!url || url.length > 2048) return false;
+    if (url.startsWith('memory://')) return true;
+    if (url.startsWith('https://') || url.startsWith('http://')) return true;
+    return false;
+  }
+
+  private async fetchDeliveryProof(
+    orderId: string,
+  ): Promise<DeliveryProofRecord | undefined> {
+    if (memoryDeliveryProofs.has(orderId)) {
+      return memoryDeliveryProofs.get(orderId);
+    }
+    if (!hasSupabase() || !supabase) {
+      return undefined;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('tf_delivery_info')
+        .select('*')
+        .eq('order_id', orderId)
+        .maybeSingle();
+      if (error) {
+        const msg = error.message || '';
+        if (
+          msg.includes('tf_delivery_info') ||
+          msg.includes('proof_photos') ||
+          msg.includes('schema cache') ||
+          msg.includes('does not exist')
+        ) {
+          this.logger.warn(
+            `[Order] tf_delivery_info 读取失败，跳过送达凭证: ${error.message}`,
+          );
+          return undefined;
+        }
+        this.logger.warn(`[Order] 查询送达凭证失败: ${error.message}`);
+        return undefined;
+      }
+      if (!data) return undefined;
+      const photosRaw = (data as any).proof_photos;
+      const photos = Array.isArray(photosRaw)
+        ? photosRaw
+            .map((p: any) => ({
+              url: String(p?.url || ''),
+              path: p?.path ? String(p.path) : undefined,
+              uploadedAt: p?.uploadedAt ? String(p.uploadedAt) : undefined,
+            }))
+            .filter((p: { url: string }) => !!p.url)
+        : [];
+      if (
+        photos.length === 0 &&
+        !(data as any).delivered_at &&
+        !(data as any).confirm_latitude
+      ) {
+        return undefined;
+      }
+      const point = normalizeGeoPoint(
+        (data as any).confirm_latitude,
+        (data as any).confirm_longitude,
+      );
+      const proof: DeliveryProofRecord = {
+        photos,
+        deliveredAt: (data as any).delivered_at || (data as any).updated_at,
+        confirmLatitude: point?.latitude ?? 0,
+        confirmLongitude: point?.longitude ?? 0,
+        confirmAccuracy:
+          (data as any).confirm_accuracy != null
+            ? Number((data as any).confirm_accuracy)
+            : undefined,
+        confirmDistanceM: Number((data as any).confirm_distance_m || 0),
+        confirmRadiusM: Number(
+          (data as any).confirm_radius_m || DELIVERY_CONFIRM_RADIUS_M,
+        ),
+        riderId: (data as any).rider_id || undefined,
+        courierName: (data as any).courier_name || undefined,
+        courierPhone: (data as any).courier_phone || undefined,
+        confirmSource: (data as any).confirm_source || undefined,
+        forceReason: (data as any).force_reason || undefined,
+      };
+      memoryDeliveryProofs.set(orderId, proof);
+      return proof;
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 查询送达凭证异常: ${e instanceof Error ? e.message : e}`,
+      );
+      return undefined;
+    }
+  }
+
+  private async upsertDeliveryProof(
+    order: OrderRecord,
+    proof: DeliveryProofRecord,
+  ): Promise<void> {
+    memoryDeliveryProofs.set(order.id, proof);
+
+    if (!hasSupabase() || !supabase) {
+      assertMemoryFallbackAllowed('OrderService.upsertDeliveryProof');
+      return;
+    }
+
+    const row = {
+      order_id: order.id,
+      shop_id: order.shopId,
+      rider_id: proof.riderId || null,
+      proof_photos: proof.photos,
+      confirm_latitude: proof.confirmLatitude ?? null,
+      confirm_longitude: proof.confirmLongitude ?? null,
+      confirm_accuracy: proof.confirmAccuracy ?? null,
+      confirm_distance_m: proof.confirmDistanceM ?? null,
+      confirm_radius_m: proof.confirmRadiusM ?? null,
+      confirm_source: proof.confirmSource || 'rider',
+      force_reason: proof.forceReason || null,
+      delivered_at: proof.deliveredAt,
+      updated_at: proof.deliveredAt,
+    };
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('tf_delivery_info')
+        .select('id')
+        .eq('order_id', order.id)
+        .maybeSingle();
+      if (findErr) {
+        throw findErr;
+      }
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('tf_delivery_info')
+          .update(row)
+          .eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('tf_delivery_info').insert({
+          ...row,
+          created_at: proof.deliveredAt,
+        });
+        if (error) throw error;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (
+        msg.includes('tf_delivery_info') ||
+        msg.includes('proof_photos') ||
+        msg.includes('schema cache') ||
+        msg.includes('does not exist')
+      ) {
+        this.logger.warn(
+          `[Order] tf_delivery_info 不可用，送达凭证仅内存保存: ${msg}`,
+        );
+        assertMemoryFallbackAllowed('OrderService.upsertDeliveryProof');
+        return;
+      }
+      throw new BadRequestException(`保存送达凭证失败: ${msg}`);
+    }
   }
 
 
@@ -2235,10 +3087,221 @@ export class OrderService {
       this.orderGateway.emitOrderUpdated(order, String(previousStatus));
       if (order.status === OrderStatus.PAID) {
         this.orderGateway.emitOrderNew(order, String(previousStatus));
+        // 仅「待支付 → 已支付」写站内消息，避免重复推送
+        if (String(previousStatus) === OrderStatus.PENDING_PAYMENT) {
+          void this.notifyShopStaffPaidOrder(order);
+        }
+      }
+      // T246.6 备餐完成 → 待取餐：提醒顾客到店取餐（同状态重复写入时跳过）
+      if (
+        order.status === OrderStatus.READY_FOR_PICKUP &&
+        String(previousStatus) !== OrderStatus.READY_FOR_PICKUP
+      ) {
+        void this.notifyCustomerReadyForPickup(order);
       }
     } catch (e) {
       this.logger.warn(
         `[emitStatusEvents] 推送失败 orderId=${order.id}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  private formatOrderLabel(order: Pick<OrderRecord, 'id' | 'orderNo'>): string {
+    return order.orderNo || order.id.slice(-8).toUpperCase();
+  }
+
+  /**
+   * T246.5 取餐码：业务单号（无则订单 ID）末 4 位字母数字。
+   * 与前端 @taste-food/shared/format 的 pickupCode 保持同一口径。
+   */
+  private formatPickupCode(order: Pick<OrderRecord, 'id' | 'orderNo'>): string {
+    const source = ((order.orderNo || '').trim() || (order.id || '').trim()).replace(
+      /[^a-zA-Z0-9]/g,
+      '',
+    );
+    return source ? source.slice(-4).toUpperCase() : '';
+  }
+
+  private formatAmountYuan(totalFen: number): string {
+    return `¥${(Number(totalFen || 0) / 100).toFixed(2)}`;
+  }
+
+  /** 解析店铺商家/店员账号（tf_users + tf_user_roles） */
+  private async resolveShopStaffUserIds(shopId: string): Promise<string[]> {
+    if (!shopId) return [];
+    const ids = new Set<string>();
+    if (hasSupabase() && supabase) {
+      try {
+        const { data: users, error: userErr } = await supabase
+          .from('tf_users')
+          .select('id')
+          .eq('shop_id', shopId)
+          .in('role', ['merchant', 'admin']);
+        if (userErr) {
+          this.logger.warn(`[Order] 查询店铺用户失败: ${userErr.message}`);
+        } else {
+          for (const row of users || []) {
+            if (row?.id) ids.add(String(row.id));
+          }
+        }
+        const { data: roles, error: roleErr } = await supabase
+          .from('tf_user_roles')
+          .select('user_id')
+          .eq('shop_id', shopId)
+          .eq('status', 'active')
+          .in('role', ['merchant', 'admin']);
+        if (roleErr) {
+          if (this.isMissingColumnError(roleErr)) {
+            const { data: roles2 } = await supabase
+              .from('tf_user_roles')
+              .select('user_id')
+              .eq('shop_id', shopId)
+              .in('role', ['merchant', 'admin']);
+            for (const row of roles2 || []) {
+              if (row?.user_id) ids.add(String(row.user_id));
+            }
+          } else {
+            this.logger.warn(`[Order] 查询店铺角色失败: ${roleErr.message}`);
+          }
+        } else {
+          for (const row of roles || []) {
+            if (row?.user_id) ids.add(String(row.user_id));
+          }
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Order] resolveShopStaffUserIds 异常: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    }
+    return Array.from(ids);
+  }
+
+  /** 向店铺全体商家/管理员推送站内消息（亦供评价等其它模块复用） */
+  async notifyShopStaff(input: {
+    shopId: string;
+    type: string;
+    title: string;
+    content: string;
+    relatedId: string;
+  }): Promise<void> {
+    try {
+      const userIds = await this.resolveShopStaffUserIds(input.shopId);
+      if (!userIds.length) {
+        this.logger.debug(`[Order] 店铺 ${input.shopId} 无商家账号，跳过站内消息 ${input.type}`);
+        return;
+      }
+      await Promise.all(
+        userIds.map((userId) =>
+          this.inboxService
+            .create({
+              userId,
+              type: input.type,
+              title: input.title,
+              content: input.content,
+              relatedType: 'order',
+              relatedId: input.relatedId,
+            })
+            .catch((e) => {
+              this.logger.warn(
+                `[Order] 站内消息失败 user=${userId}: ${e instanceof Error ? e.message : e}`,
+              );
+            }),
+        ),
+      );
+    } catch (e) {
+      this.logger.warn(
+        `[Order] notifyShopStaff 失败: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  private async notifyShopStaffPaidOrder(order: OrderRecord): Promise<void> {
+    const label = this.formatOrderLabel(order);
+    const amount = this.formatAmountYuan(order.total);
+    const delivery =
+      order.deliveryType === DeliveryType.DELIVERY
+        ? '外卖'
+        : order.deliveryType === DeliveryType.DINE_IN
+          ? '堂食'
+          : '自取';
+    await this.notifyShopStaff({
+      shopId: order.shopId,
+      type: 'order_paid',
+      title: '新订单待接单',
+      content: `顾客已支付 ${amount}（${delivery}），订单 ${label}，请尽快接单`,
+      relatedId: order.id,
+    });
+  }
+
+  private async notifyShopStaffCancelRequest(order: OrderRecord): Promise<void> {
+    const label = this.formatOrderLabel(order);
+    const amount = this.formatAmountYuan(order.total);
+    const reason = (order.cancelRequestReason || '').trim();
+    await this.notifyShopStaff({
+      shopId: order.shopId,
+      type: 'order_cancel_request',
+      title: '售后待处理：取消申请',
+      content: reason
+        ? `订单 ${label}（${amount}）顾客申请取消：${reason}`
+        : `订单 ${label}（${amount}）顾客申请取消，请尽快处理`,
+      relatedId: order.id,
+    });
+  }
+
+  /**
+   * T246.6 餐品备好通知顾客到店取餐（自取/堂食）。
+   * 站内消息为主，微信订阅消息依赖模板 ID 配置，暂不发送（T304 显式暂缓：
+   * 订阅消息能力为预留接口，待企业主体认证 T43 完成后再接线）。
+   */
+  private async notifyCustomerReadyForPickup(order: OrderRecord): Promise<void> {
+    if (!order.userId) return;
+    try {
+      const label = this.formatOrderLabel(order);
+      const isDineIn = order.deliveryType === DeliveryType.DINE_IN;
+      const code = this.formatPickupCode(order);
+      const content = isDineIn
+        ? `堂食订单 ${label} 已出餐${order.tableNo ? `，桌号 ${order.tableNo}` : ''}，请稍候上餐`
+        : code
+          ? `自取订单 ${label} 已出餐，取餐码 ${code}，请到店向店员报号取餐`
+          : `自取订单 ${label} 已出餐，请到店取餐`;
+      await this.inboxService.create({
+        userId: order.userId,
+        type: 'order_ready_for_pickup',
+        title: isDineIn ? '您的餐品已备好' : '您的餐品已备好，请到店取餐',
+        content,
+        relatedType: 'order',
+        relatedId: order.id,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 待取餐通知失败: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  private async notifyCustomerCancelRequestResult(
+    order: OrderRecord,
+    approve: boolean,
+    reason?: string,
+  ): Promise<void> {
+    if (!order.userId) return;
+    try {
+      const label = this.formatOrderLabel(order);
+      const amount = this.formatAmountYuan(order.total);
+      await this.inboxService.create({
+        userId: order.userId,
+        type: approve ? 'order_cancel_approved' : 'order_cancel_rejected',
+        title: approve ? '取消申请已通过' : '取消申请未通过',
+        content: approve
+          ? `订单 ${label} 商家已同意取消，${amount} 如已支付将原路退回`
+          : `订单 ${label} 商家未同意取消${reason ? `：${reason}` : '，订单将继续履约'}`,
+        relatedType: 'order',
+        relatedId: order.id,
+      });
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 顾客取消结果通知失败: ${e instanceof Error ? e.message : e}`,
       );
     }
   }
@@ -2527,6 +3590,37 @@ export class OrderService {
     const todayDate = todayStart.split('T')[0];
 
     if (hasSupabase() && supabase) {
+      // v30: 优先走 PostgreSQL 端聚合 RPC（get_today_stats），
+      // 一次 SQL 返回 total/revenue/pending/preparing/completed，
+      // 避免 Node 端全量加载今日 tf_orders 行导致跨区网络下 5~7s 超时。
+      // RPC 不存在（migration v30 未执行）时回退到原 SELECT 路径，幂等兼容。
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_today_stats', {
+        p_shop_id: shopId,
+      });
+      if (!rpcErr && Array.isArray(rpcRows) && rpcRows.length > 0) {
+        const row = rpcRows[0] as {
+          total_orders?: number;
+          total_revenue?: number | string;
+          pending_count?: number;
+          preparing_count?: number;
+          completed_count?: number;
+        };
+        return {
+          totalOrders: Number(row.total_orders ?? 0),
+          totalRevenue: Number(row.total_revenue ?? 0),
+          pendingCount: Number(row.pending_count ?? 0),
+          preparingCount: Number(row.preparing_count ?? 0),
+          completedCount: Number(row.completed_count ?? 0),
+        };
+      }
+      if (rpcErr) {
+        // RPC 缺失或异常：打 warn 提示运维执行 migration，行为上回退到 SELECT
+        this.logger.warn(
+          `[OrderService] get_today_stats RPC unavailable, fallback to SELECT: ${rpcErr.message}`,
+        );
+      }
+
+      // 兼容路径：两段 SELECT（预聚合表 + 今日 orders）
       // 优先查询 tf_daily_stats 预聚合表（单行索引查询），避免全量订单加载到内存计算
       const { data: statsRow, error: statsErr } = await supabase
         .from('tf_daily_stats')
@@ -2600,12 +3694,32 @@ export class OrderService {
    * 按天聚合订单统计（用于 Dashboard 近 N 天趋势图）
    * 收入按 [completed, delivering, preparing] 状态计算（与 getTodayStats 口径一致）
    */
-  async getDailyStats(shopId: string, days = 7): Promise<DailyStatsItem[]> {
+  async getDailyStats(
+    shopId: string,
+    days = 7,
+    options?: { startDate?: string; endDate?: string },
+  ): Promise<DailyStatsItem[]> {
     // days <= 0 表示「全部」：以最早订单为起点，跨度上限 366 天，避免桶数量失控
+    // options.startDate/endDate（YYYY-MM-DD）优先于 days，用于自定义日历区间
     const ALL_TIME_MAX_DAYS = 366;
-    const allTime = !days || days <= 0;
+    const hasRange = !!(options?.startDate && options?.endDate);
+    const allTime = !hasRange && (!days || days <= 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const rangeEnd = hasRange
+      ? (() => {
+          const d = new Date(options!.endDate!);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })()
+      : today;
+    const rangeStart = hasRange
+      ? (() => {
+          const d = new Date(options!.startDate!);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })()
+      : null;
 
     const revenueStatuses: OrderStatus[] = [
       OrderStatus.COMPLETED,
@@ -2619,12 +3733,31 @@ export class OrderService {
     };
 
     // 根据订单集合确定实际起点（全部模式），并统一生成连续日期桶
-    const buildBuckets = (spanDays: number): { buckets: DailyStatsItem[]; bucketMap: Map<string, DailyStatsItem>; start: Date } => {
+    const buildBuckets = (
+      spanDays: number,
+      endAnchor: Date = rangeEnd,
+      startAnchor?: Date | null,
+    ): { buckets: DailyStatsItem[]; bucketMap: Map<string, DailyStatsItem>; start: Date } => {
       const safeSpan = Math.max(1, Math.min(spanDays, ALL_TIME_MAX_DAYS));
-      const s = new Date(today);
-      s.setDate(s.getDate() - (safeSpan - 1));
+      const s = startAnchor
+        ? new Date(startAnchor)
+        : (() => {
+            const d = new Date(endAnchor);
+            d.setDate(d.getDate() - (safeSpan - 1));
+            return d;
+          })();
+      s.setHours(0, 0, 0, 0);
+      const actualSpan = startAnchor
+        ? Math.max(
+            1,
+            Math.min(
+              Math.floor((endAnchor.getTime() - s.getTime()) / 86400000) + 1,
+              ALL_TIME_MAX_DAYS,
+            ),
+          )
+        : safeSpan;
       const list: DailyStatsItem[] = [];
-      for (let i = 0; i < safeSpan; i++) {
+      for (let i = 0; i < actualSpan; i++) {
         const d = new Date(s);
         d.setDate(d.getDate() + i);
         list.push({ date: dateKey(d), orders: 0, revenue: 0 });
@@ -2641,11 +3774,70 @@ export class OrderService {
     };
 
     if (hasSupabase() && supabase) {
+      // v30: 优先走 PostgreSQL 端聚合 RPC（get_daily_stats），
+      // SQL 端 GROUP BY 按日聚合，Node 不再加载区间内全部订单行。
+      // allTime 模式（"全部"）继续走原 SELECT，RPC 端 366 天上限与"全部"语义不一致。
+      if (!allTime) {
+        const rpcStartDate = hasRange && rangeStart
+          ? options!.startDate!
+          : (() => {
+              const s = new Date(today);
+              s.setDate(s.getDate() - (days - 1));
+              const y = s.getFullYear();
+              const m = String(s.getMonth() + 1).padStart(2, '0');
+              const d = String(s.getDate()).padStart(2, '0');
+              return `${y}-${m}-${d}`;
+            })();
+        const rpcEndDate = hasRange && rangeStart
+          ? options!.endDate!
+          : (() => {
+              const y = today.getFullYear();
+              const m = String(today.getMonth() + 1).padStart(2, '0');
+              const d = String(today.getDate()).padStart(2, '0');
+              return `${y}-${m}-${d}`;
+            })();
+
+        const { data: rpcRows, error: rpcErr } = await supabase.rpc('get_daily_stats', {
+          p_shop_id: shopId,
+          p_start_date: rpcStartDate,
+          p_end_date: rpcEndDate,
+        });
+        if (!rpcErr && Array.isArray(rpcRows)) {
+          // RPC 已用 generate_series 补齐区间内所有日期，直接转 DailyStatsItem 返回
+          return rpcRows.map((r: { stat_date?: string; orders?: number; revenue?: number | string }) => {
+            // RPC 返回的 stat_date 是 date 类型，PostgREST 序列化为 YYYY-MM-DD 或 ISO 字符串
+            const rawDate = r.stat_date;
+            let dateStr: string;
+            if (typeof rawDate === 'string') {
+              dateStr = rawDate.split('T')[0];
+            } else {
+              dateStr = dateKey(rawDate as unknown as string | number | Date);
+            }
+            return {
+              date: dateStr,
+              orders: Number(r.orders ?? 0),
+              revenue: Number(r.revenue ?? 0),
+            };
+          });
+        }
+        if (rpcErr) {
+          this.logger.warn(
+            `[OrderService] get_daily_stats RPC unavailable, fallback to SELECT: ${rpcErr.message}`,
+          );
+        }
+      }
+
       let query = supabase
         .from('tf_orders')
         .select('status, total, created_at')
         .eq('shop_id', shopId);
-      if (!allTime) {
+      if (hasRange && rangeStart) {
+        const endExclusive = new Date(rangeEnd);
+        endExclusive.setDate(endExclusive.getDate() + 1);
+        query = query
+          .gte('created_at', rangeStart.toISOString())
+          .lt('created_at', endExclusive.toISOString());
+      } else if (!allTime) {
         const s = new Date(today);
         s.setDate(s.getDate() - (days - 1));
         query = query.gte('created_at', s.toISOString());
@@ -2653,14 +3845,16 @@ export class OrderService {
       const { data, error } = await query;
       if (error) {
         this.logger.warn(`[OrderService] getDailyStats error: ${error.message}`);
-        const { buckets } = buildBuckets(allTime ? 1 : days);
+        const { buckets } = buildBuckets(allTime ? 1 : days, rangeEnd, rangeStart);
         return buckets;
       }
       const rows = (data || []) as OrderRow[];
       const spanDays = allTime
         ? spanFromEarliest(rows.reduce<string | undefined>((min, r) => (!min || r.created_at < min ? r.created_at : min), undefined))
-        : days;
-      const { buckets, bucketMap } = buildBuckets(spanDays);
+        : hasRange && rangeStart
+          ? Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1
+          : days;
+      const { buckets, bucketMap } = buildBuckets(spanDays, rangeEnd, rangeStart);
       for (const row of rows) {
         const bucket = bucketMap.get(dateKey(row.created_at));
         if (!bucket) continue; // 超出窗口的订单忽略
@@ -2674,14 +3868,25 @@ export class OrderService {
 
     assertMemoryFallbackAllowed('OrderService');
     const startForFilter = (() => {
+      if (hasRange && rangeStart) return rangeStart.getTime();
       if (allTime) return 0;
       const s = new Date(today);
       s.setDate(s.getDate() - (days - 1));
       return s.getTime();
     })();
-    const filtered = Array.from(memoryOrders.values()).filter(
-      (o) => o.shopId === shopId && new Date(o.createdAt).getTime() >= startForFilter,
-    );
+    const endForFilter = (() => {
+      if (hasRange) {
+        const endExclusive = new Date(rangeEnd);
+        endExclusive.setDate(endExclusive.getDate() + 1);
+        return endExclusive.getTime();
+      }
+      return Number.POSITIVE_INFINITY;
+    })();
+    const filtered = Array.from(memoryOrders.values()).filter((o) => {
+      if (o.shopId !== shopId) return false;
+      const t = new Date(o.createdAt).getTime();
+      return t >= startForFilter && t < endForFilter;
+    });
     const spanDays = allTime
       ? spanFromEarliest(
           filtered.reduce<string | undefined>(
@@ -2689,8 +3894,10 @@ export class OrderService {
             undefined,
           ),
         )
-      : days;
-    const { buckets, bucketMap } = buildBuckets(spanDays);
+      : hasRange && rangeStart
+        ? Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1
+        : days;
+    const { buckets, bucketMap } = buildBuckets(spanDays, rangeEnd, rangeStart);
     for (const o of filtered) {
       const bucket = bucketMap.get(dateKey(o.createdAt));
       if (!bucket) continue;
@@ -2702,68 +3909,366 @@ export class OrderService {
     return buckets;
   }
 
+
   /**
-   * 店铺订单状态分布（用于 Dashboard 饼图）
-   * @param days 可选：仅统计近 N 天（按 created_at）；不传则全量
+   * T246.2 按配送类型净化互斥字段（就地改写 dto）。
+   * - 外卖 / 自取：不保留桌号
+   * - 自取 / 堂食：不保留配送地址与配送坐标
    */
-  async getStatusDistribution(shopId: string, days?: number): Promise<StatusDistributionItem[]> {
-    const startIso = (() => {
-      if (!days || days <= 0) return undefined;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const start = new Date(today);
-      start.setDate(start.getDate() - (days - 1));
-      return start.toISOString();
-    })();
+  private sanitizeDeliveryFields(dto: CreateOrderDto): void {
+    if (dto.deliveryType !== DeliveryType.DINE_IN) {
+      dto.tableNo = undefined;
+    }
+    if (dto.deliveryType !== DeliveryType.DELIVERY) {
+      dto.address = undefined;
+      dto.deliveryLatitude = undefined;
+      dto.deliveryLongitude = undefined;
+    }
+  }
+
+  private assertDeliveryTypeStatus(order: OrderRecord, next: OrderStatus): void {
+    if (next === OrderStatus.READY_FOR_DELIVERY && order.deliveryType !== DeliveryType.DELIVERY) {
+      throw new BadRequestException('仅外卖订单可进入待配送（待骑手接单）');
+    }
+    if (
+      next === OrderStatus.READY_FOR_PICKUP &&
+      order.deliveryType === DeliveryType.DELIVERY
+    ) {
+      throw new BadRequestException('外卖订单请使用「出餐完成（待骑手）」而非待取餐');
+    }
+    if (
+      next === OrderStatus.DELIVERING &&
+      order.deliveryType !== DeliveryType.DELIVERY
+    ) {
+      throw new BadRequestException('非外卖订单不能进入配送中');
+    }
+  }
+
+  private buildEstimatedCompletionExtra(
+    previousStatus: OrderStatus,
+    dto: UpdateOrderDto,
+  ): Record<string, unknown> {
+    if (dto.status !== OrderStatus.ACCEPTED) return {};
+    const minutes = dto.estimatedMinutes;
+    if (minutes == null || !Number.isFinite(Number(minutes))) return {};
+    const m = Math.min(120, Math.max(5, Math.round(Number(minutes))));
+    const iso = new Date(Date.now() + m * 60_000).toISOString();
+    return { estimated_completion: iso };
+  }
+
+  private applyEstimatedCompletionLocal(
+    order: OrderRecord,
+    etaExtra: Record<string, unknown>,
+  ): void {
+    if (typeof etaExtra.estimated_completion === 'string') {
+      order.estimatedCompletion = etaExtra.estimated_completion;
+    }
+  }
+
+  /** 支付超时自动取消 */
+  async cancelExpiredPendingPayments(): Promise<number> {
+    const cutoff = new Date(Date.now() - PAYMENT_TIMEOUT_MINUTES * 60_000).toISOString();
+    let cancelled = 0;
 
     if (hasSupabase() && supabase) {
-      let query = supabase
+      const { data, error } = await supabase
         .from('tf_orders')
-        .select('status')
-        .eq('shop_id', shopId);
-      if (startIso) {
-        query = query.gte('created_at', startIso);
-      }
-      const { data, error } = await query;
+        .select('id')
+        .eq('status', OrderStatus.PENDING_PAYMENT)
+        .lt('created_at', cutoff)
+        .limit(50);
       if (error) {
-        this.logger.warn(`[OrderService] getStatusDistribution error: ${error.message}`);
-        return [];
+        this.logger.warn(`[Order] 查询超时待支付失败: ${error.message}`);
+        return 0;
       }
-      const map: Record<string, number> = {};
-      for (const row of (data || []) as OrderRow[]) {
-        map[row.status] = (map[row.status] || 0) + 1;
+      for (const row of data || []) {
+        try {
+          await this.cancelOrder(row.id, undefined, '支付超时自动取消');
+          cancelled += 1;
+        } catch (e) {
+          this.logger.warn(
+            `[Order] 自动取消超时单 ${row.id} 失败: ${e instanceof Error ? e.message : e}`,
+          );
+        }
       }
-      return Object.entries(map).map(([status, count]) => ({ status, count }));
+      return cancelled;
     }
 
-    assertMemoryFallbackAllowed('OrderService');
-    const startMs = startIso ? new Date(startIso).getTime() : undefined;
-    const filtered = Array.from(memoryOrders.values()).filter((o) => {
-      if (o.shopId !== shopId) return false;
-      if (startMs != null && new Date(o.createdAt).getTime() < startMs) return false;
-      return true;
-    });
-    const map: Record<string, number> = {};
-    for (const o of filtered) {
-      map[o.status] = (map[o.status] || 0) + 1;
+    assertMemoryFallbackAllowed('OrderService.cancelExpiredPendingPayments');
+    const cutoffMs = new Date(cutoff).getTime();
+    for (const order of Array.from(memoryOrders.values())) {
+      if (
+        order.status === OrderStatus.PENDING_PAYMENT &&
+        new Date(order.createdAt).getTime() < cutoffMs
+      ) {
+        try {
+          await this.cancelOrder(order.id, undefined, '支付超时自动取消');
+          cancelled += 1;
+        } catch {
+          /* ignore */
+        }
+      }
     }
-    return Object.entries(map).map(([status, count]) => ({ status, count }));
+    return cancelled;
+  }
+
+  /** 顾客催单 */
+  async urgeOrder(id: string, userId: string): Promise<OrderRecord> {
+    const order = await this.findById(id);
+    if (order.userId !== userId) {
+      throw new BadRequestException('只能催自己的订单');
+    }
+    const urgeable = new Set<OrderStatus>([
+      OrderStatus.PAID,
+      OrderStatus.ACCEPTED,
+      OrderStatus.PREPARING,
+      OrderStatus.READY_FOR_DELIVERY,
+      OrderStatus.READY_FOR_PICKUP,
+      OrderStatus.DELIVERING,
+    ]);
+    if (!urgeable.has(order.status)) {
+      throw new BadRequestException('当前状态不可催单');
+    }
+    if (order.lastUrgedAt) {
+      const elapsed = Date.now() - new Date(order.lastUrgedAt).getTime();
+      if (elapsed < ORDER_URGE_COOLDOWN_MINUTES * 60_000) {
+        const remain = Math.ceil(
+          (ORDER_URGE_COOLDOWN_MINUTES * 60_000 - elapsed) / 60_000,
+        );
+        throw new BadRequestException(`催单过于频繁，请 ${remain} 分钟后再试`);
+      }
+    }
+    const now = new Date().toISOString();
+    const nextCount = (order.urgeCount || 0) + 1;
+
+    if (hasSupabase() && supabase) {
+      const { error } = await supabase
+        .from('tf_orders')
+        .update({
+          last_urged_at: now,
+          urge_count: nextCount,
+          updated_at: now,
+        })
+        .eq('id', id);
+      if (error && !this.isMissingColumnError(error)) {
+        throw new BadRequestException(`催单失败: ${error.message}`);
+      }
+    } else {
+      assertMemoryFallbackAllowed('OrderService.urgeOrder');
+    }
+
+    order.lastUrgedAt = now;
+    order.urgeCount = nextCount;
+    order.updatedAt = now;
+    memoryOrders.set(id, { ...order });
+    try {
+      this.orderGateway.emitOrderUpdated(order, order.status);
+    } catch (e) {
+      this.logger.warn(e instanceof Error ? e.message : String(e));
+    }
+    // 商家语音播报：顾客催单
+    void this.notifyShopStaff({
+      shopId: order.shopId,
+      type: 'order_reminder',
+      title: '顾客催单',
+      content: `订单 ${this.formatOrderLabel(order)} 顾客第 ${nextCount} 次催单，请尽快处理`,
+      relatedId: order.id,
+    });
+    return order;
+  }
+
+  /** 顾客申请取消（接单后） */
+  async requestCancel(id: string, userId: string, reason: string): Promise<OrderRecord> {
+    const cancelReason = (reason || '').trim();
+    if (!cancelReason) throw new BadRequestException('申请取消原因不能为空');
+    const order = await this.findById(id);
+    if (order.userId !== userId) {
+      throw new BadRequestException('只能操作自己的订单');
+    }
+    if (!CANCEL_REQUESTABLE.has(order.status)) {
+      throw new BadRequestException(`订单状态为 ${order.status}，不可申请取消`);
+    }
+    if (order.cancelRequestedAt) {
+      throw new BadRequestException('已提交取消申请，请等待商家处理');
+    }
+    const now = new Date().toISOString();
+    if (hasSupabase() && supabase) {
+      const { error } = await supabase
+        .from('tf_orders')
+        .update({
+          cancel_requested_at: now,
+          cancel_request_reason: cancelReason,
+          updated_at: now,
+        })
+        .eq('id', id);
+      if (error && !this.isMissingColumnError(error)) {
+        throw new BadRequestException(`申请取消失败: ${error.message}`);
+      }
+    } else {
+      assertMemoryFallbackAllowed('OrderService.requestCancel');
+    }
+    order.cancelRequestedAt = now;
+    order.cancelRequestReason = cancelReason;
+    order.updatedAt = now;
+    memoryOrders.set(id, { ...order });
+    try {
+      this.orderGateway.emitOrderUpdated(order, order.status);
+    } catch (e) {
+      this.logger.warn(e instanceof Error ? e.message : String(e));
+    }
+    // 站内消息通知商家处理售后
+    void this.notifyShopStaffCancelRequest(order);
+    return order;
+  }
+
+  /** 商家处理取消申请 */
+  async resolveCancelRequest(
+    id: string,
+    approve: boolean,
+    reason?: string,
+  ): Promise<OrderRecord> {
+    const order = await this.findById(id);
+    if (!order.cancelRequestedAt) {
+      throw new BadRequestException('该订单没有待处理的取消申请');
+    }
+    if (approve) {
+      const cancelReason =
+        (reason || '').trim() ||
+        order.cancelRequestReason ||
+        '商家同意顾客取消申请';
+      const updated = await this.cancelOrder(id, undefined, cancelReason);
+      void this.notifyCustomerCancelRequestResult(updated, true);
+      return updated;
+    }
+    const now = new Date().toISOString();
+    if (hasSupabase() && supabase) {
+      const { error } = await supabase
+        .from('tf_orders')
+        .update({
+          cancel_requested_at: null,
+          cancel_request_reason: null,
+          updated_at: now,
+        })
+        .eq('id', id);
+      if (error && !this.isMissingColumnError(error)) {
+        throw new BadRequestException(`处理取消申请失败: ${error.message}`);
+      }
+    } else {
+      assertMemoryFallbackAllowed('OrderService.resolveCancelRequest');
+    }
+    order.cancelRequestedAt = undefined;
+    order.cancelRequestReason = undefined;
+    order.updatedAt = now;
+    memoryOrders.set(id, { ...order });
+    try {
+      this.orderGateway.emitOrderUpdated(order, order.status);
+    } catch (e) {
+      this.logger.warn(e instanceof Error ? e.message : String(e));
+    }
+    void this.notifyCustomerCancelRequestResult(order, false, reason);
+    return order;
+  }
+
+  /** 骑手释放订单回待抢池 */
+  async releaseOrder(id: string, riderId: string): Promise<OrderRecord> {
+    const order = await this.findById(id);
+    if (order.deliveryType !== DeliveryType.DELIVERY) {
+      throw new BadRequestException('仅外卖订单可释放');
+    }
+    if (order.status !== OrderStatus.DELIVERING) {
+      throw new BadRequestException('仅配送中订单可释放回抢单池');
+    }
+    const owner = order.riderId || memoryRiderClaims.get(id);
+    if (!owner || owner !== riderId) {
+      throw new BadRequestException('只能释放自己领取的订单');
+    }
+    const previousStatus = order.status;
+    const now = new Date().toISOString();
+
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_orders')
+        .update({
+          status: OrderStatus.READY_FOR_DELIVERY,
+          rider_id: null,
+          updated_at: now,
+        })
+        .eq('id', id)
+        .eq('status', OrderStatus.DELIVERING)
+        .eq('rider_id', riderId)
+        .select()
+        .maybeSingle();
+      if (error) throw new BadRequestException(`释放订单失败: ${error.message}`);
+      if (!data) throw new BadRequestException('释放失败，订单状态已变更');
+    } else {
+      assertMemoryFallbackAllowed('OrderService.releaseOrder');
+      order.status = OrderStatus.READY_FOR_DELIVERY;
+      order.riderId = undefined;
+      order.updatedAt = now;
+      memoryOrders.set(id, order);
+    }
+
+    memoryRiderClaims.delete(id);
+    await this.recordStatusHistory(
+      order,
+      OrderStatus.READY_FOR_DELIVERY,
+      previousStatus,
+      now,
+    );
+    const updated = await this.findById(id);
+    updated.riderId = undefined;
+    updated.status = OrderStatus.READY_FOR_DELIVERY;
+    try {
+      this.orderGateway.emitOrderUpdated(updated, previousStatus);
+    } catch (e) {
+      this.logger.warn(e instanceof Error ? e.message : String(e));
+    }
+    return updated;
+  }
+
+  /** 详情附加店铺/骑手联系方式 */
+  async attachContactHints(order: OrderRecord): Promise<OrderRecord> {
+    try {
+      const shop = await this.shopService.findById(order.shopId);
+      order.shopPhone = (shop as any)?.phone || order.shopPhone;
+      order.shopName = (shop as any)?.name || order.shopName;
+      // T246.4 自取订单需要门店地址与坐标做一键导航
+      order.shopAddress = (shop as any)?.address || order.shopAddress;
+      // 下单时未写入坐标快照的历史单，回退到店铺当前坐标
+      if (order.shopLatitude === undefined || order.shopLongitude === undefined) {
+        const point = normalizeGeoPoint(
+          (shop as any)?.latitude,
+          (shop as any)?.longitude,
+        );
+        if (point) {
+          order.shopLatitude = point.latitude;
+          order.shopLongitude = point.longitude;
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `[Order] 附加店铺电话失败: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+    return order;
   }
 
   private validateStatusTransition(current: OrderStatus, next: OrderStatus): void {
-    // 状态流转规范（与 PRD §5.2 一致）：
-    // 外送: pending_payment → paid → accepted → preparing → delivering → completed
+    // 外送: pending_payment → paid → accepted → preparing → ready_for_delivery → delivering → completed
     // 自取/堂食: pending_payment → paid → accepted → preparing → ready_for_pickup → completed
-    // 分支: → cancelled（pending_payment/paid 时）、→ rejected（paid 时）
-    // 注意：preparing 不能直接 → completed；
-    // - 外送必须经 delivering
-    // - 堂食/自取必须经 ready_for_pickup，禁止 preparing → completed
+    // 取消: 待支付~待取餐/待配送；拒单: 仅 paid
+    // 骑手释放: delivering → ready_for_delivery（仅 releaseOrder，不走普通 updateStatus）
     const validTransitions: Record<OrderStatus, OrderStatus[]> = {
       [OrderStatus.PENDING_PAYMENT]: [OrderStatus.PAID, OrderStatus.CANCELLED],
       [OrderStatus.PAID]: [OrderStatus.ACCEPTED, OrderStatus.REJECTED, OrderStatus.CANCELLED],
-      [OrderStatus.ACCEPTED]: [OrderStatus.PREPARING],
-      [OrderStatus.PREPARING]: [OrderStatus.DELIVERING, OrderStatus.READY_FOR_PICKUP],
-      [OrderStatus.READY_FOR_PICKUP]: [OrderStatus.COMPLETED],
+      [OrderStatus.ACCEPTED]: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
+      [OrderStatus.PREPARING]: [
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.READY_FOR_PICKUP,
+        OrderStatus.CANCELLED,
+      ],
+      [OrderStatus.READY_FOR_DELIVERY]: [OrderStatus.DELIVERING, OrderStatus.CANCELLED],
+      [OrderStatus.READY_FOR_PICKUP]: [OrderStatus.COMPLETED, OrderStatus.CANCELLED],
       [OrderStatus.DELIVERING]: [OrderStatus.COMPLETED],
       [OrderStatus.COMPLETED]: [],
       [OrderStatus.CANCELLED]: [],

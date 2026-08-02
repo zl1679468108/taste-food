@@ -1,11 +1,20 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: 1.0.4 (与代码实现同步)
--- 更新日期: 2026-07-28
+-- 版本: 1.0.7 (与代码实现同步)
+-- 更新日期: 2026-08-01
 -- 版本策略: 语义化小版本迭代（MAJOR.MINOR.PATCH），避免虚高主版本号
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
 --
+-- 1.0.7
+-- 1. tf_export_jobs 批量异步导出任务表（T267）：状态机 pending→processing→completed/failed，产物存 Supabase 私有桶 export-files
+-- 1.0.6
+-- 1. tf_orders 新增 ready_for_delivery 状态（外卖出餐待抢，与 delivering 解耦）
+-- 2. tf_orders 新增 estimated_completion / cancel_requested_at / cancel_request_reason / last_urged_at / urge_count
+-- 3. atomic_cancel_order 支持商家接单后关单退款；atomic_update_order_status 取消冲减口径对齐 v21
+-- 1.0.5
+-- 1. tf_shops.delivery_confirm_radius_m 骑手送达围栏（200~1000，默认500）
+-- 2. tf_delivery_info.force_reason 商家/管理员强制完成原因
 -- 1.0.4
 -- 1. tf_users 补充 last_login_at 字段记录最后登录/刷新时间
 -- 1.0.3
@@ -33,9 +42,11 @@ CREATE TABLE IF NOT EXISTS "tf_shops" (
   "phone" text,
   "status" text DEFAULT 'open' CHECK (status IN ('open', 'closed')),
   "delivery_range" integer DEFAULT 3000, -- 配送范围（米），默认3km
+  "delivery_confirm_radius_m" integer DEFAULT 500 CHECK (delivery_confirm_radius_m IS NULL OR (delivery_confirm_radius_m >= 200 AND delivery_confirm_radius_m <= 1000)), -- 骑手确认送达围栏（米）
   "delivery_fee" integer DEFAULT 500, -- 配送费（分），默认5元
   "min_order_amount" integer DEFAULT 0, -- 起送价（分）
   "business_hours" jsonb DEFAULT NULL, -- 营业时段 {mon:[{start,end}],...}；null 表示仅看 status
+  "voice_alert_config" jsonb DEFAULT NULL, -- 语音播报配置 {selection,enabled,volume,repeat}；null 表示用默认
   "shop_no" text UNIQUE, -- 业务店铺号：SH + YY + MM + 5位顺序号，例 SH260600001
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
@@ -44,9 +55,11 @@ ALTER TABLE "tf_shops" DISABLE ROW LEVEL SECURITY;
 
 -- 兼容已有库的增量迁移（幂等）
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "business_hours" jsonb DEFAULT NULL;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "voice_alert_config" jsonb DEFAULT NULL; -- 语音播报配置（T308）
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "logo_url" text;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "avatar_url" text; -- 兼容旧字段，业务以 logo_url 为准
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_range" integer DEFAULT 3000;
+ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_confirm_radius_m" integer DEFAULT 500;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "delivery_fee" integer DEFAULT 500;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "min_order_amount" integer DEFAULT 0;
 ALTER TABLE "tf_shops" ADD COLUMN IF NOT EXISTS "shop_no" text UNIQUE; -- 业务店铺号：SH + YY + MM + 5位顺序号
@@ -137,7 +150,7 @@ CREATE TABLE IF NOT EXISTS "tf_orders" (
   "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
   "user_id" text NOT NULL, -- 存储微信 OpenID 或 Auth UID
   "rider_id" text, -- 骑手 ID（外送订单使用）
-  "status" text NOT NULL DEFAULT 'pending_payment' CHECK (status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'ready_for_pickup', 'completed', 'cancelled', 'rejected')),
+  "status" text NOT NULL DEFAULT 'pending_payment' CHECK (status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'ready_for_delivery', 'ready_for_pickup', 'delivering', 'completed', 'cancelled', 'rejected')),
   "total" integer NOT NULL,
   "delivery_type" text NOT NULL CHECK (delivery_type IN ('delivery', 'pickup', 'dine_in')),
   "address" text,
@@ -155,6 +168,11 @@ CREATE TABLE IF NOT EXISTS "tf_orders" (
   "invoice_title" text, -- 发票抬头
   "invoice_tax_no" text, -- 税号
   "delivery_fee" integer DEFAULT 0,
+  "estimated_completion" timestamptz, -- 预计出餐/完成时间（接单 ETA）
+  "cancel_requested_at" timestamptz, -- 顾客申请取消时间
+  "cancel_request_reason" text, -- 顾客申请取消原因
+  "last_urged_at" timestamptz, -- 最近一次催单时间
+  "urge_count" integer NOT NULL DEFAULT 0, -- 催单次数
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
@@ -169,6 +187,17 @@ ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "shop_latitude" numeric(10, 7);
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "shop_longitude" numeric(10, 7);
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_latitude" numeric(10, 7);
 ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "delivery_longitude" numeric(10, 7);
+-- v21 订单流程优化字段（幂等）
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "estimated_completion" timestamptz;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "cancel_requested_at" timestamptz;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "cancel_request_reason" text;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "last_urged_at" timestamptz;
+ALTER TABLE "tf_orders" ADD COLUMN IF NOT EXISTS "urge_count" integer NOT NULL DEFAULT 0;
+COMMENT ON COLUMN tf_orders.estimated_completion IS '预计出餐/完成时间';
+COMMENT ON COLUMN tf_orders.cancel_requested_at IS '顾客申请取消时间';
+COMMENT ON COLUMN tf_orders.cancel_request_reason IS '顾客申请取消原因';
+COMMENT ON COLUMN tf_orders.last_urged_at IS '最近一次催单时间';
+COMMENT ON COLUMN tf_orders.urge_count IS '催单次数';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_no_unique ON tf_orders(order_no) WHERE order_no IS NOT NULL;
 
 -- 6.1 订单状态历史表
@@ -177,8 +206,8 @@ CREATE TABLE IF NOT EXISTS "tf_order_status_history" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "order_id" uuid NOT NULL REFERENCES tf_orders(id) ON DELETE CASCADE,
   "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE RESTRICT,
-  "status" text NOT NULL CHECK (status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'ready_for_pickup', 'completed', 'cancelled', 'rejected')),
-  "from_status" text CHECK (from_status IS NULL OR from_status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'delivering', 'ready_for_pickup', 'completed', 'cancelled', 'rejected')),
+  "status" text NOT NULL CHECK (status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'ready_for_delivery', 'ready_for_pickup', 'delivering', 'completed', 'cancelled', 'rejected')),
+  "from_status" text CHECK (from_status IS NULL OR from_status IN ('pending_payment', 'paid', 'accepted', 'preparing', 'ready_for_delivery', 'ready_for_pickup', 'delivering', 'completed', 'cancelled', 'rejected')),
   "recorded_at" timestamptz DEFAULT now(),
   "created_at" timestamptz DEFAULT now(),
   UNIQUE ("order_id", "status")
@@ -208,12 +237,23 @@ ALTER TABLE "tf_order_items" DISABLE ROW LEVEL SECURITY;
 -- 8. 配送信息表（预留，目前未在代码中主动使用）
 CREATE TABLE IF NOT EXISTS "tf_delivery_info" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "order_id" uuid REFERENCES tf_orders(id) ON DELETE CASCADE,
+  "order_id" uuid UNIQUE REFERENCES tf_orders(id) ON DELETE CASCADE,
   "shop_id" uuid REFERENCES tf_shops(id) ON DELETE RESTRICT,
+  "type" text NOT NULL DEFAULT 'delivery', -- 配送类型：delivery 外卖 / pickup 自取 / dine_in 堂食（线上存量库已有此列，v25 规范化默认值 'delivery'）
+  "rider_id" text,
   "courier_name" text,
   "courier_phone" text,
   "estimated_delivery_at" timestamptz,
   "delivered_at" timestamptz,
+  -- 送达凭证：现场照片 JSON [{url,path,uploadedAt}]
+  "proof_photos" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "confirm_latitude" numeric(10, 7),
+  "confirm_longitude" numeric(10, 7),
+  "confirm_accuracy" numeric(8, 2),
+  "confirm_distance_m" numeric(8, 2),
+  "confirm_radius_m" numeric(8, 2),
+  "confirm_source" text DEFAULT 'rider',
+  "force_reason" text,
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
@@ -260,7 +300,7 @@ CREATE TABLE IF NOT EXISTS "tf_users" (
   "openid" text UNIQUE NOT NULL,
   "user_id" text, -- 对应 Auth 系统的标识（预留，符合 snake_case 规范）
   "role" text DEFAULT 'customer' CHECK (role IN ('customer', 'admin', 'rider', 'merchant')),
-  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE SET NULL, -- 多租户：admin 必填，绑定管理的店铺；customer/rider 可空
+  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE SET NULL, -- 多租户：平台管理员 role=admin 且 shop_id 空；商家 role=merchant 绑定单店（一店一商家）；customer/rider 可空
   "nick_name" text,
   "avatar_url" text,
   "last_login_at" timestamptz, -- 最后登录时间（由服务端在登录/刷新令牌时更新）
@@ -322,7 +362,7 @@ CREATE TABLE IF NOT EXISTS "tf_payments" (
   "transaction_id" text,
   "amount" integer NOT NULL,
   "method" text DEFAULT 'wechat' CHECK (method IN ('wechat', 'alipay', 'balance')),
-  "status" text DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'refunded', 'failed')),
+  "status" text DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'success', 'refunded', 'failed')),
   "paid_at" timestamptz,
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
@@ -403,6 +443,12 @@ CREATE INDEX IF NOT EXISTS idx_orders_rider_id ON tf_orders(rider_id);
 CREATE INDEX IF NOT EXISTS idx_orders_rider_active_delivery
   ON tf_orders(rider_id, status, delivery_type)
   WHERE rider_id IS NOT NULL;
+-- v30 Dashboard 统计性能优化：覆盖「按店 + 时间范围」与「按店 + 状态 + 时间」复合路径
+-- 避免 stats/today 与 stats/daily 在 Supabase 跨区网络下全表扫描
+CREATE INDEX IF NOT EXISTS idx_orders_shop_created_at
+  ON tf_orders(shop_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_shop_status_created_at
+  ON tf_orders(shop_id, status, created_at DESC);
 
 -- 订单明细查询索引（order_id 高频关联查询，原缺失致全表扫描）
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON tf_order_items(order_id);
@@ -435,6 +481,7 @@ CREATE INDEX IF NOT EXISTS idx_promotions_status ON tf_promotions(status);
 
 -- 配送信息索引
 CREATE INDEX IF NOT EXISTS idx_delivery_info_order_id ON tf_delivery_info(order_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_info_rider_id ON tf_delivery_info(rider_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_tracks_order_time ON tf_delivery_tracks(order_id, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_delivery_tracks_shop_id ON tf_delivery_tracks(shop_id);
 CREATE INDEX IF NOT EXISTS idx_delivery_tracks_rider_id ON tf_delivery_tracks(rider_id);
@@ -608,7 +655,8 @@ $$ LANGUAGE plpgsql;
 
 -- 原子更新订单状态：在单个事务内完成状态校验 + 订单状态更新 + 每日统计联动
 -- 通过乐观锁（WHERE status = p_from_status）保证状态流转原子性，避免并发覆盖
--- 返回 jsonb: { success, previousStatus, newStatus, shopId, orderDate }
+-- 返回 jsonb: { success, previousStatus, newStatus, shopId, orderDate, total }
+-- v21: cancelled 一律计入 cancelled_orders；非 pending_payment 取消冲减 revenue
 CREATE OR REPLACE FUNCTION atomic_update_order_status(
   p_order_id uuid,
   p_from_status text,
@@ -656,11 +704,11 @@ BEGIN
     v_revenue_delta := v_order.total;
   END IF;
 
-  -- 取消计数：PENDING_PAYMENT/PAID -> CANCELLED
+  -- 取消计数：任意可取消状态 -> CANCELLED（含接单后商家关单）
   IF p_to_status = 'cancelled' THEN
     v_cancelled_delta := 1;
-    IF p_from_status = 'paid' THEN
-      -- 已支付取消：冲减收入
+    IF p_from_status <> 'pending_payment' THEN
+      -- 已支付及之后取消：冲减 revenue（与历史 paid 取消逻辑对齐）
       v_revenue_delta := -(v_order.total);
     END IF;
   END IF;
@@ -691,6 +739,7 @@ $$ LANGUAGE plpgsql;
 
 -- 原子取消订单：在单个事务内完成状态校验 + 支付记录退款 + 订单状态更新 + 每日统计联动
 -- 返回 jsonb: { success, previousStatus, refunded: boolean }
+-- v21: 顾客仅 pending_payment/paid；商家/系统可取消至 ready_for_delivery/ready_for_pickup；非待支付一律尝试退款
 CREATE OR REPLACE FUNCTION atomic_cancel_order(
   p_order_id uuid,
   p_user_id text
@@ -698,6 +747,11 @@ CREATE OR REPLACE FUNCTION atomic_cancel_order(
 DECLARE
   v_order tf_orders%ROWTYPE;
   v_refunded boolean := false;
+  v_allowed_customer text[] := ARRAY['pending_payment', 'paid'];
+  v_allowed_merchant text[] := ARRAY[
+    'pending_payment', 'paid', 'accepted', 'preparing',
+    'ready_for_delivery', 'ready_for_pickup'
+  ];
 BEGIN
   -- Step 1: 读取订单（带锁）
   SELECT * INTO v_order FROM tf_orders WHERE id = p_order_id FOR UPDATE;
@@ -710,22 +764,35 @@ BEGIN
     RAISE EXCEPTION '不能取消他人的订单';
   END IF;
 
-  -- Step 3: 状态校验
-  IF v_order.status NOT IN ('pending_payment', 'paid') THEN
-    RAISE EXCEPTION '订单状态为 %，不允许取消', v_order.status;
+  -- Step 3: 状态校验（顾客 / 商家分流）
+  IF p_user_id IS NOT NULL THEN
+    IF v_order.status <> ALL (v_allowed_customer) THEN
+      RAISE EXCEPTION '订单状态为 %，不允许取消', v_order.status;
+    END IF;
+  ELSE
+    IF v_order.status <> ALL (v_allowed_merchant) THEN
+      RAISE EXCEPTION '订单状态为 %，不允许取消', v_order.status;
+    END IF;
   END IF;
 
-  -- Step 4: 已支付订单退款（更新支付记录状态为 refunded）
-  IF v_order.status = 'paid' THEN
+  -- Step 4: 非待支付订单退款（paid 及接单后关单）
+  IF v_order.status <> 'pending_payment' THEN
     UPDATE tf_payments
     SET status = 'refunded', updated_at = now()
-    WHERE order_id = p_order_id AND status = 'success';
+    WHERE order_id = p_order_id AND status IN ('success', 'paid');
     GET DIAGNOSTICS v_refunded = ROW_COUNT;
     v_refunded := (v_refunded > 0);
   END IF;
 
   -- Step 5: 调用原子状态更新 RPC（内部完成订单状态 + daily_stats 更新）
   PERFORM atomic_update_order_status(p_order_id, v_order.status, 'cancelled');
+
+  -- Step 6: 清理申请取消标记
+  UPDATE tf_orders
+  SET cancel_requested_at = NULL,
+      cancel_request_reason = NULL,
+      updated_at = now()
+  WHERE id = p_order_id;
 
   RETURN jsonb_build_object(
     'success', true,
@@ -774,7 +841,7 @@ BEGIN
     p_transaction_id::text,
     p_amount,
     p_method,
-    'success',
+    'paid',
     now()
   );
 
@@ -1020,6 +1087,31 @@ ALTER TABLE "tf_notifications" DISABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON tf_notifications(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON tf_notifications(user_id, is_read);
 
+-- ============================================================
+-- 批量异步导出任务表（T267）
+-- 记录后台导出任务状态、参数与产物存储路径。仅产出 Excel（xlsx），不走 CSV。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS "tf_export_jobs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "user_id" uuid NOT NULL REFERENCES tf_users(id) ON DELETE CASCADE,
+  "entity" text NOT NULL DEFAULT 'orders',
+  "status" text NOT NULL DEFAULT 'pending',
+  "format" text NOT NULL DEFAULT 'xlsx',
+  "params" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "file_path" text,
+  "file_name" text,
+  "row_count" int,
+  "error_message" text,
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now(),
+  "completed_at" timestamptz
+);
+ALTER TABLE "tf_export_jobs" DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_export_jobs_shop_created ON tf_export_jobs(shop_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_export_jobs_user ON tf_export_jobs(user_id);
+CREATE INDEX IF NOT EXISTS idx_export_jobs_status ON tf_export_jobs(status);
+
 -- 种子：平台管理员（不绑定店铺，可跨店治理）
 -- 密码明文 admin123（仅开发）；SEED_PENDING 由服务端首次登录以 scrypt 写入
 INSERT INTO tf_users (id, openid, username, password_hash, role, shop_id, nick_name, phone)
@@ -1100,3 +1192,152 @@ ON CONFLICT DO NOTHING;
 
 -- 平台管理员保持 shop_id 空（若历史数据误绑了店，可手工清空）
 -- UPDATE tf_users SET shop_id = NULL WHERE role = 'admin' AND openid LIKE 'mock_admin%';
+
+-- ============================================================
+-- v30 Dashboard 统计查询性能优化
+-- 与 docs/migrations/v30-orders-stats-perf.sql 同步
+-- RPC: get_today_stats / get_daily_stats
+--   - SECURITY DEFINER，绕过 RLS 走 service role
+--   - Node 端不再加载 tf_orders 明细行，改为 SQL 端 COUNT FILTER + SUM FILTER 聚合
+--   - get_today_stats 兼容 tf_daily_stats 预聚合（total_orders/completed_orders）
+-- 索引：idx_orders_shop_created_at / idx_orders_shop_status_created_at
+--   已在 v9.x 索引段（上方）声明，此处不重复
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION get_today_stats(p_shop_id uuid)
+RETURNS TABLE (
+  total_orders integer,
+  total_revenue bigint,
+  pending_count integer,
+  preparing_count integer,
+  completed_count integer,
+  source text
+) AS $$
+DECLARE
+  v_today date := (now() AT TIME ZONE 'UTC')::date;
+  v_daily RECORD;
+  v_has_daily boolean := false;
+  v_total_orders integer := 0;
+  v_completed_orders integer := 0;
+BEGIN
+  SELECT ds.total_orders, ds.completed_orders
+    INTO v_daily
+    FROM tf_daily_stats ds
+   WHERE ds.shop_id = p_shop_id
+     AND ds.stat_date = v_today
+   LIMIT 1;
+
+  IF FOUND THEN
+    v_has_daily := true;
+    v_total_orders := COALESCE(v_daily.total_orders, 0);
+    v_completed_orders := COALESCE(v_daily.completed_orders, 0);
+  END IF;
+
+  RETURN QUERY
+  WITH today_orders AS (
+    SELECT o.status, COALESCE(o.total, 0) AS total
+      FROM tf_orders o
+     WHERE o.shop_id = p_shop_id
+       AND o.created_at >= date_trunc('day', now())
+  )
+  SELECT
+    CASE WHEN v_has_daily
+         THEN v_total_orders
+         ELSE (SELECT COUNT(*)::integer FROM today_orders)
+    END AS total_orders,
+    COALESCE((
+      SELECT SUM(total)::bigint
+        FROM today_orders
+       WHERE status IN ('completed', 'delivering', 'preparing')
+    ), 0)::bigint AS total_revenue,
+    COALESCE((
+      SELECT COUNT(*)::integer
+        FROM today_orders
+       WHERE status IN ('paid', 'accepted')
+    ), 0) AS pending_count,
+    COALESCE((
+      SELECT COUNT(*)::integer
+        FROM today_orders
+       WHERE status = 'preparing'
+    ), 0) AS preparing_count,
+    CASE WHEN v_has_daily
+         THEN v_completed_orders
+         ELSE COALESCE((
+           SELECT COUNT(*)::integer
+             FROM today_orders
+            WHERE status = 'completed'
+         ), 0)
+    END AS completed_count,
+    CASE WHEN v_has_daily
+         THEN 'daily_stats+orders'
+         ELSE 'orders'
+    END AS source;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION get_today_stats(uuid) IS
+  '今日订单统计聚合（v30）：单次 SQL 返回 total_orders/revenue/pending/preparing/completed，'
+  '避免 Node 端加载 tf_orders 明细行。total_orders/completed_orders 优先用 tf_daily_stats 预聚合值。';
+
+CREATE OR REPLACE FUNCTION get_daily_stats(
+  p_shop_id uuid,
+  p_start_date date,
+  p_end_date date
+)
+RETURNS TABLE (
+  stat_date date,
+  orders integer,
+  revenue bigint
+) AS $$
+DECLARE
+  v_start_ts timestamptz;
+  v_end_exclusive_ts timestamptz;
+  v_min_date date;
+  v_max_date date;
+  v_span integer;
+BEGIN
+  IF p_start_date IS NULL OR p_end_date IS NULL THEN
+    p_start_date := (now() AT TIME ZONE 'UTC')::date - 6;
+    p_end_date := (now() AT TIME ZONE 'UTC')::date;
+  END IF;
+  IF p_end_date < p_start_date THEN
+    RAISE EXCEPTION 'end_date < start_date';
+  END IF;
+  v_span := LEAST((p_end_date - p_start_date) + 1, 366);
+
+  v_start_ts := (p_start_date::timestamp) AT TIME ZONE 'UTC';
+  v_end_exclusive_ts := ((p_end_date + 1)::timestamp) AT TIME ZONE 'UTC';
+
+  v_min_date := GREATEST(p_start_date, p_end_date - (v_span - 1));
+  v_max_date := p_end_date;
+
+  RETURN QUERY
+  WITH buckets AS (
+    SELECT generate_series(v_min_date, v_max_date, '1 day')::date AS d
+  ),
+  agg AS (
+    SELECT
+      (o.created_at AT TIME ZONE 'UTC')::date AS d,
+      COUNT(*)::integer AS orders,
+      COALESCE(SUM(o.total) FILTER (
+        WHERE o.status IN ('completed', 'delivering', 'preparing')
+      ), 0)::bigint AS revenue
+    FROM tf_orders o
+    WHERE o.shop_id = p_shop_id
+      AND o.created_at >= v_start_ts
+      AND o.created_at < v_end_exclusive_ts
+    GROUP BY 1
+  )
+  SELECT
+    b.d AS stat_date,
+    COALESCE(a.orders, 0) AS orders,
+    COALESCE(a.revenue, 0) AS revenue
+  FROM buckets b
+  LEFT JOIN agg a ON a.d = b.d
+  ORDER BY b.d ASC;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION get_daily_stats(uuid, date, date) IS
+  '日趋势聚合（v30）：PostgreSQL 端 GROUP BY 按日聚合，'
+  'Node 端不再加载区间内全部订单行。日期桶由 generate_series 补齐零值日。';

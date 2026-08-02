@@ -76,6 +76,19 @@ const AddressListPage = () => {
 
   const handleSelect = (item: AddressItem) => {
     if (!selectMode) return;
+    if (typeof item.latitude !== 'number' || typeof item.longitude !== 'number') {
+      Taro.showModal({
+        title: '地址缺少坐标',
+        content: '该地址未地图选点，无法用于外卖配送。请先完善坐标。',
+        confirmText: '去完善',
+        success: (res) => {
+          if (res.confirm) {
+            Taro.navigateTo({ url: `/pages/address/edit?id=${item.id}` });
+          }
+        },
+      });
+      return;
+    }
     try {
       Taro.setStorageSync('tf_selected_address', item);
     } catch (e) {
@@ -88,6 +101,17 @@ const AddressListPage = () => {
 
   const handleSetDefault = (item: AddressItem) => {
     if (item.isDefault) return;
+    if (typeof item.latitude !== 'number' || typeof item.longitude !== 'number') {
+      Taro.showModal({
+        title: '无法设为默认',
+        content: '该地址缺少地图坐标，请先完善后再设为默认。',
+        confirmText: '去完善',
+        success: (res) => {
+          if (res.confirm) goEdit(item.id);
+        },
+      });
+      return;
+    }
     void runRowAction(`default:${item.id}`, async () => {
       try {
         await patch(`/addresses/${item.id}/default`);
@@ -193,10 +217,21 @@ const AddressListPage = () => {
                   <Text className='address-card__phone'>{item.contactPhone}</Text>
                   {item.tag ? <Text className='address-card__tag'>{item.tag}</Text> : null}
                   {item.isDefault ? <Text className='address-card__default'>默认</Text> : null}
+                  {typeof item.latitude !== 'number' || typeof item.longitude !== 'number' ? (
+                    <Text className='address-card__no-coord'>缺坐标</Text>
+                  ) : null}
                 </View>
                 <Text className='address-card__detail'>{item.detail}</Text>
               </View>
               <View className='address-card__actions' onClick={(e) => e.stopPropagation()}>
+                {typeof item.latitude !== 'number' || typeof item.longitude !== 'number' ? (
+                  <Text
+                    className='address-card__action address-card__action--primary'
+                    onClick={() => goEdit(item.id)}
+                  >
+                    完善坐标
+                  </Text>
+                ) : null}
                 {!item.isDefault && (
                   <Text
                     className={`address-card__action${settingDefault ? ' is-disabled' : ''}`}

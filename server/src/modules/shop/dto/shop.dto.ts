@@ -47,6 +47,14 @@ export class CreateShopDto {
   @IsOptional()
   deliveryRange?: number;
 
+  /** 骑手确认送达围栏（米），默认 500，范围 200~1000 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(200)
+  @Max(1000)
+  deliveryConfirmRadiusM?: number;
+
   @IsNumber()
   @IsOptional()
   deliveryFee?: number;
@@ -101,6 +109,14 @@ export class UpdateShopDto {
   @IsOptional()
   deliveryRange?: number;
 
+  /** 骑手确认送达围栏（米），默认 500，范围 200~1000 */
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(200)
+  @Max(1000)
+  deliveryConfirmRadiusM?: number;
+
   @IsNumber()
   @IsOptional()
   deliveryFee?: number;
@@ -125,6 +141,7 @@ export class ShopResponseDto {
   logoUrl?: string;
   status!: ShopStatus;
   deliveryRange!: number;
+  deliveryConfirmRadiusM?: number;
   deliveryFee!: number;
   minOrderAmount!: number;
   businessHours?: BusinessHours;

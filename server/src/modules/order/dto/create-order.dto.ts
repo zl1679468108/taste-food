@@ -73,7 +73,7 @@ export class CreateOrderDto {
   @IsOptional()
   address?: string;
 
-  /** 配送地址纬度（GCJ-02）；优先客户端选点，缺省服务端 geocode */
+  /** 配送地址纬度（GCJ-02）；外卖必填，客户端地址簿地图选点传入 */
   @IsOptional()
   @Type(() => Number)
   @IsNumber()

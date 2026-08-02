@@ -8,6 +8,96 @@ import { useAuthStore } from '../stores/authStore';
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 const isTestEnv = process.env.NODE_ENV === 'test';
 
+// ==================== 熔断器（Circuit Breaker）====================
+// 连续 N 个 5xx 错误后阻断后续请求，避免服务端过载时客户端雪崩式重试。
+
+interface CircuitBreakerState {
+  /** 连续失败计数 */
+  consecutiveFailures: number;
+  /** 触发熔断的连续失败阈值 */
+  threshold: number;
+  /** 熔断开启后的冷却时间（ms） */
+  cooldownMs: number;
+  /** 熔断打开的时间戳（0 = 关闭） */
+  openedAt: number;
+  /** 是否处于半开状态（允许一次探测请求） */
+  halfOpen: boolean;
+}
+
+const circuitBreaker: CircuitBreakerState = {
+  consecutiveFailures: 0,
+  threshold: 3,
+  cooldownMs: 30_000, // 30 秒冷却
+  openedAt: 0,
+  halfOpen: false,
+};
+
+/** 判断业务码是否属于服务端错误（5xx） */
+function isServerErrorCode(code: number): boolean {
+  return code >= 500 && code < 600;
+}
+
+/** 检查熔断器是否已打开，若打开则返回错误信息 */
+function checkCircuitOpen(): string | null {
+  const now = Date.now();
+  if (circuitBreaker.openedAt > 0 && now - circuitBreaker.openedAt >= circuitBreaker.cooldownMs) {
+    circuitBreaker.halfOpen = true;
+    return null; // 允许通过，作为探测请求
+  }
+  if (circuitBreaker.openedAt > 0 && !circuitBreaker.halfOpen) {
+    const remaining = Math.ceil((circuitBreaker.cooldownMs - (now - circuitBreaker.openedAt)) / 1000);
+    return `服务暂时不可用，将在 ${remaining}秒 后自动恢复`;
+  }
+  return null;
+}
+
+/** 记录一次请求成功 → 重置/关闭熔断器 */
+function recordSuccess(): void {
+  if (circuitBreaker.halfOpen) {
+    circuitBreaker.consecutiveFailures = 0;
+    circuitBreaker.openedAt = 0;
+    circuitBreaker.halfOpen = false;
+  } else {
+    circuitBreaker.consecutiveFailures = 0;
+  }
+}
+
+/** 记录一次服务端失败 → 可能触发熔断 */
+function recordFailure(): void {
+  circuitBreaker.consecutiveFailures += 1;
+  if (circuitBreaker.halfOpen) {
+    circuitBreaker.openedAt = Date.now();
+    circuitBreaker.halfOpen = false;
+    return;
+  }
+  if (circuitBreaker.consecutiveFailures >= circuitBreaker.threshold) {
+    circuitBreaker.openedAt = Date.now();
+    circuitBreaker.halfOpen = false;
+    Taro.showToast({ title: '服务异常频繁，请求已暂停', icon: 'none', duration: 2000 });
+  }
+}
+
+/** 获取熔断器当前状态（供调试/外部查询） */
+export function getCircuitBreakerState() {
+  const now = Date.now();
+  const isOpen = circuitBreaker.openedAt > 0 &&
+    now - circuitBreaker.openedAt < circuitBreaker.cooldownMs;
+  return {
+    isOpen,
+    isHalfOpen: circuitBreaker.halfOpen,
+    consecutiveFailures: circuitBreaker.consecutiveFailures,
+    threshold: circuitBreaker.threshold,
+    openedAt: circuitBreaker.openedAt ? new Date(circuitBreaker.openedAt).toISOString() : null,
+  };
+}
+
+/** 手动重置熔断器（用于调试或用户主动刷新） */
+export function resetCircuitBreaker(): void {
+  circuitBreaker.consecutiveFailures = 0;
+  circuitBreaker.openedAt = 0;
+  circuitBreaker.halfOpen = false;
+}
+
 /** 请求方法类型 */
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 type RequestData = Record<string, unknown>;
@@ -74,6 +164,20 @@ function buildCacheKey(method: string, url: string, data?: RequestData): string 
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error || '未知错误');
+}
+
+/** 归一化后端 message（兼容 string / string[] / 空值） */
+function normalizeErrorMessage(message: unknown, fallback = '请求失败'): string {
+  if (typeof message === 'string' && message.trim()) return message;
+  if (Array.isArray(message)) {
+    const joined = message.filter((item) => typeof item === 'string' && item.trim()).join('; ');
+    if (joined) return joined;
+  }
+  return fallback;
+}
+
+function showErrorToast(message: string) {
+  Taro.showToast({ title: message, icon: 'none' });
 }
 
 function sleep(ms: number): Promise<void> {
@@ -157,6 +261,12 @@ async function request<T>(
   data?: RequestData,
   options?: RequestOptions,
 ): Promise<ApiResponse<T>> {
+  // 熔断检查：服务端连续异常时直接拒绝请求
+  const blockMsg = checkCircuitOpen();
+  if (blockMsg) {
+    throw new RequestError(blockMsg, -3, { retryable: false, isNetworkError: false });
+  }
+
   const fullUrl = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
   const cacheKey = options?.cacheKey || buildCacheKey(method, fullUrl, data);
 
@@ -212,10 +322,31 @@ async function request<T>(
         timeout: options?.timeout || 10000,
       });
 
-      const responseData = response.data as ApiResponse<T>;
+      const rawData = response.data;
+      const responseData = (
+        rawData && typeof rawData === 'object' ? rawData : { code: -2, data: null, message: '服务响应异常' }
+      ) as ApiResponse<T>;
 
       if (responseData.code !== 0) {
-       if (isUnauthorizedCode(responseData.code) && !options?.skipAuthRedirect) {
+        // 熔断：业务码 5xx 记录为服务端失败
+        if (isServerErrorCode(responseData.code)) {
+          recordFailure();
+          const blockMsg = checkCircuitOpen();
+          if (blockMsg) {
+            throw new RequestError(blockMsg, responseData.code, {
+              retryable: false,
+              isNetworkError: false,
+            });
+          }
+        }
+
+        const errorMessage = normalizeErrorMessage(responseData.message);
+        let sessionErrorToasted = false;
+
+        // 仅当「本次请求带着 token」时，才把 1004/401 当会话过期去刷新。
+        // 登录/注册等无 token 场景也会返回 1004（如用户名密码错误），必须走普通业务错误 toast。
+        const hadToken = Boolean(token);
+        if (hadToken && isUnauthorizedCode(responseData.code) && !options?.skipAuthRedirect) {
           // access token 过期：先尝试用 refreshToken 换新 token，再重试原请求
           // 注意：后端业务码是 1004（UNAUTHORIZED），不是 HTTP 语义的 401
           if (!tokenRefreshed) {
@@ -233,20 +364,32 @@ async function request<T>(
               // refreshSession 内部会在 refreshToken 过期时自行 logout，这里仅 fallthrough
             }
           }
-          // 刷新失败且 refreshSession 内部未处理登出（token 仍存在但刷新接口返回 1004/401）
-          // 若 storage token 已被清空，说明 refreshSession 内部已经 logout，避免重复处理
+
+          const pages = Taro.getCurrentPages();
+          const currentPage = pages[pages.length - 1];
+          const isLoginPage = currentPage?.route === 'pages/auth/login';
+          const sessionMessage = normalizeErrorMessage(
+            responseData.message,
+            '登录已过期，请重新登录',
+          );
+
+          // 若 storage token 已被清空，说明 refreshSession 内部已经 logout
           if (!getToken()) {
-            throw new RequestError(responseData.message || '登录已过期，请重新登录', responseData.code, {
+            if (options?.showError !== false) {
+              showErrorToast(isLoginPage ? sessionMessage : '登录已过期，请重新登录');
+            }
+            throw new RequestError(sessionMessage, responseData.code, {
               retryable: false,
               isNetworkError: false,
             });
           }
+
           // 刷新后 token 依然存在但再次未认证，走登出流程
-          const pages = Taro.getCurrentPages();
-          const currentPage = pages[pages.length - 1];
-          const isLoginPage = currentPage?.route === 'pages/auth/login';
           if (!isLoginPage) {
-            Taro.showToast({ title: '登录已过期，请重新登录', icon: 'none' });
+            if (options?.showError !== false) {
+              showErrorToast('登录已过期，请重新登录');
+              sessionErrorToasted = true;
+            }
             if (!isTestEnv) {
               setTimeout(() => {
                 useAuthStore.getState().logout();
@@ -259,16 +402,12 @@ async function request<T>(
               // ignore
             }
           }
-       }
+        }
 
-        const businessError = new RequestError(
-          responseData.message || '请求失败',
-          responseData.code,
-          {
-            retryable: RETRYABLE_BUSINESS_CODES.has(responseData.code),
-            isNetworkError: false,
-          },
-        );
+        const businessError = new RequestError(errorMessage, responseData.code, {
+          retryable: RETRYABLE_BUSINESS_CODES.has(responseData.code),
+          isNetworkError: false,
+        });
 
         if (shouldRetry(businessError, options) && attempt < defaultRetries) {
           attempt += 1;
@@ -276,8 +415,8 @@ async function request<T>(
           continue;
         }
 
-        if (options?.showError !== false && responseData.message) {
-          Taro.showToast({ title: responseData.message, icon: 'none' });
+        if (options?.showError !== false && !sessionErrorToasted) {
+          showErrorToast(errorMessage);
         }
 
         throw businessError;
@@ -286,6 +425,9 @@ async function request<T>(
       if (method === 'GET' && shouldUseGetCache(url, options)) {
         setCache(cacheKey, responseData);
       }
+
+      // 熔断：请求成功 → 重置计数
+      recordSuccess();
 
       return responseData;
     } catch (error: unknown) {
@@ -316,7 +458,7 @@ async function request<T>(
           continue;
         }
         if (options?.showError !== false) {
-          Taro.showToast({ title: unknownError.message, icon: 'none' });
+          showErrorToast(unknownError.message);
         }
         throw unknownError;
       }
@@ -328,7 +470,7 @@ async function request<T>(
       }
 
       if (options?.showError !== false) {
-        Taro.showToast({ title: networkError.message, icon: 'none' });
+        showErrorToast(networkError.message);
       }
       throw networkError;
     }

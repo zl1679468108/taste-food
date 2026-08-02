@@ -5,7 +5,7 @@
   "description": "小买卖点餐系统 - PC 管理后台",
   "scripts": {
     "test": "jest --runInBand",
-    "start": "PORT=3012 max dev",
+    "start": "bash ./scripts/start-guard.sh",
     "build": "max build",
     "preview": "max preview",
     "lint": "max lint"

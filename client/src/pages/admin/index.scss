@@ -1,3 +1,4 @@
+@use 'sass:color';
 @use '../../styles/design-tokens' as *;
 
 /* ========== 商家订单管理样式 ========== */
@@ -106,6 +107,8 @@
 }
 
 .tab-item {
+  display: inline-flex;
+  align-items: center;
   padding: $space-3 10px;
   font-size: $font-sm;
   color: $text-secondary;
@@ -131,6 +134,12 @@
     border-radius: $radius-sm;
     margin-left: $space-1;
     color: $text-tertiary;
+
+    &--alert {
+      background: $danger;
+      color: $text-inverse;
+      font-weight: $weight-semibold;
+    }
   }
 }
 
@@ -177,6 +186,47 @@
     font-size: $font-sm;
     color: $text-secondary;
     line-height: $leading-normal;
+
+    &--more {
+      color: $text-hint;
+    }
+  }
+
+  &--urged {
+    border: 1px solid color.mix($warning-dark, $bg-card, 45%);
+    box-shadow: 0 0 0 1px color.mix($warning, $bg-card, 12%), $shadow-sm;
+  }
+
+  &--cancel-request {
+    border: 1px solid color.mix($danger, $bg-card, 40%);
+  }
+
+  &__flags {
+    display: flex;
+    flex-direction: column;
+    gap: $space-1;
+    margin-bottom: $space-2;
+  }
+
+  &__flag {
+    display: inline-flex;
+    align-self: flex-start;
+    max-width: 100%;
+    font-size: $font-xs;
+    line-height: $leading-normal;
+    padding: 2px $space-2;
+    border-radius: $radius-sm;
+    font-weight: $weight-medium;
+
+    &--urge {
+      color: $warning-dark;
+      background: color.mix($warning, $bg-card, 16%);
+    }
+
+    &--cancel {
+      color: $danger-dark;
+      background: color.mix($danger, $bg-card, 12%);
+    }
   }
 
   &__footer {
@@ -334,6 +384,157 @@
 .action-modal__info-value {
   flex: 1;
   color: $text-primary;
+
+  &--danger {
+    color: $danger;
+  }
+}
+
+/* T246.1 顾客手机号一键拨号 */
+.action-modal__contact {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-2;
+}
+
+.action-modal__call-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 $space-3;
+  border-radius: $radius-pill;
+  background: $primary-ghost;
+
+  &:active {
+    opacity: 0.75;
+  }
+}
+
+.action-modal__call-btn-text {
+  font-size: $font-xs;
+  font-weight: $weight-medium;
+  color: $primary;
+}
+
+/* T246.5 商家端取餐码：远距离核对，字号放大 */
+.action-modal__pickup-code {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: $space-2;
+  margin: $space-2 0;
+  padding: $space-2 $space-3;
+  border-radius: $radius-md;
+  background: $primary-ghost;
+}
+
+.action-modal__pickup-code-label {
+  font-size: $font-sm;
+  color: $text-secondary;
+}
+
+.action-modal__pickup-code-value {
+  font-size: $font-4xl;
+  font-weight: $weight-bold;
+  letter-spacing: 3px;
+  color: $primary;
+}
+
+/* T246.5 订单列表待取餐单的取餐码 */
+.order-card__pickup {
+  display: flex;
+  align-items: baseline;
+  gap: $space-1;
+  margin-bottom: $space-1;
+}
+
+.order-card__pickup-label {
+  font-size: $font-2xs;
+  color: $text-tertiary;
+}
+
+.order-card__pickup-code {
+  font-size: $font-lg;
+  font-weight: $weight-bold;
+  letter-spacing: 2px;
+  color: $primary;
+}
+
+.action-modal__alert {
+  margin: $space-2 0;
+  padding: $space-3;
+  border-radius: $radius-md;
+
+  &--urge {
+    background: color.mix($warning, $bg-card, 12%);
+    border: 1px solid color.mix($warning-dark, $bg-card, 28%);
+  }
+
+  &--cancel {
+    background: color.mix($danger, $bg-card, 8%);
+    border: 1px solid color.mix($danger, $bg-card, 25%);
+  }
+
+  &-title {
+    display: block;
+    font-size: $font-sm;
+    font-weight: $weight-semibold;
+    color: $text-primary;
+    line-height: $leading-normal;
+  }
+
+  &-desc {
+    display: block;
+    margin-top: $space-1;
+    font-size: $font-xs;
+    color: $text-secondary;
+    line-height: $leading-normal;
+  }
+
+  &-tip {
+    display: block;
+    margin-top: $space-2;
+    font-size: $font-xs;
+    color: $danger-dark;
+    line-height: $leading-normal;
+  }
+
+  &-actions {
+    display: flex;
+    gap: $space-2;
+    margin-top: $space-3;
+  }
+
+  &-btn {
+    flex: 1;
+    height: 34px;
+    border-radius: $radius-pill;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: $font-sm;
+    font-weight: $weight-medium;
+
+    &--approve {
+      background: $success;
+      color: $text-inverse;
+    }
+
+    &--reject {
+      background: $bg-card;
+      color: $danger;
+      border: 1px solid color.mix($danger, $bg-card, 45%);
+    }
+
+    &--disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+  }
 }
 
 .action-modal__actions {
@@ -674,4 +875,124 @@
   padding: $space-3 0 0;
   border-top: 1px solid $border-color;
   border-radius: 0;
+}
+
+
+.action-modal__proof {
+  margin-top: $space-2;
+  padding-top: $space-2;
+  border-top: 1px solid $border-light;
+}
+
+.action-modal__proof-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-2;
+  margin-top: $space-2;
+}
+
+.action-modal__proof-photo {
+  width: 72px;
+  height: 72px;
+  border-radius: $radius-md;
+  background: $bg-muted;
+}
+
+
+/* 接单预计出餐分钟 */
+.eta-sheet {
+  padding-bottom: $space-2;
+}
+
+.eta-sheet__hint {
+  display: block;
+  font-size: $font-sm;
+  line-height: $leading-normal;
+  color: $text-secondary;
+  margin-bottom: $space-3;
+}
+
+.eta-sheet__presets {
+  display: flex;
+  gap: $space-2;
+  margin-bottom: $space-3;
+}
+
+.eta-sheet__chip {
+  flex: 1;
+  height: 36px;
+  border-radius: $radius-pill;
+  background: $bg-muted;
+  color: $text-secondary;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-sm;
+  font-weight: $weight-medium;
+
+  &--active {
+    background: $primary-light;
+    color: $primary;
+    border: 1px solid $primary;
+  }
+}
+
+.eta-sheet__custom {
+  display: flex;
+  align-items: center;
+  gap: $space-2;
+  margin-bottom: $space-4;
+}
+
+.eta-sheet__custom-label {
+  font-size: $font-sm;
+  color: $text-secondary;
+  flex-shrink: 0;
+}
+
+.eta-sheet__input {
+  flex: 1;
+  height: 36px;
+  padding: 0 $space-3;
+  border-radius: $radius-md;
+  background: $bg-muted;
+  font-size: $font-base;
+  color: $text-primary;
+}
+
+.eta-sheet__custom-unit {
+  font-size: $font-sm;
+  color: $text-tertiary;
+  flex-shrink: 0;
+}
+
+.eta-sheet__btns {
+  display: flex;
+  gap: $space-3;
+}
+
+.eta-sheet__btn {
+  flex: 1;
+  height: 44px;
+  border-radius: $radius-full;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-base;
+  font-weight: $weight-medium;
+
+  &--ghost {
+    background: $bg-muted;
+    color: $text-secondary;
+  }
+
+  &--primary {
+    background: $gradient-admin;
+    color: $text-inverse;
+  }
+
+  &.disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
 }

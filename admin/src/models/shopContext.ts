@@ -7,6 +7,8 @@ import { STALE_TIMES } from '@/lib/queryClient';
 import { DEFAULT_SHOP_ID } from '@/utils/constants';
 
 export const ADMIN_SHOP_STORAGE_KEY = 'tf_admin_shop_id';
+/** 顶栏店铺视角的持久化 key：'shop' = 单店视角，'all' = 全店视角（仅平台管理员） */
+export const ADMIN_SCOPE_STORAGE_KEY = 'tf_admin_shop_scope';
 
 function readStoredShopId(): string | null {
   try {
@@ -24,6 +26,25 @@ function writeStoredShopId(shopId: string) {
   }
 }
 
+function readStoredScope(): 'shop' | 'all' {
+  try {
+    const v = localStorage.getItem(ADMIN_SCOPE_STORAGE_KEY);
+    return v === 'all' ? 'all' : 'shop';
+  } catch {
+    return 'shop';
+  }
+}
+
+function writeStoredScope(scope: 'shop' | 'all') {
+  try {
+    localStorage.setItem(ADMIN_SCOPE_STORAGE_KEY, scope);
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+export type ShopScope = 'shop' | 'all';
+
 /**
  * 全局店铺上下文（UMI model）
  *
@@ -39,6 +60,8 @@ export default function useShopContextModel() {
   const queryClient = useQueryClient();
 
   const [shopId, setShopIdState] = useState<string>('');
+  /** 顶栏店铺视角：单店 / 全店。仅平台管理员可切到全店，商家恒为单店。 */
+  const [scope, setScopeState] = useState<ShopScope>('shop');
 
   /**
    * 平台管理员（无 boundShopId）可切换任意店；
@@ -109,6 +132,17 @@ export default function useShopContextModel() {
     });
   }, [boundShopId, currentUser, resolveInitialShopId, shops, shopsQuery.isError]);
 
+  // 视角（单店/全店）初始化：商家恒为单店；平台管理员恢复持久化值
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!canSwitchShops) {
+      setScopeState('shop');
+      writeStoredScope('shop');
+      return;
+    }
+    setScopeState(readStoredScope());
+  }, [currentUser, canSwitchShops]);
+
   const loadShops = useCallback(async () => {
     if (!currentUser) return;
     await queryClient.fetchQuery({
@@ -126,8 +160,21 @@ export default function useShopContextModel() {
       }
       setShopIdState(next);
       writeStoredShopId(next);
+      // 选定具体门店即回到单店视角（全店需显式选择「全店」项）
+      setScopeState('shop');
+      writeStoredScope('shop');
     },
     [boundShopId, canSwitchShops],
+  );
+
+  const setScope = useCallback(
+    (next: ShopScope) => {
+      // 仅平台管理员可切换视角；商家恒为单店
+      if (!canSwitchShops && next === 'all') return;
+      setScopeState(next);
+      writeStoredScope(next);
+    },
+    [canSwitchShops],
   );
 
   const currentShop = useMemo(
@@ -144,6 +191,8 @@ export default function useShopContextModel() {
     ready: loaded && !!shopId,
     canSwitchShops,
     boundShopId,
+    scope,
+    setScope,
     setShopId,
     loadShops,
   };

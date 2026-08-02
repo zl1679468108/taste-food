@@ -1,12 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { View, Text } from '@tarojs/components';
-import Taro from '@tarojs/taro';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { useAuthStore } from '../../stores/authStore';
 import EmptyState from '../../components/EmptyState';
 import Icon from '../../components/Icon';
 import type { IconName } from '../../components/Icon';
 import FooterBar from '../../components/FooterBar';
-import { useAsyncAction } from '../../hooks';
+import { useAsyncAction, useSyncTabBar } from '../../hooks';
+import { get } from '../../utils/request';
+import { TAB_BAR_PATHS } from '../../utils/tab-bar';
 import './index.scss';
 
 type AppRole = 'customer' | 'admin' | 'merchant' | 'rider';
@@ -27,14 +29,23 @@ function normalizeRole(role?: string): AppRole {
   return 'customer';
 }
 
+function formatUnreadCount(count: number): string {
+  if (count <= 0) return '';
+  if (count > 99) return '99+';
+  return String(count);
+}
+
 export default function MinePage() {
+  useSyncTabBar(TAB_BAR_PATHS.mine);
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const fetchMe = useAuthStore((s) => s.fetchMe);
   const getRoleLabel = useAuthStore((s) => s.getRoleLabel);
   const switchRole = useAuthStore((s) => s.switchRole);
   const { pending: switching, run: runSwitchRole } = useAsyncAction();
   const [switchingKey, setSwitchingKey] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
   // 直接读取 user.roles 原始数据，避免在 selector 里调用方法返回新数组导致无限重渲染
   const userRoles = useAuthStore((s) => s.user?.roles);
   const switchableRoles = useMemo(() => {
@@ -56,6 +67,34 @@ export default function MinePage() {
       : role === 'rider'
         ? '接单配送，准时送达'
         : '点好味道，吃得开心';
+  const unreadText = formatUnreadCount(unreadCount);
+  const hasExtraRoles = switchableRoles.some((r) => r.role !== 'customer' && r.role !== role);
+
+  const loadUnreadCount = useCallback(async () => {
+    if (!useAuthStore.getState().isLoggedIn) {
+      setUnreadCount(0);
+      return;
+    }
+    try {
+      const res = await get<{ count: number }>('/notifications/unread-count', undefined, { showError: false });
+      setUnreadCount(Math.max(0, Number(res.data?.count || 0)));
+    } catch {
+      // 未读数失败不影响主流程
+    }
+  }, []);
+
+  const refreshMine = useCallback(async () => {
+    if (!useAuthStore.getState().isLoggedIn) {
+      setUnreadCount(0);
+      return;
+    }
+    // 审批通过后本地 user.roles 可能仍是旧缓存，每次进入「我的」都拉最新身份
+    await Promise.all([fetchMe(), loadUnreadCount()]);
+  }, [fetchMe, loadUnreadCount]);
+
+  useDidShow(() => {
+    void refreshMine();
+  });
 
   const serviceMenus = useMemo<MenuItem[]>(() => {
     if (role === 'admin' || role === 'merchant') {
@@ -211,34 +250,13 @@ export default function MinePage() {
           </View>
         )}
 
-        <View className='mine-panel mine-account-panel'>
-          <View className='mine-panel__head'>
-            <Text className='mine-panel__title'>账号服务</Text>
-          </View>
-          <View className='mine-list'>
-            <View className='mine-list__item' onClick={() => Taro.navigateTo({ url: '/pages/mine/role-apply' })}>
-              <View className='mine-list__icon'><Icon name='shop' size={20} color={BRAND_COLOR} /></View>
-              <View className='mine-list__body'>
-                <Text className='mine-list__label'>身份申请</Text>
-                <Text className='mine-list__desc'>申请成为商家 / 骑手</Text>
-              </View>
-              <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
-            </View>
-            <View className='mine-list__item mine-list__item--last' onClick={() => Taro.navigateTo({ url: '/pages/mine/notifications' })}>
-              <View className='mine-list__icon'><Icon name='list' size={20} color={BRAND_COLOR} /></View>
-              <View className='mine-list__body'>
-                <Text className='mine-list__label'>消息中心</Text>
-                <Text className='mine-list__desc'>审批结果与系统通知</Text>
-              </View>
-              <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
-            </View>
-          </View>
-        </View>
-
         {switchableRoles.length > 1 && (
           <View className='mine-panel mine-account-panel'>
             <View className='mine-panel__head'>
               <Text className='mine-panel__title'>切换身份</Text>
+              {hasExtraRoles ? (
+                <Text className='mine-panel__hint'>审批已通过，点下方身份即可接单</Text>
+              ) : null}
             </View>
             <View className='mine-role-switch'>
               {switchableRoles.map((r) => {
@@ -271,6 +289,36 @@ export default function MinePage() {
             </View>
           </View>
         )}
+
+        <View className='mine-panel mine-account-panel'>
+          <View className='mine-panel__head'>
+            <Text className='mine-panel__title'>账号服务</Text>
+          </View>
+          <View className='mine-list'>
+            <View className='mine-list__item' onClick={() => Taro.navigateTo({ url: '/pages/mine/role-apply' })}>
+              <View className='mine-list__icon'><Icon name='shop' size={20} color={BRAND_COLOR} /></View>
+              <View className='mine-list__body'>
+                <Text className='mine-list__label'>身份申请</Text>
+                <Text className='mine-list__desc'>申请成为商家 / 骑手</Text>
+              </View>
+              <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
+            </View>
+            <View className='mine-list__item mine-list__item--last' onClick={() => Taro.navigateTo({ url: '/pages/mine/notifications' })}>
+              <View className='mine-list__icon'><Icon name='list' size={20} color={BRAND_COLOR} /></View>
+              <View className='mine-list__body'>
+                <Text className='mine-list__label'>消息中心</Text>
+                <Text className='mine-list__desc'>审批结果与系统通知</Text>
+              </View>
+              {unreadText ? (
+                <View className='mine-list__badge'>
+                  <Text className='mine-list__badge-text'>{unreadText}</Text>
+                </View>
+              ) : (
+                <Icon name='arrow-right' size={16} color={MUTED_ICON_COLOR} />
+              )}
+            </View>
+          </View>
+        </View>
 
         <View className='mine-logout' onClick={handleLogout}>
           <Text className='mine-logout__text'>退出登录</Text>

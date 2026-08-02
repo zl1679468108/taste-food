@@ -46,7 +46,8 @@ test('sandbox payment marks a pending order as paid and emits paid/new-order eve
 
     assert.equal(payment.orderId, order.id);
     assert.equal(payment.amount, 1200);
-    assert.equal(payment.status, 'success');
+    // 支付成功态统一为 'paid'（历史 'success' 仍被 DB CHECK 与前端兼容，但不再产出）
+    assert.equal(payment.status, 'paid');
     assert.equal(payment.mock, true);
     assert.equal(payment.provider, 'sandbox');
     assert.equal(paidOrder.status, OrderStatus.PAID);
@@ -125,13 +126,18 @@ test('delivery order follows paid to completed status path', async () => {
   const { service } = createOrderService();
   const order = await createDeliveryOrder(service);
 
-  const completed = await moveOrderThrough(service, order.id, [
+  await moveOrderThrough(service, order.id, [
     OrderStatus.PAID,
     OrderStatus.ACCEPTED,
     OrderStatus.PREPARING,
-    OrderStatus.DELIVERING,
-    OrderStatus.COMPLETED,
+    OrderStatus.READY_FOR_DELIVERY,
   ]);
+  await service.grabOrder(order.id, 'rider-complete-1');
+  const completed = await service.forceCompleteOrder(
+    order.id,
+    { userId: 'merchant-1', role: 'merchant' },
+    '测试强制完成',
+  );
 
   assert.equal(completed.status, OrderStatus.COMPLETED);
 });

@@ -4,8 +4,8 @@ module.exports = {
   moduleNameMapper: {
     '^@/assets/images/shop-logo-default\\.png$': '<rootDir>/__mocks__/fileMock.js',
     '^@/(.*)$': '<rootDir>/src/$1',
-    '^@taste-food/shared$': '<rootDir>/../packages/shared/src/index.ts',
-    '^@taste-food/shared/(.*)$': '<rootDir>/../packages/shared/src/$1/index.ts',
+    '^@taste-food/shared$': '<rootDir>/../shared/src/index.ts',
+    '^@taste-food/shared/(.*)$': '<rootDir>/../shared/src/$1/index.ts',
     '\\.(css|less|scss)$': 'identity-obj-proxy',
     '\\.(png|jpg|jpeg|webp|svg|gif)$': '<rootDir>/__mocks__/fileMock.js',
   },

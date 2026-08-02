@@ -1,6 +1,6 @@
 import Icon, { type IconName } from '../../components/Icon';
 import FoodThumb from '../../components/FoodThumb';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, Input } from '@tarojs/components';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post } from '../../utils/request';
@@ -8,13 +8,14 @@ import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
 import { formatPriceWithSymbol } from '../../utils/format';
 import { DeliveryType } from '../../types/order';
+import { getRemarkTagsByDeliveryType } from '../../utils/constants';
 import { DEFAULT_SHOP_ID } from '../../env';
 import { loadDineContext } from '../../utils/dine-context';
 import { Promotion } from '../../types/promotion';
 import { MenuItemStatus, type MenuItem } from '../../types/menu';
 import SectionCard from '../../components/SectionCard';
 import FooterBar from '../../components/FooterBar';
-import { isNonEmpty } from '../../utils/validators';
+import { isNonEmpty, isValidPhone } from '../../utils/validators';
 import { estimateDiscount } from '../../utils/promotion';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import type { AddressItem } from '../address/index';
@@ -34,6 +35,11 @@ const OrderConfirmPage = () => {
   // 本地状态
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(DeliveryType.PICKUP);
   const [tableNo, setTableNo] = useState('');
+  // T246.1: 自取/堂食联系人信息
+  const authPhone = useAuthStore((s) => s.user?.phone);
+  const authNickName = useAuthStore((s) => s.user?.nickName);
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
   const { pending: submitting, run: runSubmit } = useAsyncAction();
   const [shopName, setShopName] = useState('');
   const [shopAddress, setShopAddress] = useState('');
@@ -44,17 +50,51 @@ const OrderConfirmPage = () => {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [promotionsLoading, setPromotionsLoading] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState<AddressItem | null>(null);
+  const [addressCoordWarning, setAddressCoordWarning] = useState(false);
+
+  const applySelectedAddress = (addr: AddressItem | null) => {
+    if (
+      addr &&
+      (typeof addr.latitude !== 'number' || typeof addr.longitude !== 'number')
+    ) {
+      setSelectedAddress(null);
+      setAddressCoordWarning(true);
+      return;
+    }
+    setAddressCoordWarning(false);
+    setSelectedAddress(addr);
+  };
+
   const [addressLoading, setAddressLoading] = useState(false);
 
   const deliveryFee = deliveryType === DeliveryType.DELIVERY ? shopDeliveryFee : 0;
 
-  // 扫码入座上下文：默认堂食 + 桌号
-  useEffect(() => {
+  // 用户手动选过配送方式后，扫码入座上下文不再回灌，
+  // 否则从地址簿/登录页返回触发 useDidShow 会把已切走的堂食桌号又带回来（T246.2）
+  const deliveryTypeTouchedRef = useRef(false);
+
+  // 扫码入座上下文：默认堂食 + 桌号（每次显示时同步，避免从菜单清除桌号后仍沿用旧值）
+  const applyDineContext = useCallback(() => {
+    if (deliveryTypeTouchedRef.current) return;
     const ctx = loadDineContext();
     if (!ctx?.tableNo) return;
     setDeliveryType(DeliveryType.DINE_IN);
     setTableNo(ctx.tableNo);
   }, []);
+
+  useEffect(() => {
+    applyDineContext();
+  }, [applyDineContext]);
+
+  // T246.1: 预填登录用户的联系人信息。
+  // 资料可能在页面挂载后才异步到达，故跟随 authStore 变化补填；
+  // 用户已手动输入过则不再覆盖。
+  const contactTouchedRef = useRef(false);
+  useEffect(() => {
+    if (contactTouchedRef.current) return;
+    if (authNickName) setContactName((prev) => prev || authNickName);
+    if (authPhone) setContactPhone((prev) => prev || authPhone);
+  }, [authNickName, authPhone]);
 
 
   const loadShopInfo = useCallback(async () => {
@@ -89,27 +129,41 @@ const OrderConfirmPage = () => {
   }, []);
 
   const applyAddress = useCallback((addr: AddressItem | null) => {
-    setSelectedAddress(addr);
+    applySelectedAddress(addr);
   }, []);
+
+  // 避免 useDidShow 闭包读到过期的 selectedAddress
+  const selectedAddressRef = useRef<AddressItem | null>(null);
+  selectedAddressRef.current = selectedAddress;
+  // 并发去重：首屏/切配送/回页同时触发时只发一次请求
+  const addressRequestRef = useRef<Promise<void> | null>(null);
 
   const loadDefaultAddress = useCallback(async () => {
     if (!useAuthStore.getState().isLoggedIn) return;
-    setAddressLoading(true);
-    try {
-      const res = await get<AddressItem[]>('/addresses', { shopId: cartShopId || DEFAULT_SHOP_ID }, { useCache: false });
-      const list = res.data || [];
-      const preferred = list.find((a) => a.isDefault) || list[0] || null;
-      if (preferred) {
-        applyAddress(preferred);
-      } else {
-        setSelectedAddress(null);
+    if (addressRequestRef.current) return addressRequestRef.current;
+
+    const request = (async () => {
+      setAddressLoading(true);
+      try {
+        const res = await get<AddressItem[]>('/addresses', { shopId: cartShopId || DEFAULT_SHOP_ID }, { useCache: false });
+        const list = res.data || [];
+        const preferred = list.find((a) => a.isDefault) || list[0] || null;
+        if (preferred) {
+          applyAddress(preferred);
+        } else {
+          applySelectedAddress(null);
+        }
+      } catch (e) {
+        console.error('加载默认地址失败:', e);
+      } finally {
+        setAddressLoading(false);
+        addressRequestRef.current = null;
       }
-    } catch (e) {
-      console.error('加载默认地址失败:', e);
-    } finally {
-      setAddressLoading(false);
-    }
-  }, [applyAddress]);
+    })();
+
+    addressRequestRef.current = request;
+    return request;
+  }, [applyAddress, cartShopId]);
 
   useEffect(() => {
     // 检查购物车
@@ -123,13 +177,13 @@ const OrderConfirmPage = () => {
     loadShopInfo();
     // 加载可用优惠
     loadPromotions();
-    // 外卖默认地址
-    loadDefaultAddress();
+    // 默认地址改由 useDidShow 拉取，避免首屏 useEffect + useDidShow 双请求
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 从地址簿返回时读取选中地址；登录后补拉默认地址
+  // 首屏、从地址簿/登录返回时读取选中地址或补拉默认地址
   useDidShow(() => {
+    applyDineContext();
     try {
       const picked = Taro.getStorageSync('tf_selected_address') as AddressItem | '';
       if (picked && typeof picked === 'object' && (picked as AddressItem).id) {
@@ -141,7 +195,7 @@ const OrderConfirmPage = () => {
       // ignore
     }
     // 尚未选中地址且已登录时，补拉默认地址（覆盖先打开页后登录的场景）
-    if (!selectedAddress && useAuthStore.getState().isLoggedIn) {
+    if (!selectedAddressRef.current && useAuthStore.getState().isLoggedIn) {
       loadDefaultAddress();
     }
   });
@@ -172,12 +226,54 @@ const OrderConfirmPage = () => {
 
   /** 选择配送方式 */
   const selectDeliveryType = (type: DeliveryType) => {
+    deliveryTypeTouchedRef.current = true;
     setDeliveryType(type);
     // 切到外卖且尚未选地址时，尝试带出默认地址
     if (type === DeliveryType.DELIVERY && !selectedAddress) {
       loadDefaultAddress();
     }
+    // T246.2: 切到自取/外卖时清空桌号残留，避免被提交
+    if (type !== DeliveryType.DINE_IN) setTableNo('');
+    // T246.2 反向：切到堂食时清掉已选配送地址，避免堂食单携带地址与坐标
+    if (type === DeliveryType.DINE_IN) {
+      setSelectedAddress(null);
+      setAddressCoordWarning(false);
+    }
   };
+
+  /** T246.1: 自取/堂食联系人输入 */
+  const renderPickupContact = () => (
+    <>
+      <Text className='form-field-label'>
+        联系人
+        <Text className='form-required'>*</Text>
+      </Text>
+      <Input
+        className='form-input'
+        placeholder='请输入您的姓名'
+        value={contactName}
+        onInput={(e) => {
+          contactTouchedRef.current = true;
+          setContactName(e.detail.value);
+        }}
+      />
+      <Text className='form-field-label'>
+        手机号
+        <Text className='form-required'>*</Text>
+      </Text>
+      <Input
+        className='form-input'
+        placeholder='请输入手机号'
+        type='number'
+        maxlength={11}
+        value={contactPhone}
+        onInput={(e) => {
+          contactTouchedRef.current = true;
+          setContactPhone(e.detail.value);
+        }}
+      />
+    </>
+  );
 
   const syncCartAvailabilityBeforeSubmit = async (): Promise<boolean> => {
     const shopId = cartShopId || DEFAULT_SHOP_ID;
@@ -257,12 +353,33 @@ const OrderConfirmPage = () => {
         Taro.showToast({ title: '收货电话不完整，请重新选择', icon: 'none' });
         return;
       }
+      if (
+        typeof selectedAddress.latitude !== 'number'
+        || typeof selectedAddress.longitude !== 'number'
+      ) {
+        Taro.showToast({ title: '地址缺少坐标，请重新地图选点', icon: 'none' });
+        Taro.navigateTo({
+          url: `/pages/address/edit?id=${selectedAddress.id}`,
+        });
+        return;
+      }
     }
 
     // 堂食桌号必填
     if (deliveryType === DeliveryType.DINE_IN && !isNonEmpty(tableNo)) {
       Taro.showToast({ title: '请填写桌号', icon: 'none' });
       return;
+    }
+    // T246.1: 自取/堂食联系人必填
+    if (deliveryType !== DeliveryType.DELIVERY) {
+      if (!isNonEmpty(contactName)) {
+        Taro.showToast({ title: '请填写联系人姓名', icon: 'none' });
+        return;
+      }
+      if (!isValidPhone(contactPhone)) {
+        Taro.showToast({ title: '请填写正确的手机号', icon: 'none' });
+        return;
+      }
     }
 
     await runSubmit(async () => {
@@ -290,7 +407,15 @@ const OrderConfirmPage = () => {
         })),
         deliveryType,
         // deliveryFee 由服务端从店铺配置获取，不信任客户端传值
-        tableNo: (deliveryType === DeliveryType.DINE_IN || deliveryType === DeliveryType.PICKUP) ? tableNo : '',
+        // T246.2: 仅堂食携带桌号，自取/外卖一律不传，避免切换配送方式后的桌号残留
+        tableNo: deliveryType === DeliveryType.DINE_IN ? tableNo.trim() : '',
+        // T246.1: 自取/堂食也传联系人
+        contactName: deliveryType !== DeliveryType.DELIVERY
+          ? contactName.trim()
+          : (selectedAddress?.contactName?.trim() || ''),
+        contactPhone: deliveryType !== DeliveryType.DELIVERY
+          ? contactPhone.trim()
+          : (selectedAddress?.contactPhone?.trim() || ''),
         remark: cartRemarks || '',
         // 空值不传，避免后端把空串当有效手机号/联系人校验失败
         address: deliveryType === DeliveryType.DELIVERY
@@ -303,12 +428,6 @@ const OrderConfirmPage = () => {
               deliveryLatitude: selectedAddress.latitude,
               deliveryLongitude: selectedAddress.longitude,
             }
-          : {}),
-        ...(selectedAddress?.contactName?.trim()
-          ? { contactName: selectedAddress.contactName.trim() }
-          : {}),
-        ...(selectedAddress?.contactPhone?.trim()
-          ? { contactPhone: selectedAddress.contactPhone.trim() }
           : {}),
       };
 
@@ -342,7 +461,8 @@ const OrderConfirmPage = () => {
   const discountAmount = estimateDiscount(promotions, subtotal);
   const total = Math.max(0, subtotal + deliveryFee - discountAmount);
 
-  const remarkTags = ['少辣', '不要葱', '多醋', '不要辣', '加蒜'];
+  // T246.5: 备注快捷标签按配送类型区分（自取/堂食额外给出到店时间等标签）
+  const remarkTags = getRemarkTagsByDeliveryType(deliveryType);
 
   return (
     <View className='order-confirm'>
@@ -382,6 +502,14 @@ const OrderConfirmPage = () => {
                   收货地址
                   <Text className='form-required'>*</Text>
                 </Text>
+                {addressCoordWarning ? (
+                  <View className='address-coord-warning' onClick={openAddressBook}>
+                    <Text className='address-coord-warning__text'>
+                      默认/所选地址缺少地图坐标，请完善或更换地址后再下单
+                    </Text>
+                    <Text className='address-coord-warning__action'>去处理 ›</Text>
+                  </View>
+                ) : null}
                 {addressLoading ? (
                   <Text className='address-book-block__hint'>地址加载中...</Text>
                 ) : selectedAddress ? (
@@ -421,21 +549,25 @@ const OrderConfirmPage = () => {
                   value={tableNo}
                   onInput={(e) => setTableNo(e.detail.value)}
                 />
+                {renderPickupContact()}
               </View>
             ) : (
-              <View className='address-book-card address-book-card--shop'>
-                <View className='address-book-card__row'>
-                  <Text className='address-book-card__name'>{shopName || '门店'}</Text>
-                  {shopPhone ? (
-                    <Text className='address-book-card__phone'>{shopPhone}</Text>
-                  ) : null}
-                  <Text className='address-book-card__badge soft'>自取</Text>
+              <>
+                <View className='address-book-card address-book-card--shop'>
+                  <View className='address-book-card__row'>
+                    <Text className='address-book-card__name'>{shopName || '门店'}</Text>
+                    {shopPhone ? (
+                      <Text className='address-book-card__phone'>{shopPhone}</Text>
+                    ) : null}
+                    <Text className='address-book-card__badge soft'>自取</Text>
+                  </View>
+                  <Text className='address-book-card__detail'>
+                    {shopAddress || '门店地址暂未设置'}
+                  </Text>
+                  <Text className='address-book-card__switch'>请前往门店自取</Text>
                 </View>
-                <Text className='address-book-card__detail'>
-                  {shopAddress || '门店地址暂未设置'}
-                </Text>
-                <Text className='address-book-card__switch'>请前往门店自取</Text>
-              </View>
+                {renderPickupContact()}
+              </>
             )}
           </View>
         </SectionCard>

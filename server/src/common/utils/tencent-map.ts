@@ -25,7 +25,7 @@ type CacheEntry = { value: GeocodeResult | null; expiresAt: number };
 const geocodeCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-function getMapKey(): string {
+export function getMapKey(): string {
   return (process.env.TENCENT_MAP_KEY || process.env.QQ_MAP_KEY || '').trim();
 }
 
@@ -147,4 +147,135 @@ export async function resolveGeoPoint(params: {
   if (!params.address?.trim()) return undefined;
   const coded = await geocodeAddress(params.address, { region: params.region });
   return coded || undefined;
+}
+
+
+export interface StaticMapMarker {
+  latitude: number;
+  longitude: number;
+  /** 颜色，如 blue / 0xFF6B35 */
+  color?: string;
+  /** 单字符或短 label */
+  label?: string;
+}
+
+/**
+ * 拉取腾讯静态地图图片（WebService Key）。
+ * 成功返回 image buffer；未配置 key / 失败返回 null。
+ */
+export async function fetchStaticMapImage(options: {
+  markers: StaticMapMarker[];
+  path?: Array<{ latitude: number; longitude: number }>;
+  size?: string;
+  zoom?: number;
+  scale?: 1 | 2;
+}): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const key = getMapKey();
+  if (!key) return null;
+
+  const markers = (options.markers || []).filter(
+    (m) => Number.isFinite(m.latitude) && Number.isFinite(m.longitude),
+  );
+  if (markers.length === 0) return null;
+
+  const size = options.size || '640*360';
+  const scale = options.scale || 2;
+  const params = new URLSearchParams({
+    key,
+    size,
+    scale: String(scale),
+    maptype: 'roadmap',
+  });
+  if (options.zoom) params.set('zoom', String(options.zoom));
+
+  // markers=color:blue|label:店|lat,lng|color:0xFF6B35|label:骑|lat,lng
+  const markerParts: string[] = ['size:large'];
+  for (const m of markers) {
+    markerParts.push(`color:${m.color || 'blue'}`);
+    if (m.label) markerParts.push(`label:${m.label}`);
+    markerParts.push(`${m.latitude},${m.longitude}`);
+  }
+  params.set('markers', markerParts.join('|'));
+
+  const pathPts = (options.path || []).filter(
+    (p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
+  );
+  if (pathPts.length >= 2) {
+    const pathStr =
+      'color:0xFF8F65ff|weight:4|' +
+      pathPts.map((p) => `${p.latitude},${p.longitude}`).join('|');
+    params.set('path', pathStr);
+  }
+
+  // 无 path/多点时由 markers 自动定视野；单点补 center
+  if (markers.length === 1 && pathPts.length < 2) {
+    params.set('center', `${markers[0].latitude},${markers[0].longitude}`);
+    if (!options.zoom) params.set('zoom', '15');
+  }
+
+  try {
+    const url = `https://apis.map.qq.com/ws/staticmap/v2/?${params.toString()}`;
+    const res = await fetch(url);
+    const contentType = res.headers.get('content-type') || '';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (!res.ok) {
+      logger.warn(`腾讯静态地图 HTTP ${res.status}`);
+      return null;
+    }
+    // 失败时接口常返回 JSON
+    if (contentType.includes('application/json') || contentType.includes('text/')) {
+      try {
+        const body = JSON.parse(buf.toString('utf8'));
+        logger.warn(
+          `腾讯静态地图失败: status=${body?.status}, message=${body?.message || ''}`,
+        );
+      } catch {
+        logger.warn('腾讯静态地图返回非图片内容');
+      }
+      return null;
+    }
+    return { buffer: buf, contentType: contentType || 'image/png' };
+  } catch (e) {
+    logger.warn(`腾讯静态地图异常: ${e instanceof Error ? e.message : e}`);
+    return null;
+  }
+}
+
+
+/**
+ * 计算两点球面距离（米）。坐标按 WGS84/GCJ-02 近似（短距离误差可忽略）。
+ */
+export function haversineDistanceMeters(
+  a: GeoPoint,
+  b: GeoPoint,
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * 送达确认有效半径 = 基础半径 + min(定位精度, 缓冲上限)
+ */
+export function resolveDeliveryConfirmRadiusM(params: {
+  baseRadiusM?: number;
+  accuracyM?: number;
+  minM?: number;
+  maxM?: number;
+  accuracyBufferMaxM?: number;
+}): number {
+  const minM = params.minM ?? 200;
+  const maxM = params.maxM ?? 1000;
+  const accuracyBufferMaxM = params.accuracyBufferMaxM ?? 50;
+  const base = Math.min(maxM, Math.max(minM, params.baseRadiusM ?? 500));
+  const accuracy = Math.max(0, params.accuracyM ?? 0);
+  const buffer = Math.min(accuracy, accuracyBufferMaxM);
+  return Math.min(maxM, base + buffer);
 }

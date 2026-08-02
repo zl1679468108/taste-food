@@ -1,8 +1,10 @@
 import React, { useCallback, useState, useMemo } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Space, Popconfirm, Tag, Image } from 'antd';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, Popconfirm, Tag, Image } from 'antd';
+import { antdMessage as message } from '@/utils/antdApp';
 import { EditOutlined, DeleteOutlined, CoffeeOutlined, PictureOutlined } from '@ant-design/icons';
 import { MenuItem } from '@/services/menu';
 import PageHeaderActions from '@/components/PageHeaderActions';
+import AllShopsScopeAlert from '@/components/AllShopsScopeAlert';
 import TableCard from '@/components/TableCard';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { useCrudModal } from '@/hooks/useCrudModal';
@@ -14,9 +16,11 @@ import { isRequestErrorHandled } from '@/utils/request';
 import {
   useCategories,
   useMenuItems,
+  useSpecGroups,
   useCreateMenuItem,
   useUpdateMenuItem,
   useDeleteMenuItem,
+  useBatchUpdateMenuItemStatus,
 } from '@/hooks/queries';
 
 const { TextArea } = Input;
@@ -26,53 +30,61 @@ const MenuItemPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState<string | undefined>();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [batchUpdating, setBatchUpdating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const enabled = ready && !!shopId;
-  const itemsQuery = useMenuItems({ shopId: enabled ? shopId : '' });
+  const itemsQuery = useMenuItems({
+    shopId: enabled ? shopId : '',
+    search: searchText || undefined,
+  });
   const categoriesQuery = useCategories(enabled ? shopId : '');
+  const specGroupsQuery = useSpecGroups(enabled ? shopId : '');
 
   const items = itemsQuery.data ?? [];
   const categories = categoriesQuery.data ?? [];
+  const specGroups = specGroupsQuery.data ?? [];
   const loading = itemsQuery.isPending || categoriesQuery.isPending;
 
   const createItem = useCreateMenuItem();
   const updateItem = useUpdateMenuItem();
   const deleteItem = useDeleteMenuItem();
+  const batchUpdateStatus = useBatchUpdateMenuItemStatus();
 
-const refresh = useCallback(() => {
-  itemsQuery.refetch();
-  categoriesQuery.refetch();
-}, [itemsQuery, categoriesQuery]);
+  const refresh = useCallback(() => {
+    itemsQuery.refetch();
+    categoriesQuery.refetch();
+  }, [itemsQuery, categoriesQuery]);
 
-const handleBatchUpdate = async (status: 'active' | 'inactive') => {
-  setBatchUpdating(true);
-  try {
-    await Promise.all(
-      selectedRowKeys.map((id) =>
-        updateItem.mutateAsync({
-          id: id as string,
-          data: { status, shopId } as Record<string, unknown>,
-        }),
-      ),
-    );
-    message.success(status === 'active' ? '批量上架成功' : '批量下架成功');
-    setSelectedRowKeys([]);
-    refresh();
-  } catch (error) {
-    console.error('批量更新菜品状态失败:', error);
-    if (!isRequestErrorHandled(error)) {
-      message.error('批量更新失败，请重试');
-    }
-  } finally {
-    setBatchUpdating(false);
-  }
-};
+  // 防重：mutation pending 期间按钮 loading，请求层再做同 body 互斥兜底
+  const batchUpdating = batchUpdateStatus.isPending;
 
-const handleBatchActive = () => handleBatchUpdate('active');
+  const handleBatchUpdate = useCallback(
+    async (isAvailable: boolean) => {
+      if (batchUpdating || selectedRowKeys.length === 0) return;
+      try {
+        const result = await batchUpdateStatus.mutateAsync({
+          ids: selectedRowKeys.map((key) => String(key)),
+          isAvailable,
+          shopId,
+        });
+        message.success(
+          isAvailable ? `已上架 ${result.updated} 个菜品` : `已下架 ${result.updated} 个菜品`,
+        );
+        setSelectedRowKeys([]);
+        refresh();
+      } catch (error) {
+        console.error('批量更新菜品状态失败:', error);
+        if (!isRequestErrorHandled(error)) {
+          message.error('批量更新失败，请重试');
+        }
+      }
+    },
+    [batchUpdating, selectedRowKeys, batchUpdateStatus, shopId, refresh],
+  );
 
-const handleBatchInactive = () => handleBatchUpdate('inactive');
+  const handleBatchActive = () => handleBatchUpdate(true);
+
+  const handleBatchInactive = () => handleBatchUpdate(false);
 
   const {
     form,
@@ -88,6 +100,7 @@ const handleBatchInactive = () => handleBatchUpdate('inactive');
       ...record,
       // 后端按分存储，表单按元展示
       price: record.price != null ? record.price / 100 : undefined,
+      specGroupIds: record.specGroupIds || record.specs?.map((s) => s.id) || [],
     }),
   });
 
@@ -159,6 +172,17 @@ const handleBatchInactive = () => handleBatchUpdate('inactive');
       render: (categoryId: string) => categories.find((c) => c.id === categoryId)?.name || '-',
     },
     {
+      title: '规格',
+      key: 'specs',
+      width: 120,
+      ellipsis: true,
+      render: (_: unknown, record: MenuItem) => {
+        const names = (record.specs || []).map((s) => s.name);
+        if (!names.length) return <span style={{ color: 'var(--tf-text-tertiary, #999)' }}>无</span>;
+        return names.join('、');
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -199,52 +223,47 @@ const handleBatchInactive = () => handleBatchUpdate('inactive');
     },
   ];
 
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
-      const matchName = !searchText || item.name?.includes(searchText.trim());
-      const matchCat = !filterCategoryId || item.categoryId === filterCategoryId;
-      return matchName && matchCat;
-    });
-  }, [items, searchText, filterCategoryId]);
+  const filteredItems = useMemo(
+    () => items.filter((item) => !filterCategoryId || item.categoryId === filterCategoryId),
+    [items, filterCategoryId],
+  );
 
-return (
-  <div className="tf-page">
-  <PageHeaderActions
-    icon={<CoffeeOutlined style={{ marginRight: 8 }} />}
-    title={currentShop?.name ? `菜品管理 · ${currentShop.name}` : '菜品管理'}
-    addText="新增菜品"
-    onAdd={handleAdd}
-    onRefresh={refresh}
-    extra={
-      selectedRowKeys.length > 0
-        ? (
-            <Space size="small">
-              <Popconfirm
-                title={`确认批量上架选中的 ${selectedRowKeys.length} 个菜品？`}
-                onConfirm={handleBatchActive}
-                okText="确认"
-                cancelText="取消"
-              >
-                <Button size="small" loading={batchUpdating}>
-                  批量上架 ({selectedRowKeys.length})
-                </Button>
-              </Popconfirm>
-              <Popconfirm
-                title={`确认批量下架选中的 ${selectedRowKeys.length} 个菜品？`}
-                onConfirm={handleBatchInactive}
-                okText="确认"
-                cancelText="取消"
-                okButtonProps={{ danger: true }}
-              >
-                <Button size="small" danger loading={batchUpdating}>
-                  批量下架 ({selectedRowKeys.length})
-                </Button>
-              </Popconfirm>
-            </Space>
-          )
-        : undefined
-    }
-  />
+  const hasSelection = selectedRowKeys.length > 0;
+
+  return (
+    <div className="tf-page">
+      <PageHeaderActions
+        icon={<CoffeeOutlined style={{ marginRight: 'var(--tf-space-2)'}} />}
+        title={currentShop?.name ? `菜品管理 · ${currentShop.name}` : '菜品管理'}
+        addText="新增菜品"
+        onAdd={handleAdd}
+        onRefresh={refresh}
+        extra={
+          <Space size="small">
+            <Button
+              disabled={!hasSelection}
+              loading={batchUpdating}
+              onClick={handleBatchActive}
+            >
+              批量上架{hasSelection ? ` (${selectedRowKeys.length})` : ''}
+            </Button>
+            <Popconfirm
+              title={`确认批量下架选中的 ${selectedRowKeys.length} 个菜品？`}
+              onConfirm={handleBatchInactive}
+              okText="确认"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              disabled={!hasSelection}
+            >
+              <Button danger disabled={!hasSelection} loading={batchUpdating}>
+                批量下架{hasSelection ? ` (${selectedRowKeys.length})` : ''}
+              </Button>
+            </Popconfirm>
+          </Space>
+        }
+      />
+
+      <AllShopsScopeAlert />
 
       <TableCard className="tf-table-card">
         <SearchFilterBar
@@ -260,6 +279,11 @@ return (
           columns={columns}
           dataSource={filteredItems}
           rowKey="id"
+          rowSelection={{
+            selectedRowKeys,
+            onChange: setSelectedRowKeys,
+            preserveSelectedRowKeys: true,
+          }}
           loading={loading}
           size="small"
           pagination={DEFAULT_TABLE_PAGINATION}
@@ -276,7 +300,7 @@ return (
         confirmLoading={submitting}
         okText="保存"
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item
@@ -330,6 +354,22 @@ return (
             ]}
           >
             <MediaPicker shopId={shopId} />
+          </Form.Item>
+          <Form.Item
+            name="specGroupIds"
+            label="规格绑定"
+            extra="规格组可多选；顾客加购时将直接使用这些规格，无需再请求单独接口"
+          >
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder={specGroups.length ? '选择规格组（可选）' : '暂无规格组'}
+              optionFilterProp="label"
+              options={specGroups.map((sg) => ({
+                value: sg.id,
+                label: `${sg.name}${sg.isRequired ? '（必选）' : ''}`,
+              }))}
+            />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="active">
             <Select>

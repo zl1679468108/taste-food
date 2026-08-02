@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Table, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { AuditOutlined } from '@ant-design/icons';
@@ -49,37 +49,10 @@ export default function AuditPage() {
     setPage(1);
   }, [searchText]);
 
-  const auditQuery = useAuditLogs({ page, pageSize, method });
+  const auditQuery = useAuditLogs({ page, pageSize, method, keyword: searchText || undefined });
   const logs = auditQuery.data?.items ?? [];
   const total = auditQuery.data?.total ?? 0;
   const loading = auditQuery.isPending;
-
-  const filteredLogs = useMemo(() => {
-    const keyword = searchText.trim().toLowerCase();
-    if (!keyword) return logs;
-    return logs.filter((row) => {
-      const actionLabel = renderAction(row);
-      const summaryLabel = renderSummary(row);
-      const resourceLabel = getAuditResourceLabel(row.resource);
-      const roleLabel = getAuditRoleLabel(row.role);
-      const haystack = [
-        row.summary,
-        row.action,
-        row.path,
-        row.resource,
-        row.userId,
-        row.ip,
-        actionLabel,
-        summaryLabel,
-        resourceLabel,
-        roleLabel,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(keyword);
-    });
-  }, [logs, searchText]);
 
   const columns = [
     {
@@ -159,7 +132,7 @@ export default function AuditPage() {
   return (
     <div className="tf-page">
       <PageHeaderActions
-        icon={<AuditOutlined style={{ marginRight: 8 }} />}
+        icon={<AuditOutlined style={{ marginRight: 'var(--tf-space-2)' }} />}
         title="操作审计"
         onRefresh={() => void auditQuery.refetch()}
       />
@@ -187,7 +160,7 @@ export default function AuditPage() {
           rowKey="id"
           loading={loading}
           columns={columns as ColumnsType<AuditLog>}
-          dataSource={filteredLogs}
+          dataSource={logs}
           size="small"
           scroll={{ x: 1200 }}
           locale={{
