@@ -3770,10 +3770,17 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getTodayStats(shopId: string): Promise<OrderStats> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 以北京时间为准（UTC+8）划分「今日」，与统计 RPC（v33）口径一致，
+    // 避免 server 运行在 UTC 时区时把北京时间凌晨订单算入「昨天」。
+    const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const bjNow = new Date(Date.now() + BEIJING_OFFSET_MS);
+    const bjY = bjNow.getUTCFullYear();
+    const bjM = bjNow.getUTCMonth();
+    const bjD = bjNow.getUTCDate();
+    const bjMidnightUtcMs = Date.UTC(bjY, bjM, bjD) - BEIJING_OFFSET_MS;
+    const today = new Date(bjMidnightUtcMs);
     const todayStart = today.toISOString();
-    const todayDate = todayStart.split('T')[0];
+    const todayDate = `${bjY}-${String(bjM + 1).padStart(2, '0')}-${String(bjD).padStart(2, '0')}`;
 
     if (hasSupabase() && supabase) {
       // v30: 优先走 PostgreSQL 端聚合 RPC（get_today_stats），

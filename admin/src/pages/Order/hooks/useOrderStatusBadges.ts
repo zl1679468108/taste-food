@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getOrders } from '@/services/order';
+import { getOrderStatusCounts, OrderStatusCounts } from '@/services/order';
 import {
   connectSocket,
   disconnectSocket,
@@ -15,11 +15,11 @@ import {
  * - ready_for_pickup: 待取餐（自取/堂食已出餐待确认）
  * - refund: 退款售后（顾客已申请取消、商家未处理）
  */
-const BADGE_STATUSES: { key: string; status: string }[] = [
-  { key: 'paid', status: 'paid' },
-  { key: 'ready_for_delivery', status: 'ready_for_delivery' },
-  { key: 'ready_for_pickup', status: 'ready_for_pickup' },
-  { key: 'refund', status: 'cancel_request' },
+const BADGE_KEYS: (keyof OrderStatusCounts)[] = [
+  'paid',
+  'ready_for_delivery',
+  'ready_for_pickup',
+  'refund',
 ];
 
 export type OrderStatusBadges = Record<string, number>;
@@ -27,6 +27,7 @@ export type OrderStatusBadges = Record<string, number>;
 /**
  * 本店各状态 Tab 的实时角标数量。
  * 订阅 WS 新单事件重新拉取，并 30s 轮询兜底，保证状态流转后角标及时更新。
+ * v34 改为单次聚合接口 GET /api/orders/counts，替代原来 4 次按状态查列表。
  */
 export function useOrderStatusBadges(options: {
   ready: boolean;
@@ -45,23 +46,13 @@ export function useOrderStatusBadges(options: {
 
     /** 拉取各状态 Tab 的总数 */
     const fetchAll = async (targetShopId: string) => {
-      const entries = await Promise.all(
-        BADGE_STATUSES.map(async ({ key, status }) => {
-          try {
-            const res = await getOrders({
-              shop_id: targetShopId,
-              page: 1,
-              pageSize: 1,
-              status,
-            });
-            return [key, res?.total || 0] as const;
-          } catch {
-            // 拉取失败保持原值，不影响主流程
-            return [key, 0] as const;
-          }
-        }),
-      );
-      setBadges(Object.fromEntries(entries));
+      try {
+        const counts = await getOrderStatusCounts({ shop_id: targetShopId });
+        const entries = BADGE_KEYS.map((key) => [key, counts[key] || 0] as const);
+        setBadges(Object.fromEntries(entries));
+      } catch {
+        // 拉取失败保持原值，不影响主流程
+      }
     };
 
     connectSocket();

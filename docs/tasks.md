@@ -26,6 +26,7 @@
 
 | ID | 任务 | 完成日期 | 备注 |
 |----|------|---------|------|
+| T317 | 订单状态 count 聚合接口与 SQL 优化 | 2026-08-04 | 后端新增 GET /api/orders/counts 独立聚合接口；前端 useOrderStatusBadges 改为单次请求，替代 4 次按状态查列表；新增 v34-order-counts-perf.sql 复合索引（shop/status、status/shop、user/status、rider/status、delivery_pool）；database-init.sql 同步更新 |
 | T316 | 订单列表状态标签加数字角标 | 2026-08-04 | GET /api/orders 同一接口返回 counts；PostgreSQL 单条聚合 count_orders_by_scope；前端 Tab 展示数字角标；生产 Supabase 已 apply v33-order-status-counts.sql（count_orders_by_scope RPC，2026-08-04） |
 | T246.6 | 写 prd.md §3.23「到店核销流程闭环」 | 2026-08-03 | 文档先行；含流程对比表/触点/验收标准/API 表 |
 | T246.7 | 后端核销接口 `POST /api/orders/:id/verify` | 2026-08-03 | 仅商家+店铺归属校验；`ready_for_pickup → completed`；已完成为 409 幂等；附 7 条单测（订单-order-pickup-verify.test.ts） |

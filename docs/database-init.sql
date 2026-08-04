@@ -456,6 +456,19 @@ CREATE INDEX IF NOT EXISTS idx_orders_shop_created_at
 CREATE INDEX IF NOT EXISTS idx_orders_shop_status_created_at
   ON tf_orders(shop_id, status, created_at DESC);
 
+-- v34 订单状态数量聚合性能优化：支撑 GET /api/orders/counts 单次 RPC
+CREATE INDEX IF NOT EXISTS idx_orders_shop_status
+  ON tf_orders(shop_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_status_shop
+  ON tf_orders(status, shop_id);
+CREATE INDEX IF NOT EXISTS idx_orders_user_status
+  ON tf_orders(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_rider_status
+  ON tf_orders(rider_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_delivery_pool
+  ON tf_orders(delivery_type, rider_id, status)
+  WHERE delivery_type = 'delivery' AND rider_id IS NULL;
+
 -- 订单明细查询索引（order_id 高频关联查询，原缺失致全表扫描）
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON tf_order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_shop_id ON tf_order_items(shop_id);
@@ -1263,7 +1276,7 @@ RETURNS TABLE (
   source text
 ) AS $$
 DECLARE
-  v_today date := (now() AT TIME ZONE 'UTC')::date;
+  v_today date := (now() AT TIME ZONE 'Asia/Shanghai')::date;
   v_daily RECORD;
   v_has_daily boolean := false;
   v_total_orders integer := 0;
@@ -1287,7 +1300,7 @@ BEGIN
     SELECT o.status, COALESCE(o.total, 0) AS total
       FROM tf_orders o
      WHERE o.shop_id = p_shop_id
-       AND o.created_at >= date_trunc('day', now())
+       AND o.created_at >= (v_today::timestamp) AT TIME ZONE 'Asia/Shanghai'
   )
   SELECT
     CASE WHEN v_has_daily
@@ -1346,16 +1359,16 @@ DECLARE
   v_span integer;
 BEGIN
   IF p_start_date IS NULL OR p_end_date IS NULL THEN
-    p_start_date := (now() AT TIME ZONE 'UTC')::date - 6;
-    p_end_date := (now() AT TIME ZONE 'UTC')::date;
+    p_start_date := (now() AT TIME ZONE 'Asia/Shanghai')::date - 6;
+    p_end_date := (now() AT TIME ZONE 'Asia/Shanghai')::date;
   END IF;
   IF p_end_date < p_start_date THEN
     RAISE EXCEPTION 'end_date < start_date';
   END IF;
   v_span := LEAST((p_end_date - p_start_date) + 1, 366);
 
-  v_start_ts := (p_start_date::timestamp) AT TIME ZONE 'UTC';
-  v_end_exclusive_ts := ((p_end_date + 1)::timestamp) AT TIME ZONE 'UTC';
+  v_start_ts := (p_start_date::timestamp) AT TIME ZONE 'Asia/Shanghai';
+  v_end_exclusive_ts := ((p_end_date + 1)::timestamp) AT TIME ZONE 'Asia/Shanghai';
 
   v_min_date := GREATEST(p_start_date, p_end_date - (v_span - 1));
   v_max_date := p_end_date;
@@ -1366,7 +1379,7 @@ BEGIN
   ),
   agg AS (
     SELECT
-      (o.created_at AT TIME ZONE 'UTC')::date AS d,
+      (o.created_at AT TIME ZONE 'Asia/Shanghai')::date AS d,
       COUNT(*)::integer AS orders,
       COALESCE(SUM(o.total) FILTER (
         WHERE o.status IN ('completed', 'delivering', 'preparing')
@@ -1388,7 +1401,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 COMMENT ON FUNCTION get_daily_stats(uuid, date, date) IS
-  '日趋势聚合（v30）：PostgreSQL 端 GROUP BY 按日聚合，'
+  '日趋势聚合（v33，时区 Asia/Shanghai）：PostgreSQL 端 GROUP BY 按日聚合，'
   'Node 端不再加载区间内全部订单行。日期桶由 generate_series 补齐零值日。';
 
 -- ============================================================

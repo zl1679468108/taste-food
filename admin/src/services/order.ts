@@ -96,6 +96,20 @@ export interface OrderStats {
   completedCount: number;
 }
 
+/** 订单列表状态标签数量（v34：GET /api/orders/counts） */
+export interface OrderStatusCounts {
+  all: number;
+  pending_payment: number;
+  paid: number;
+  accepted: number;
+  preparing: number;
+  ready_for_delivery: number;
+  ready_for_pickup: number;
+  delivering: number;
+  refund: number;
+  completed: number;
+}
+
 /** 不限时间维度的待处理聚合（对应 GET /api/orders/stats/pending） */
 export interface PendingStats {
   /** 待接单：paid（已支付，等待商家接单） */
@@ -118,7 +132,16 @@ export const getOrders = (params: { shop_id?: string; status?: string; page: num
   if (params.shop_id) query.shop_id = params.shop_id;
   if (params.status) query.status = params.status;
   if (params.keyword) query.keyword = params.keyword;
-  return request.get('/api/orders', { params: query }) as Promise<{ items: Order[]; total: number }>;
+  return request.get('/api/orders', { params: query }) as Promise<{ items: Order[]; total: number; counts?: OrderStatusCounts }>;
+};
+
+/** 订单状态数量聚合（v34）：一次请求替代多次按状态查列表 count */
+export const getOrderStatusCounts = (params: { shop_id?: string; keyword?: string }) => {
+  const query: Record<string, string> = {};
+  // 平台管理员全店视角：不传 shop_id，由后端跨店查询
+  if (params.shop_id) query.shop_id = params.shop_id;
+  if (params.keyword) query.keyword = params.keyword;
+  return request.get('/api/orders/counts', { params: query }) as Promise<OrderStatusCounts>;
 };
 
 export const getOrder = (id: string) =>
