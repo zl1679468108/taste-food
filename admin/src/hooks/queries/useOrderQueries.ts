@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getOrders, getOrder, updateOrderStatus, cancelOrder, resolveCancelRequest,
-  getOrderStats, getDailyStats,
+  getOrderStats, getDailyStats, verifyPickupOrder,
 } from '@/services/order';
 import { queryKeys } from './queryKeys';
 import { STALE_TIMES } from '@/lib/queryClient';
@@ -118,6 +118,20 @@ export function useResolveCancelRequest() {
       reason?: string;
     }) => resolveCancelRequest(id, { approve, reason }),
     onSuccess: (_res, { id }) => {
+      invalidateOrderQueries(qc, id);
+    },
+  });
+}
+
+/**
+ * §3.23 / T246.10 商家到店核销（自取/堂食 ready_for_pickup → completed）。
+ * 核销成功后失效全部相关订单列表查询（含 ready_for_pickup Tab 与今日统计）。
+ */
+export function useVerifyPickup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) => verifyPickupOrder(orderId),
+    onSuccess: (_res, id) => {
       invalidateOrderQueries(qc, id);
     },
   });

@@ -1,7 +1,7 @@
 # 小买卖点餐系统 — 产品需求文档
 
-> **版本**: 1.0.4<br>
-> **更新日期**: 2026-08-01<br>
+> **版本**: 1.0.5<br>
+> **更新日期**: 2026-08-04<br>
 > **仓库**: `/Users/zhaolong/前端/vibe-coding-project/taste-food`  
 > **任务看板**: `docs/tasks.md`（仅含待办/进行中/暂缓计划）  
 > **历史归档**: `docs/archive/`（已完成任务快照，如 `tasks-archive-2026-08-01.md`）  
@@ -104,7 +104,7 @@
 | ✅ 分类管理 | P3 | T51 | done | 搜索栏统一见 §3.18 / T200.1 |
 | ✅ 菜品管理 | P3 | T52 | done |
 | ✅ 订单管理（含待接单实时角标） | P3 | T53 / T245.6 | ✅ 2026-07-31 | PC 后台「已支付/待接单」Tab 实时 Badge，订阅 order:new 即时 +1 |
-| ✅ 用户管理 | P3 | T54 / T203.4 | done | 平台管理员创建账号；商家=admin+shop_id；本人可改资料 |
+| ✅ 用户管理（平台）/ 顾客管理（商家） | P3 | T54 / T203.4 / T312 / T313 | done | 平台端「用户管理」(`/platform/user`，组件 `User`)；商家端「顾客管理」(`/merchant/user`，组件 `CustomerManagement`，展示本店真实顾客)；两入口已拆分为独立组件与接口（§3.24） |
 | ✅ 促销管理 | P3 | T55 | done |
 | ✅ 导出中心（批量异步导出） | P2 | T267 | ✅ 2026-08-01 | 后台异步生成 Excel（.xlsx，不走 CSV）；任务列表/新建/下载；WebSocket 推送完成通知（详见 §3.21） |
 
@@ -385,6 +385,137 @@
 - **配置项偏少**：当前仅话术三选一，无总开关、音量调节、播报重复次数 → `T311`（P3，按需再做）。
 
 ---
+
+### 3.23 到店核销流程闭环 ✅ 2026-08-03
+
+> 关联任务：`T246.6`~`T246.10`（见 `docs/tasks.md`）。目标：纠正自取/堂食场景下「人已在店却仍要求填联系人+手机号」的过度收集；用「**店铺信息 + 二维码 + 商家扫码核销**」替代电话兜底，对齐美团/瑞幸等主流到店流程。
+
+**流程对比**
+
+| 阶段 | 改造前 | 改造后 |
+|------|--------|--------|
+| 下单（自取/堂食） | 必填联系人 + 手机号 | 仅外卖要联系人/电话；自取/堂食只显示店铺联系方式与地址（人已到店，电话联系价值低） |
+| 订单详情（自取/堂食） | 仅展示文字取餐码 | 「**仅二维码**」单形态，顾客出示给店员扫码核销 |
+| 商家核销 | 走订单列表手工检索/按单号核销 | PC 后台 `/merchant/pickup`「到店核销」：待取餐列表 + 扫码 + 输入校验统一入口 |
+| 状态机 | 自取/堂食需要商家手动改状态到 `completed` | 「扫码/输码核销」一键推进 `ready_for_pickup → completed`，并落 `tf_order_status_history` 与 `tf_daily_stats` |
+
+**接入要点**
+
+- 自取下单、下单页 `delivery-type === pickup/dine_in` 不再渲染联系人表单（**彻底不显示**）；提交时 `contactName`/`contactPhone` 传空字符串保留与后端兼容。
+- 二维码内容 = **订单 ID**（含 `tf_` 前缀的内部 UUID）；安全依赖两层：① `POST /orders/:id/verify` 接口强制 `@Roles('merchant')`，且校验 `order.shop_id === currentUser.shopId`（一店一商家，§3.18）；② 商家端扫码后即核销，不返回订单详情给中间人。
+- 状态机保持一致：自取/堂食 `pending_payment → paid → accepted → preparing → ready_for_pickup → completed`（§3.20）。「核销」是商家主动推进的动作，**不能**绕过正常流程；只有当订单为 `ready_for_pickup` 时才允许核销，禁止 `paid/preparing` 状态提前核销（避免商家在出餐前误扫）。
+- 堂食扫码入座（§3.14）的「桌号」仍必填；与自取共享「无需联系信息」策略。
+
+**要什么（验收口径）**
+
+1. **下单页自取/堂食分支干净**：无 `<Input>` 联系人和手机号字段，无相关校验文案，无 `T246.1` 的预填副作用。
+2. **订单详情自取/堂食分支仅呈现二维码**：扫码可识别为订单 ID；点开可放大；商家 PC 端可输入订单 ID 核销，无需文字码兜底。
+3. **PC 商家端新增 `/merchant/pickup` 菜单**：
+   - 待取餐订单列表（自取+堂食，状态 `ready_for_pickup`）
+   - 「扫码核销」按钮（调用浏览器 `BarcodeDetector`，无原生能力时降级为「输入订单 ID 核销」输入框）
+   - 核销成功后该订单从列表移除，订单状态推进 `completed`
+4. **后端核销接口** `POST /api/orders/:id/verify`：
+   - 仅商家角色，店铺归属校验
+   - 仅允许 `ready_for_pickup` → `completed`
+   - 已完成订单二次核销返回 409，业务幂等
+   - 写 `tf_order_status_history`（`READY_FOR_PICKUP → COMPLETED`），联动 `tf_daily_stats`
+   - 单元测试覆盖：权限/店铺归属/状态机/幂等/审计写入
+5. **回归**：现有到店自取下单流程不受影响；自取订单的取消/催单/到店核销二维码展示逻辑不变。
+
+| 功能 | 优先级 | 任务 | 状态 | 说明 |
+|------|--------|------|------|------|
+| ✅ 自取/堂食去除联系方式（T246.8） | P1 | T246.8 | done 2026-08-03 | 下单页不再收集联系信息，仅展示店铺联系方式与地址 |
+| ✅ 订单详情到店核销二维码（T246.9） | P1 | T246.9 | done 2026-08-03 | 自取/堂食订单展示可放大二维码，仅二维码无文字码 |
+| ✅ 后端核销接口（T246.7） | P1 | T246.7 | done 2026-08-03 | `POST /api/orders/:id/verify`，商家+店铺归属校验，`ready_for_pickup → completed` |
+| ✅ PC 后台核销中心（T246.10） | P1 | T246.10 | done 2026-08-03 | `/merchant/pickup`，待取餐列表+扫码/输码核销 |
+
+**已知限制**
+
+- 二维码内容为订单 ID，扫码后即可拿到；安全性靠接口侧权限校验，不依赖 token 加密。如未来引入「骑手扫码」场景需加一次性核销 token，本轮不实现。
+- 浏览器 `BarcodeDetector` 在 Firefox / 部分 Chromium 内核（如旧版微信内置浏览器）下不可用，自动降级为「输入订单 ID 核销」。
+
+---
+### 3.24 用户管理增强（详情抽屉 + 用户画像）✅ 2026-08-03 / 双入口拆分 2026-08-03
+
+> 关联任务：`T312` + `T313` 系列。目标：让「用户管理」与「顾客管理」成为两个真正不同的入口——
+> 平台「用户管理」是账号治理视角；商家「顾客管理」是运营视角（看的是**本店真实顾客**，而非只看到自己这个绑定账号）。
+> 痛点：原共用 `User` 组件时，商家登录后只看到自己一个人 + 编辑我的资料按钮，与「个人中心」几乎无差。
+>
+> **命名与组件约定（双入口、已拆分）**：
+> - **平台管理员**：菜单/页面标题 = **「用户管理」**，路由 `/platform/user`，组件 `User`（账号管理：跨店账号列表、创建、改角色/店铺、详情抽屉）。
+> - **商家**：菜单/页面标题 = **「顾客管理」**，路由 `/merchant/user`，组件 `CustomerManagement`（本店顾客：曾在本店下单的用户，按本店消费聚合），与「个人中心」彻底分开。
+>
+> 本轮**不**做的事（历史记录）：顾客标签/分组、商家黑名单/私信、密码重置、批量操作曾列为跟进项。现顾客标签、商家→顾客站内信已在 §3.25 实现；禁用/启用、密码重置、黑名单下单拦截经决策不做（任务看板已移除）。
+
+| 功能 | 优先级 | 任务 | 状态 | 说明 |
+|------|--------|------|------|------|
+| ✅ 用户详情抽屉（共用） | P1 | T312.1 | done 2026-08-03 | 点列表行展开抽屉：基本资料、当前激活角色+全部角色、状态、OpenID（可复制）、最后登录、近期审计 5 条 |
+| ✅ 用户画像 API | P1 | T312.2 | done 2026-08-03 | `GET /api/users/:id/profile`：返回基础资料 + 全角色 + 状态 + 业务聚合（按角色：顾客=订单/消费/收藏；商家=近 30 天本店订单数；骑手=累计完成/评分/配送中；管理员=管理总账号数）+ 审计摘要 5 条 |
+| ✅ 抽屉按角色渲染画像 | P1 | T312.3 | done 2026-08-03 | 前端按 `targetUser.role` 分块：顾客卡 / 商家卡 / 骑手卡 / 管理员卡；空值友好降级 |
+| 🔄 tf_users.status 字段 | P1 | T312.4 | in_progress | `active`/`disabled`/`banned`，默认 `active`；v31 migration 已写、database-init.sql 已对齐；线上 Supabase 待 apply |
+| ✅ 列表筛选增强 | P2 | T312.5 | done 2026-08-03 | 按状态筛选；关键词拓展支持手机号（已存在 `tf_users.phone`）；按注册时间范围（最近 7/30/90 天） |
+| ✅ 详情页加最近订单跳转 | P2 | T312.6 | done 2026-08-03 | 顾客画像里的「最近订单」点击直接进 `/merchant/orders?userId=...` 商家订单页 |
+| ✅ 商家顾客列表 API | P1 | T313.1 | done 2026-08-03 | `GET /api/merchant/customers`（仅 MERCHANT）：返回本店顾客（曾在本店下单用户），聚合订单数/累计消费/客单价/最近下单；支持关键词、排序（最近下单/消费最多/订单最多）、下单时间窗口 |
+| ✅ 商家顾客画像 API | P1 | T313.2 | done 2026-08-03 | `GET /api/merchant/customers/:id/profile`（仅 MERCHANT）：本店维度基本资料 + 统计 + 最近订单（含件数） |
+| ✅ 顾客管理独立组件 | P1 | T313.6 | done 2026-08-03 | 新建 `CustomerManagement` 列表页 + `CustomerProfileDrawer`（只读、本店维度）；路由 `/merchant/user` 改指该组件，与平台 `User` 彻底分离 |
+
+**要什么（验收口径）**：
+
+1. **商家视角不再是空 list**：即使是「测试商家」账号本身，列表点开后能看到完整画像而非 modal 编辑窗；页面标题显示「顾客管理」。
+2. **平台视角真正管理化**：创建/编辑仍在 modal；点行展开抽屉看画像；页面标题显示「用户管理」。
+3. **详情统一入口**：抽屉是查阅，不是新的编辑表单（编辑仍走原来的 modal，避免动线分裂）。
+4. **状态字段可读可用**：`tf_users.status` 落到 DB，前端展示 + 筛选可用。禁用/启用变更动作、密码重置、黑名单下单拦截经决策不做（任务看板已移除）。
+5. **手机号能搜到**：商家想联系老顾客时能搜手机号（仅平台端或本店范围内可搜，遵循 T200.5 的数据范围）。
+6. **不破坏既有流程**：列表查询参数、modal 编辑、`updateMe`、审核申请等既有路径全部不变。
+
+**已知限制**
+
+- 顾客标签、商家→顾客站内信已在 §3.25 实现（禁用/启用、密码重置、黑名单下单拦截经决策不做）。
+- 业务画像数据按 userId 聚合；商家视角只能看自己店铺产生的画像（与 §3.18 T200.5 单店隔离一致）。
+- 审计摘要只取最近 5 条用于抽屉线索，详细审计仍走 `/platform/audit-logs`（T300.6）。
+
+---
+
+### 3.25 顾客标签 + 站内信（商家运营）✅ 2026-08-03
+
+> 关联任务：`T313.7`–`T313.9`（标签）、`T314`（站内信）。目标：让「顾客管理」从「查阅」升级为「可运营」——
+> 商家能给本店顾客打标签分组、能主动发站内信触达，与「用户管理（平台账号治理）」职责彻底分离。
+
+**数据模型（v32 migration）**
+
+- `tf_customer_tags`（店铺级标签定义：`id / shop_id / name / color`；同一店铺 `name` 唯一）
+- `tf_customer_tag_relations`（顾客↔标签多对多：`user_id / tag_id`，唯一约束）
+- `tf_messages`（商家→顾客站内信：`shop_id / from_user_id / to_user_id / content / read_at`；`read_at` 由顾客在微信小程序侧读取时写入）
+
+**接口**
+
+| 接口 | 方法 | 权限 | 说明 |
+|------|------|------|------|
+| `/api/merchant/customers/tags` | GET | MERCHANT | 店铺标签列表 |
+| `/api/merchant/customers/tags` | POST | MERCHANT | 新建标签（同名冲突 409） |
+| `/api/merchant/customers/tags/:id` | PATCH | MERCHANT | 改标签名/色 |
+| `/api/merchant/customers/tags/:id` | DELETE | MERCHANT | 删标签（级联移除关联） |
+| `/api/merchant/customers/:id/tags` | GET | MERCHANT | 取某顾客本店标签 |
+| `/api/merchant/customers/:id/tags` | PUT | MERCHANT | 全量替换某顾客标签 |
+| `/api/merchant/customers` | GET | MERCHANT | 列表新增 `tagIds` 过滤（命中任一标签），返回项含 `tags` |
+| `/api/merchant/messages/customers/:id` | POST | MERCHANT | 发送站内信（校验收件人为本店顾客） |
+| `/api/merchant/messages` | GET | MERCHANT | 发件箱（可 `toUserId` 过滤） |
+| `/api/merchant/messages/:id/read` | PATCH | MERCHANT | 标记已读 |
+
+**前端（商家「顾客管理」）**
+
+- 列表新增「标签」列、顶部「按标签筛选」（多选）、「标签管理」按钮（标签 CRUD 弹窗）。
+- 顾客详情抽屉新增「标签」区块 +「管理标签」按钮（勾选式分配，支持快速新建）、「发送站内信」按钮（历史列表 + 发送框，显示已读/未读）。
+
+**验收口径**
+
+1. 商家能新建/改名/改色/删除标签；删除后该标签从所有顾客上消失。
+2. 列表能按标签筛选顾客；顾客行能看到其标签。
+3. 抽屉里能给顾客打/卸标签并即时反映到列表。
+4. 商家能给本店顾客发站内信；发件箱可见历史与已读状态；非本店顾客被拒（400）。
+
+---
+
 ## 四、API 接口清单
 
 ### 4.1 认证
@@ -452,7 +583,7 @@
 ### 4.4 订单
 | 方法 | 路径 | 说明 | 鉴权 |
 |------|------|------|------|
-| GET | `/api/orders` | 订单列表（分页+筛选；支持 `shop_id`；`status` 支持 `active`/`history`/`review`/`refund` 或逗号多状态；平台跨店 / 商家本店 / 骑手可配送范围） | 是 |
+| GET | `/api/orders` | 订单列表（分页+筛选；支持 `shop_id`；`status` 支持 `active`/`history`/`review`/`refund` 或逗号多状态；平台跨店 / 商家本店 / 骑手可配送范围；响应 data 含 `counts` 各状态数量角标） | 是 |
 | GET | `/api/orders/stats/:shopId` | 今日营收统计（商家仅本店；平台可指定店） | 是（Admin） |
 | GET | `/api/orders/:id` | 订单详情（含 `statusHistory`、ETA/催单/申请取消字段、外卖完成时 `deliveryProof` 送达凭证；`shopAddress` 门店自取地址） | 是 |
 | POST | `/api/orders` | 创建订单 | 是 |
@@ -465,6 +596,7 @@
 | POST | `/api/orders/:id/reorder` | 再来一单 | 是 |
 | POST | `/api/orders/:id/reviews` | 提交订单评价（仅 completed 且本人一次） | 是 |
 | GET | `/api/orders/:id/reviews` | 查询订单评价 | 是 |
+| POST | `/api/orders/:id/verify` | **到店核销（§3.23）**：商家扫码或输入订单 ID 后一键推进 `ready_for_pickup → completed`；仅 `merchant` 且 `order.shop_id === currentUser.shopId`；订单必须是 `ready_for_pickup`（否则 409），写 `tf_order_status_history` 并联动 `tf_daily_stats` | 是（商家） |
 | POST | `/api/export-jobs` | 提交导出任务（后台异步；body: `entity`(orders) / `status?` / `maxRows?` / `shop_id?`） | 是（Admin/Merchant） |
 | GET | `/api/export-jobs` | 导出任务列表（按店铺隔离；分页 `page`/`pageSize`/`status`） | 是（Admin/Merchant） |
 | GET | `/api/export-jobs/:id` | 任务详情 | 是（Admin/Merchant） |
@@ -477,6 +609,24 @@
 - `cancel_request`（同 `after_sale_pending`）：仅售后待处理（`cancel_requested_at` 非空）
 - `review`：待评价（completed 且未评价）
 - 亦可传逗号分隔多状态，如 `paid,accepted,preparing`
+
+**列表响应 `counts`（§3.20 / T316）**：
+`GET /api/orders` 返回的分页 data 中附带 `counts` 对象，包含同一作用域下各状态订单数量，供前端 Tab 角标一次性展示，无需多次请求：
+```json
+{
+  "all": 120,
+  "pending_payment": 3,
+  "paid": 5,
+  "accepted": 2,
+  "preparing": 8,
+  "ready_for_delivery": 4,
+  "ready_for_pickup": 6,
+  "delivering": 7,
+  "refund": 10,
+  "completed": 75
+}
+```
+`refund` = `cancelled` + `rejected` + `cancel_requested_at` 非空。
 
 ### 4.5 支付
 | 方法 | 路径 | 说明 | 鉴权 |

@@ -93,12 +93,6 @@ const DashboardRangeControl: React.FC<DashboardRangeControlProps> = ({
           placeholder={['开始日期', '结束日期']}
         />
 
-        {isCustom ? (
-          <Tag color="processing">
-            自定义区间 {customRange![0].format('YYYY-MM-DD')} ~ {customRange![1].format('YYYY-MM-DD')}
-          </Tag>
-        ) : null}
-
         {isAllShops && shopCount ? (
           <Tag color="warning">全店汇总 · {shopCount} 家门店</Tag>
         ) : null}

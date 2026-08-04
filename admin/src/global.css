@@ -399,3 +399,196 @@ body {
 .ant-pro-global-header-header-actions-item > .tf-shop-selector:hover {
   background-color: transparent !important;
 }
+
+/* ========== 个人中心页面样式 ========== */
+
+/* 账号信息 + 角色切换 网格布局 */
+.account-profile-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--tf-space-4);
+  align-items: stretch;
+}
+
+@media (max-width: 992px) {
+  .account-profile-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 头部区域（渐变背景 + 头像）── */
+.profile-header {
+  position: relative;
+  padding: var(--tf-space-6) var(--tf-space-5) var(--tf-space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--tf-space-4);
+}
+
+.profile-header-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--tf-primary-light) 0%, #FFF5F0 50%, var(--tf-gray-100) 100%);
+  border-radius: var(--tf-radius-lg) var(--tf-radius-lg) 0 0;
+  pointer-events: none;
+}
+
+.profile-avatar-wrap {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.profile-avatar {
+  background: linear-gradient(135deg, var(--tf-primary) 0%, var(--tf-primary-end) 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 4px 12px rgba(255, 107, 53, 0.3);
+  border: 3px solid #fff;
+}
+
+.profile-badge {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.profile-role-tag {
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.profile-name-section {
+  z-index: 1;
+}
+
+.profile-name {
+  margin: 0 0 2px !important;
+  color: var(--tf-text) !important;
+  font-weight: 700 !important;
+}
+
+.profile-id {
+  font-size: var(--tf-font-xs);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  letter-spacing: 0.3px;
+}
+
+/* ── 信息网格 ── */
+.profile-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  padding: var(--tf-space-4) var(--tf-space-5);
+}
+
+.profile-info-item {
+  padding: var(--tf-space-3) 0;
+  border-bottom: 1px solid var(--tf-divider);
+  overflow: hidden;
+  transition: background 0.15s ease;
+}
+
+/* 左列（奇数项且非整行）加右侧分割线 */
+.profile-info-item:not(.profile-info-item--full):nth-child(odd) {
+  border-right: 1px solid var(--tf-divider);
+  padding-right: var(--tf-space-4);
+}
+
+.profile-info-item--full {
+  grid-column: 1 / -1;
+  border-right: none !important;
+  margin-right: 0 !important;
+  padding-right: 0 !important;
+  border-bottom: none !important;
+}
+
+.info-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: var(--tf-font-xs);
+  color: var(--tf-text-secondary);
+  font-weight: 500;
+}
+
+.info-icon {
+  color: var(--tf-primary);
+  font-size: 13px;
+}
+
+.info-value {
+  min-height: 22px;
+  font-size: var(--tf-font-base);
+}
+
+/* ── 角色标签悬停微交互 ── */
+.profile-info-item .ant-tag {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  cursor: default;
+}
+
+.profile-info-item .ant-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+/* ── 角色切换空状态 ── */
+.role-empty-hint {
+  padding: var(--tf-space-6) 0;
+  text-align: center;
+}
+
+.role-empty-hint .ant-empty-image {
+  height: 48px;
+  margin-bottom: var(--tf-space-2);
+}
+
+.role-empty-hint a {
+  color: var(--tf-primary);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.role-empty-hint a:hover {
+  opacity: 0.75;
+}
+
+/* ── 卡片微交互：轻浮 + 阴影增强 ── */
+.account-profile-grid > .tf-table-card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.account-profile-grid > .tf-table-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08) !important;
+  transform: translateY(-2px);
+}
+
+/* ── 我的申请：空状态引导 ── */
+.apply-empty {
+  text-align: center;
+  padding: var(--tf-space-6) 0;
+}
+
+.apply-empty .ant-empty-image {
+  height: 56px;
+  margin-bottom: var(--tf-space-3);
+}
+
+.apply-empty__tips {
+  color: var(--tf-text-tertiary);
+  font-size: var(--tf-font-sm);
+  margin-bottom: var(--tf-space-4);
+}
+
+/* 小屏：隐藏「我的申请」卡片冗长提示，仅留按钮 */
+@media (max-width: 768px) {
+  .apply-hint-text {
+    display: none;
+  }
+}

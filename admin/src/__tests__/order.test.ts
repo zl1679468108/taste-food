@@ -39,6 +39,7 @@ describe('Order API 服务', () => {
 
       expect(request.get).toHaveBeenCalledWith('/api/orders/stats/today', {
         params: { shop_id: 'shop001' },
+        timeout: 30000,
       });
     });
   });

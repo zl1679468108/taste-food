@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException, Inject, forwardRef, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import * as ExcelJS from 'exceljs';
 import { OrderStatus, DeliveryType, PromotionType, ShopStatus, MenuItemStatus } from '../../common/constants/enums';
@@ -94,6 +94,20 @@ export interface OrderRecord {
   riderName?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** 订单列表状态标签数量 */
+export interface OrderStatusCounts {
+  all: number;
+  pending_payment: number;
+  paid: number;
+  accepted: number;
+  preparing: number;
+  ready_for_delivery: number;
+  ready_for_pickup: number;
+  delivering: number;
+  refund: number;
+  completed: number;
 }
 
 export interface DeliveryProofPhotoRecord {
@@ -213,6 +227,16 @@ export interface OrderStats {
   pendingCount: number;
   preparingCount: number;
   completedCount: number;
+}
+
+/** 不限时间维度的待处理聚合（区别于 getTodayStats 的「今日」口径） */
+export interface PendingStats {
+  /** 待接单：paid（已支付，等待商家接单） */
+  paid: number;
+  /** 待备餐：accepted（商家已接单，等待开始备餐） */
+  accepted: number;
+  /** 合计 = paid + accepted */
+  total: number;
 }
 
 export interface DailyStatsItem {
@@ -2247,6 +2271,143 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     return this.paginate(status ? filtered.filter(o => o.status === status) : filtered, page, pageSize);
   }
 
+  /**
+   * 按作用域聚合各状态订单数量（单条 SQL / 一次内存遍历）。
+   * scopeType: user | shop | rider | pool
+   * scopeId: user_id / shop_id / rider_id；shop 为空表示全店，pool 可空
+   */
+  async countOrdersByScope(
+    scopeType: 'user' | 'shop' | 'rider' | 'pool',
+    scopeId?: string,
+    keyword?: string,
+  ): Promise<OrderStatusCounts> {
+    if (hasSupabase() && supabase) {
+      try {
+        const { data, error } = await supabase.rpc('count_orders_by_scope', {
+          p_scope_type: scopeType,
+          p_scope_id: scopeId || null,
+          p_keyword: keyword || null,
+        });
+        if (!error && data && Array.isArray(data) && data.length > 0) {
+          const row = data[0];
+          return this.normalizeCounts(row);
+        }
+        if (error) {
+          this.logger.warn(`[Order] count_orders_by_scope RPC 失败: ${error.message}`);
+        }
+      } catch (e) {
+        this.logger.warn(
+          `[Order] count_orders_by_scope 异常: ${e instanceof Error ? e.message : e}`,
+        );
+      }
+    }
+
+    // 内存兜底 / RPC 不可用时的本地聚合
+    assertMemoryFallbackAllowed('OrderService');
+    const q = keyword?.trim().toLowerCase();
+    const filtered = Array.from(memoryOrders.values()).filter((o) => {
+      if (scopeType === 'user' && o.userId !== scopeId) return false;
+      if (scopeType === 'shop' && scopeId && o.shopId !== scopeId) return false;
+      if (scopeType === 'rider' && o.riderId !== scopeId) return false;
+      if (scopeType === 'pool') {
+        if (o.deliveryType !== DeliveryType.DELIVERY) return false;
+        if (o.riderId) return false;
+        if (![OrderStatus.READY_FOR_DELIVERY, OrderStatus.PREPARING, OrderStatus.DELIVERING].includes(o.status)) return false;
+        if (scopeId && o.shopId !== scopeId) return false;
+      }
+      if (!q) return true;
+      return (
+        (o.orderNo || '').toLowerCase().includes(q) ||
+        (o.contactName || '').toLowerCase().includes(q) ||
+        (o.contactPhone || '').toLowerCase().includes(q)
+      );
+    });
+
+    return this.computeCounts(filtered);
+  }
+
+  emptyCounts(): OrderStatusCounts {
+    return {
+      all: 0,
+      pending_payment: 0,
+      paid: 0,
+      accepted: 0,
+      preparing: 0,
+      ready_for_delivery: 0,
+      ready_for_pickup: 0,
+      delivering: 0,
+      refund: 0,
+      completed: 0,
+    };
+  }
+
+  private normalizeCounts(row: Record<string, unknown>): OrderStatusCounts {
+    const n = (v: unknown) => (typeof v === 'number' ? v : parseInt(String(v || '0'), 10)) || 0;
+    return {
+      all: n(row.all_count ?? row.all),
+      pending_payment: n(row.pending_payment),
+      paid: n(row.paid),
+      accepted: n(row.accepted),
+      preparing: n(row.preparing),
+      ready_for_delivery: n(row.ready_for_delivery),
+      ready_for_pickup: n(row.ready_for_pickup),
+      delivering: n(row.delivering),
+      refund: n(row.refund),
+      completed: n(row.completed),
+    };
+  }
+
+  private computeCounts(orders: OrderRecord[]): OrderStatusCounts {
+    const c: OrderStatusCounts = {
+      all: orders.length,
+      pending_payment: 0,
+      paid: 0,
+      accepted: 0,
+      preparing: 0,
+      ready_for_delivery: 0,
+      ready_for_pickup: 0,
+      delivering: 0,
+      refund: 0,
+      completed: 0,
+    };
+    for (const o of orders) {
+      switch (o.status) {
+        case OrderStatus.PENDING_PAYMENT:
+          c.pending_payment++;
+          break;
+        case OrderStatus.PAID:
+          c.paid++;
+          break;
+        case OrderStatus.ACCEPTED:
+          c.accepted++;
+          break;
+        case OrderStatus.PREPARING:
+          c.preparing++;
+          break;
+        case OrderStatus.READY_FOR_DELIVERY:
+          c.ready_for_delivery++;
+          break;
+        case OrderStatus.READY_FOR_PICKUP:
+          c.ready_for_pickup++;
+          break;
+        case OrderStatus.DELIVERING:
+          c.delivering++;
+          break;
+        case OrderStatus.COMPLETED:
+          c.completed++;
+          break;
+        case OrderStatus.CANCELLED:
+        case OrderStatus.REJECTED:
+          c.refund++;
+          break;
+      }
+      if (o.cancelRequestedAt && o.status !== OrderStatus.CANCELLED && o.status !== OrderStatus.REJECTED) {
+        c.refund++;
+      }
+    }
+    return c;
+  }
+
 
   /** 将订单有效支付记录标记为已退款（兼容历史 success 与规范 paid） */
   private async markPaymentsRefunded(orderId: string): Promise<void> {
@@ -2796,6 +2957,46 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     return completed;
   }
 
+  /**
+   * §3.23 / T246.7 商家到店核销：扫码或输入订单 ID 后一键推进 `ready_for_pickup → completed`。
+   *
+   * 设计要点：
+   * - 仅 `pickup` / `dine_in`（不允许核销外卖单，避免误操作进入未达成的 completed）
+   * - 仅允许 `ready_for_pickup` 状态推进（不允许 `paid/preparing` 提前核销）
+   * - 已完成订单二次核销视为业务幂等失败，返回 409（前端可忽略）
+   * - 多租户校验：商家订单必须属于当前商家店铺（纵深防御，controller 已通过 assertCanAccessOrder）
+   * - 不引入核销 token：扫码内容是订单 ID，安全靠接口侧权限 + 店铺归属双校验，与既有 `/orders/:id/cancel` 一致
+   */
+  async merchantVerifyPickup(
+    id: string,
+    operator: { userId: string; shopId?: string; role: string },
+  ): Promise<OrderRecord> {
+    const order = await this.findById(id);
+    if (order.deliveryType === DeliveryType.DELIVERY) {
+      throw new BadRequestException('外卖订单不支持到店核销，请走配送完成流程');
+    }
+    if (order.deliveryType !== DeliveryType.PICKUP && order.deliveryType !== DeliveryType.DINE_IN) {
+      // 上方已排除 delivery；保留分支以兼容未来枚举新增
+      throw new BadRequestException('仅到店自取/堂食订单支持核销');
+    }
+    if (operator.shopId && order.shopId !== operator.shopId) {
+      throw new ForbiddenException('只能核销本店铺的订单');
+    }
+    if (order.status === OrderStatus.COMPLETED) {
+      throw new ConflictException('订单已完成，无需重复核销');
+    }
+    if (order.status !== OrderStatus.READY_FOR_PICKUP) {
+      throw new BadRequestException(
+        `仅待取餐订单可核销，当前状态：${order.status}`,
+      );
+    }
+    const completed = await this.completeOrderInternal(id, OrderStatus.READY_FOR_PICKUP);
+    this.logger.log(
+      `[Order] 商家到店核销完成 orderId=${id} shopId=${order.shopId} merchant=${operator.userId}`,
+    );
+    return completed;
+  }
+
   async forceCompleteOrder(
     id: string,
     operator: { userId: string; role: string },
@@ -3110,18 +3311,6 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     return order.orderNo || order.id.slice(-8).toUpperCase();
   }
 
-  /**
-   * T246.5 取餐码：业务单号（无则订单 ID）末 4 位字母数字。
-   * 与前端 @taste-food/shared/format 的 pickupCode 保持同一口径。
-   */
-  private formatPickupCode(order: Pick<OrderRecord, 'id' | 'orderNo'>): string {
-    const source = ((order.orderNo || '').trim() || (order.id || '').trim()).replace(
-      /[^a-zA-Z0-9]/g,
-      '',
-    );
-    return source ? source.slice(-4).toUpperCase() : '';
-  }
-
   private formatAmountYuan(totalFen: number): string {
     return `¥${(Number(totalFen || 0) / 100).toFixed(2)}`;
   }
@@ -3259,12 +3448,9 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     try {
       const label = this.formatOrderLabel(order);
       const isDineIn = order.deliveryType === DeliveryType.DINE_IN;
-      const code = this.formatPickupCode(order);
       const content = isDineIn
         ? `堂食订单 ${label} 已出餐${order.tableNo ? `，桌号 ${order.tableNo}` : ''}，请稍候上餐`
-        : code
-          ? `自取订单 ${label} 已出餐，取餐码 ${code}，请到店向店员报号取餐`
-          : `自取订单 ${label} 已出餐，请到店取餐`;
+        : `自取订单 ${label} 已出餐，请到店向店员扫码核销`;
       await this.inboxService.create({
         userId: order.userId,
         type: 'order_ready_for_pickup',
@@ -3688,6 +3874,41 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
         (o) => o.status === OrderStatus.COMPLETED,
       ).length,
     };
+  }
+
+  /**
+   * 待处理聚合（**不限时间维度**）。
+   *
+   * 语义：统计所有 `status IN ('paid','accepted')` 的订单，无论创建日期，
+   * 即「钱已到账、但尚未开始制作」的积压待办。供 Dashboard 常驻「待处理」区使用，
+   * 区别于 getTodayStats 的「今日」口径（后者仍受 created_at 今日过滤）。
+   */
+  async getPendingStats(shopId: string): Promise<PendingStats> {
+    if (hasSupabase() && supabase) {
+      const { data, error } = await supabase
+        .from('tf_orders')
+        .select('status')
+        .eq('shop_id', shopId)
+        .in('status', [OrderStatus.PAID, OrderStatus.ACCEPTED]);
+      if (error) {
+        this.logger.error('[OrderService] getPendingStats error:', error.message);
+        return { paid: 0, accepted: 0, total: 0 };
+      }
+      const rows = (data || []) as Pick<OrderRow, 'status'>[];
+      const paid = rows.filter((o) => o.status === OrderStatus.PAID).length;
+      const accepted = rows.filter((o) => o.status === OrderStatus.ACCEPTED).length;
+      return { paid, accepted, total: paid + accepted };
+    }
+
+    assertMemoryFallbackAllowed('OrderService');
+    const rows = Array.from(memoryOrders.values()).filter(
+      (o) =>
+        o.shopId === shopId &&
+        (o.status === OrderStatus.PAID || o.status === OrderStatus.ACCEPTED),
+    );
+    const paid = rows.filter((o) => o.status === OrderStatus.PAID).length;
+    const accepted = rows.filter((o) => o.status === OrderStatus.ACCEPTED).length;
+    return { paid, accepted, total: paid + accepted };
   }
 
   /**

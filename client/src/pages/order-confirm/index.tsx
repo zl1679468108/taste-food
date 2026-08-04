@@ -15,7 +15,7 @@ import { Promotion } from '../../types/promotion';
 import { MenuItemStatus, type MenuItem } from '../../types/menu';
 import SectionCard from '../../components/SectionCard';
 import FooterBar from '../../components/FooterBar';
-import { isNonEmpty, isValidPhone } from '../../utils/validators';
+import { isNonEmpty } from '../../utils/validators';
 import { estimateDiscount } from '../../utils/promotion';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import type { AddressItem } from '../address/index';
@@ -35,11 +35,7 @@ const OrderConfirmPage = () => {
   // 本地状态
   const [deliveryType, setDeliveryType] = useState<DeliveryType>(DeliveryType.PICKUP);
   const [tableNo, setTableNo] = useState('');
-  // T246.1: 自取/堂食联系人信息
-  const authPhone = useAuthStore((s) => s.user?.phone);
-  const authNickName = useAuthStore((s) => s.user?.nickName);
-  const [contactName, setContactName] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
+  // §3.23 / T246.8：自取/堂食不再要求联系人/手机号（人已在店，店铺信息卡足以替代）
   const { pending: submitting, run: runSubmit } = useAsyncAction();
   const [shopName, setShopName] = useState('');
   const [shopAddress, setShopAddress] = useState('');
@@ -85,17 +81,6 @@ const OrderConfirmPage = () => {
   useEffect(() => {
     applyDineContext();
   }, [applyDineContext]);
-
-  // T246.1: 预填登录用户的联系人信息。
-  // 资料可能在页面挂载后才异步到达，故跟随 authStore 变化补填；
-  // 用户已手动输入过则不再覆盖。
-  const contactTouchedRef = useRef(false);
-  useEffect(() => {
-    if (contactTouchedRef.current) return;
-    if (authNickName) setContactName((prev) => prev || authNickName);
-    if (authPhone) setContactPhone((prev) => prev || authPhone);
-  }, [authNickName, authPhone]);
-
 
   const loadShopInfo = useCallback(async () => {
     try {
@@ -241,40 +226,7 @@ const OrderConfirmPage = () => {
     }
   };
 
-  /** T246.1: 自取/堂食联系人输入 */
-  const renderPickupContact = () => (
-    <>
-      <Text className='form-field-label'>
-        联系人
-        <Text className='form-required'>*</Text>
-      </Text>
-      <Input
-        className='form-input'
-        placeholder='请输入您的姓名'
-        value={contactName}
-        onInput={(e) => {
-          contactTouchedRef.current = true;
-          setContactName(e.detail.value);
-        }}
-      />
-      <Text className='form-field-label'>
-        手机号
-        <Text className='form-required'>*</Text>
-      </Text>
-      <Input
-        className='form-input'
-        placeholder='请输入手机号'
-        type='number'
-        maxlength={11}
-        value={contactPhone}
-        onInput={(e) => {
-          contactTouchedRef.current = true;
-          setContactPhone(e.detail.value);
-        }}
-      />
-    </>
-  );
-
+  /** 同步菜单可用性并清理失效菜品 */
   const syncCartAvailabilityBeforeSubmit = async (): Promise<boolean> => {
     const shopId = cartShopId || DEFAULT_SHOP_ID;
     let toastTitle = '';
@@ -370,17 +322,7 @@ const OrderConfirmPage = () => {
       Taro.showToast({ title: '请填写桌号', icon: 'none' });
       return;
     }
-    // T246.1: 自取/堂食联系人必填
-    if (deliveryType !== DeliveryType.DELIVERY) {
-      if (!isNonEmpty(contactName)) {
-        Taro.showToast({ title: '请填写联系人姓名', icon: 'none' });
-        return;
-      }
-      if (!isValidPhone(contactPhone)) {
-        Taro.showToast({ title: '请填写正确的手机号', icon: 'none' });
-        return;
-      }
-    }
+    // §3.23 / T246.8：自取/堂食不需要联系人和手机号（人已在店，店铺信息卡替代）
 
     await runSubmit(async () => {
       const canSubmit = await syncCartAvailabilityBeforeSubmit();
@@ -409,13 +351,15 @@ const OrderConfirmPage = () => {
         // deliveryFee 由服务端从店铺配置获取，不信任客户端传值
         // T246.2: 仅堂食携带桌号，自取/外卖一律不传，避免切换配送方式后的桌号残留
         tableNo: deliveryType === DeliveryType.DINE_IN ? tableNo.trim() : '',
-        // T246.1: 自取/堂食也传联系人
-        contactName: deliveryType !== DeliveryType.DELIVERY
-          ? contactName.trim()
-          : (selectedAddress?.contactName?.trim() || ''),
-        contactPhone: deliveryType !== DeliveryType.DELIVERY
-          ? contactPhone.trim()
-          : (selectedAddress?.contactPhone?.trim() || ''),
+        // §3.23 / T246.8：仅外卖订单携带联系信息，自取/堂食到店核销，无需远程联系
+        contactName:
+          deliveryType === DeliveryType.DELIVERY
+            ? selectedAddress?.contactName?.trim() || ''
+            : '',
+        contactPhone:
+          deliveryType === DeliveryType.DELIVERY
+            ? selectedAddress?.contactPhone?.trim() || ''
+            : '',
         remark: cartRemarks || '',
         // 空值不传，避免后端把空串当有效手机号/联系人校验失败
         address: deliveryType === DeliveryType.DELIVERY
@@ -549,25 +493,23 @@ const OrderConfirmPage = () => {
                   value={tableNo}
                   onInput={(e) => setTableNo(e.detail.value)}
                 />
-                {renderPickupContact()}
+                {/* §3.23 / T246.8：堂食不需要联系人/手机号（人已在店，店铺信息替代） */}
               </View>
             ) : (
-              <>
-                <View className='address-book-card address-book-card--shop'>
-                  <View className='address-book-card__row'>
-                    <Text className='address-book-card__name'>{shopName || '门店'}</Text>
-                    {shopPhone ? (
-                      <Text className='address-book-card__phone'>{shopPhone}</Text>
-                    ) : null}
-                    <Text className='address-book-card__badge soft'>自取</Text>
-                  </View>
-                  <Text className='address-book-card__detail'>
-                    {shopAddress || '门店地址暂未设置'}
-                  </Text>
-                  <Text className='address-book-card__switch'>请前往门店自取</Text>
+              // 自取：仅展示店铺联系方式与地址，不要用户填联系信息
+              <View className='address-book-card address-book-card--shop'>
+                <View className='address-book-card__row'>
+                  <Text className='address-book-card__name'>{shopName || '门店'}</Text>
+                  {shopPhone ? (
+                    <Text className='address-book-card__phone'>{shopPhone}</Text>
+                  ) : null}
+                  <Text className='address-book-card__badge soft'>自取</Text>
                 </View>
-                {renderPickupContact()}
-              </>
+                <Text className='address-book-card__detail'>
+                  {shopAddress || '门店地址暂未设置'}
+                </Text>
+                <Text className='address-book-card__switch'>请前往门店自取</Text>
+              </View>
             )}
           </View>
         </SectionCard>

@@ -96,6 +96,16 @@ export interface OrderStats {
   completedCount: number;
 }
 
+/** 不限时间维度的待处理聚合（对应 GET /api/orders/stats/pending） */
+export interface PendingStats {
+  /** 待接单：paid（已支付，等待商家接单） */
+  paid: number;
+  /** 待备餐：accepted（商家已接单，等待开始备餐） */
+  accepted: number;
+  /** 合计 = paid + accepted */
+  total: number;
+}
+
 export interface DailyStatsItem {
   date: string; // YYYY-MM-DD
   orders: number;
@@ -153,6 +163,13 @@ export const getOrderStats = (shopId?: string) =>
     // 触发 "timeout of 10000ms exceeded"。RPC 修复后单次 <1s，实际不会等满。
     timeout: 30000,
   }) as Promise<OrderStats>;
+
+/** 待处理聚合（**不限时间维度**，对应 GET /api/orders/stats/pending） */
+export const getPendingStats = (shopId?: string) =>
+  request.get('/api/orders/stats/pending', {
+    params: shopId ? { shop_id: shopId } : undefined,
+    timeout: 30000,
+  }) as Promise<PendingStats>;
 
 /** 近 N 天日趋势；可选 startDate/endDate（YYYY-MM-DD）覆盖 days */
 export const getDailyStats = (
@@ -225,3 +242,10 @@ export const exportOrders = (params?: {
 /** 商家/管理员强制完成外卖配送单 */
 export const forceCompleteOrder = (id: string, reason: string) =>
   request.post(`/api/orders/${id}/force-complete`, { reason }) as Promise<Order>;
+
+/**
+ * §3.23 / T246.7 商家到店核销（自取/堂食 ready_for_pickup → completed）
+ * 仅 `merchant` 角色有效，且校验店铺归属；二维码内容 = 订单 ID
+ */
+export const verifyPickupOrder = (id: string) =>
+  request.post(`/api/orders/${id}/verify`, {}) as Promise<Order>;

@@ -4,13 +4,15 @@ export default [
   { path: '/', component: './Entry', layout: false },
 
   // ── 公共（两端通用） ──────────────────────────────────────
-  { name: '个人中心', path: '/account', component: './Account', icon: 'UserOutlined' },
+  // 个人中心入口已迁移到顶部用户下拉菜单，不在侧边栏显示
+  { name: '个人中心', path: '/account', component: './Account', hideInMenu: true },
 
   // ── 平台端（platform） ───────────────────────────────────
   { path: '/platform', redirect: '/platform/dashboard', access: 'canPlatformAdmin' },
   { name: '数据看板', path: '/platform/dashboard', component: './Dashboard', icon: 'DashboardOutlined', access: 'canPlatformAdmin' },
   { name: '审批中心', path: '/platform/approvals', component: './Approvals', icon: 'SafetyCertificateOutlined', access: 'canPlatformAdmin' },
   { name: '操作审计', path: '/platform/audit', component: './Audit', icon: 'AuditOutlined', access: 'canPlatformAdmin' },
+  { name: '用户管理', path: '/platform/user', component: './User', icon: 'TeamOutlined', access: 'canPlatformAdmin' },
 
   // ── 商家端（merchant） ───────────────────────────────────
   { path: '/merchant', redirect: '/merchant/dashboard', access: 'canMerchant' },
@@ -22,10 +24,11 @@ export default [
     { name: '规格管理', path: '/merchant/menu/spec-group', component: './SpecGroup' },
   ]},
   { name: '促销管理', path: '/merchant/promotion', component: './Promotion', icon: 'GiftOutlined', access: 'canMerchant' },
-  { name: '用户管理', path: '/merchant/user', component: './User', icon: 'TeamOutlined', access: 'canMerchant' },
+  { name: '顾客管理', path: '/merchant/user', component: './CustomerManagement', icon: 'TeamOutlined', access: 'canMerchant' },
   { name: '店铺管理', path: '/merchant/shop', component: './ShopManage', icon: 'ShopOutlined', access: 'canMerchant' },
   { name: '导出中心', path: '/merchant/export', component: './Export', icon: 'FileExcelOutlined', access: 'canMerchant' },
   { name: '语音播报', path: '/merchant/voice-alert', component: './VoiceAlertSettings', icon: 'SoundOutlined', access: 'canMerchant' },
+  { name: '到店核销', path: '/merchant/pickup', component: './Pickup', icon: 'QrcodeOutlined', access: 'canMerchant' },
 
   // ── 其他 ────────────────────────────────────────────────
   { path: '/messages', component: './Messages' },

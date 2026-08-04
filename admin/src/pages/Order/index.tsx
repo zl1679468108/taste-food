@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Table, Button } from 'antd';
+import { useLocation, history } from '@umijs/max';
 import { antdMessage as message } from '@/utils/antdApp';
 import { DownloadOutlined, ShoppingOutlined } from '@ant-design/icons';
 import { forceCompleteOrder, Order } from '@/services/order';
@@ -23,7 +24,29 @@ import { useAcceptModal } from './hooks/useAcceptModal';
 
 const OrderPage: React.FC = () => {
   const { shopId, ready, currentShop, scope, canSwitchShops } = useShopContext();
-  const [activeTab, setActiveTab] = useState('');
+  const location = useLocation();
+
+  // 订单状态 Tab 合法 key（与 OrderStatusTabs 保持一致），用于校验 URL 参数
+  const VALID_ORDER_TABS = [
+    '', 'pending_payment', 'paid', 'accepted', 'preparing',
+    'ready_for_delivery', 'ready_for_pickup', 'delivering', 'refund', 'completed',
+  ];
+  const readStatusFromQuery = (search: string): string => {
+    const s = new URLSearchParams(search).get('status') || '';
+    return VALID_ORDER_TABS.includes(s) ? s : '';
+  };
+
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    readStatusFromQuery(location.search),
+  );
+
+  // 从 Dashboard 待处理区带 ?status=paid/accepted 跳转进来时，自动激活对应筛选 Tab
+  useEffect(() => {
+    setActiveTab((prev) => {
+      const next = readStatusFromQuery(location.search);
+      return prev === next ? prev : next;
+    });
+  }, [location.search]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [keyword, setKeyword] = useState('');
@@ -139,6 +162,12 @@ const OrderPage: React.FC = () => {
             setActiveTab(key);
             setPage(1);
             setKeyword('');
+            // 回写 URL，保证刷新/分享后仍是当前筛选，并与待处理区跳转口径一致
+            const params = new URLSearchParams(location.search);
+            if (key) params.set('status', key);
+            else params.delete('status');
+            const qs = params.toString();
+            history.replace(qs ? `${location.pathname}?${qs}` : location.pathname);
           }}
           badges={orderStatusBadges}
         />

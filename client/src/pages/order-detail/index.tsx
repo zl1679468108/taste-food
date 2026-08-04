@@ -4,7 +4,7 @@ import Taro from '@tarojs/taro';
 import { get, post, isRetryableError, isDuplicateSubmitError } from '../../utils/request';
 import { useCartStore } from '../../stores/cartStore';
 import { useAuthStore } from '../../stores/authStore';
-import { formatPriceWithSymbol, formatTime, shortOrderId, pickupCode } from '../../utils/format';
+import { formatPriceWithSymbol, formatTime, shortOrderId } from '../../utils/format';
 import {
   DELIVERY_TYPE_MAP,
   getOrderStatusLabel,
@@ -137,6 +137,8 @@ const OrderDetailPage = () => {
     provider?: string;
   } | null>(null);
   const [paymentLoaded, setPaymentLoaded] = useState(false);
+  // §3.23 / T246.9 二维码放大查看
+  const [qrExpanded, setQrExpanded] = useState(false);
 
   // 写操作强守卫（ref 判定，可挡同一 tick 内的连点，避免重复支付/重复退款/重复评价）
   const payAction = useAsyncAction();
@@ -586,17 +588,15 @@ const OrderDetailPage = () => {
   const statusHint =
     afterSaleHint || getCustomerOrderStatusHint(order.status, order.deliveryType);
   const deliveryTypeText = DELIVERY_TYPE_MAP[order.deliveryType] || order.deliveryType;
-  // T246.4/T246.5 自取专属：门店信息卡 + 取餐码
+  // T246.4/T246.5 自取专属：门店信息卡 + 到店核销二维码
   const isPickupOrder = order.deliveryType === DeliveryType.PICKUP;
   const shopAddressText = (order.shopAddress || '').trim();
   const hasShopCoords =
     Number.isFinite(Number(order.shopLatitude)) &&
     Number.isFinite(Number(order.shopLongitude));
-  // 取餐码在「已接单 ~ 待取餐」阶段才有意义，待支付/已取消不展示
-  const orderPickupCode = isPickupOrder ? pickupCode(order.id, order.orderNo) : '';
-  const showPickupCode =
-    !!orderPickupCode &&
-    [
+  // §3.23 到店核销二维码：自取/堂食在「已接单 ~ 待取餐」阶段展示，待支付/已取消不展示（仅二维码，无文字码）
+  const showPickupCode = isPickupOrder
+    && [
       OrderStatus.PAID,
       OrderStatus.ACCEPTED,
       OrderStatus.PREPARING,
@@ -863,15 +863,51 @@ const OrderDetailPage = () => {
         </View>
       ) : null}
 
-      {/* T246.5 取餐码：到店报号，字号放大便于店员核对 */}
+      {/* §3.23 / T246.9 到店核销二维码：内容为订单 ID，商家扫码核销（仅二维码，无文字码） */}
       {showPickupCode ? (
         <View className='pickup-code-card'>
-          <Text className='pickup-code-card__label'>取餐码</Text>
-          <Text className='pickup-code-card__value'>{orderPickupCode}</Text>
+          <Text className='pickup-code-card__label'>到店核销二维码</Text>
+          <View
+            className='pickup-code-card__qr-row'
+            onClick={() => setQrExpanded(true)}
+          >
+            <Image
+              className='pickup-code-card__qr-thumb'
+              src={`/api/orders/${order.id}/qrcode`}
+              mode='aspectFit'
+              showMenuByLongpress={false}
+            />
+            <Text className='pickup-code-card__qr-tip'>点击放大，扫码核销</Text>
+          </View>
+          {qrExpanded ? (
+            <View
+              className='pickup-code-card__qr-expand'
+              onClick={() => setQrExpanded(false)}
+            >
+              <View
+                className='pickup-code-card__qr-expand-close'
+                onClick={(e) => {
+                  e?.stopPropagation?.();
+                  setQrExpanded(false);
+                }}
+              >
+                <Text>关闭</Text>
+              </View>
+              <Image
+                className='pickup-code-card__qr-expand-img'
+                src={`/api/orders/${order.id}/qrcode`}
+                mode='aspectFit'
+                onClick={(e) => e?.stopPropagation?.()}
+              />
+              <Text className='pickup-code-card__qr-expand-hint'>
+                出示此码给店员扫码核销
+              </Text>
+            </View>
+          ) : null}
           <Text className='pickup-code-card__hint'>
             {order.status === OrderStatus.READY_FOR_PICKUP
-              ? '餐品已备好，请到店向店员报号取餐'
-              : '出餐后请到店向店员报号取餐'}
+              ? '餐品已备好，请到店向店员扫码核销'
+              : '出餐后请到店向店员扫码核销'}
           </Text>
         </View>
       ) : null}

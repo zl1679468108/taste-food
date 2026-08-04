@@ -5,7 +5,6 @@ import dayjs, { type Dayjs } from 'dayjs';
 import {
   ShoppingCartOutlined,
   MoneyCollectOutlined,
-  ClockCircleOutlined,
   RiseOutlined,
   LineChartOutlined,
 } from '@ant-design/icons';
@@ -14,6 +13,7 @@ import type { DailyStatsItem } from '@/services/order';
 import type { Shop } from '@/services/shop';
 import { formatPrice } from '@/utils/format';
 import DashboardStatCard from '@/components/DashboardStatCard';
+import DashboardPendingCard from '@/components/DashboardPendingCard';
 import DashboardRangeControl, {
   MAX_RANGE_DAYS,
   type PresetRange,
@@ -23,6 +23,7 @@ import PageHeaderActions from '@/components/PageHeaderActions';
 import { useShopContext } from '@/hooks/useShopContext';
 import { brand } from '@/theme';
 import { useDashboardStats } from '@/hooks/queries/useDashboardQueries';
+import { computeAccess } from '@/utils/computeAccess';
 import { queryClient } from '@/lib/queryClient';
 
 const DATE_FMT = 'YYYY-MM-DD';
@@ -57,6 +58,8 @@ const DashboardPage: React.FC = () => {
     initialState?.admin?.canPlatformAdmin ??
     (initialState?.currentUser?.role === 'admin' && !initialState?.currentUser?.shopId);
   const effectiveScope: StatsScope = canPlatformAdmin ? scope : 'shop';
+  // 平台管理员无订单管理页，待处理区仅作信息展示、不可跳转
+  const canMerchant = computeAccess(initialState?.currentUser).canMerchant;
   const shopList = (shops || []) as Shop[];
   const isAllShops = effectiveScope === 'all';
 
@@ -96,7 +99,7 @@ const DashboardPage: React.FC = () => {
     return shopId ? [shopId] : [];
   }, [isAllShops, shopList, shopId]);
 
-  const { todayStats, dailyStats, isLoading, shopCount } = useDashboardStats({
+  const { todayStats, dailyStats, pendingStats, isLoading, shopCount } = useDashboardStats({
     shopIds,
     range: fetchRange,
     days: period.spanDays * 2,
@@ -150,17 +153,6 @@ const DashboardPage: React.FC = () => {
       current: currentSum.revenue,
       previous: previousSum.revenue,
       compareTip: `上一周期（${compareRangeText}）：${formatPrice(previousSum.revenue)}`,
-    },
-    {
-      key: 'pending',
-      title: `当前待处理${scopeSuffix}`,
-      value: todayStats.pendingCount,
-      icon: <ClockCircleOutlined />,
-      color: brand.warning,
-      bgColor: brand.warningSoft,
-      current: undefined,
-      previous: undefined,
-      compareTip: undefined,
     },
   ];
 
@@ -242,6 +234,9 @@ const DashboardPage: React.FC = () => {
         title={headerTitle}
         onRefresh={handleRefresh}
       />
+
+      {/* 待处理：常驻、不限时间维度，置于时间范围控件之上，独立于订单数/营收 */}
+      <DashboardPendingCard stats={pendingStats} loading={isLoading} clickable={canMerchant} />
 
       <div style={{ marginBottom: 'var(--tf-space-4)' }}>
         <DashboardRangeControl

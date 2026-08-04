@@ -5,6 +5,7 @@ import { get, isRetryableError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { Order } from '../../types/order';
 import { PaginatedData } from '../../types/api';
+import { OrderStatusCounts } from '@taste-food/shared/types';
 import { onOrderUpdated, removePageListeners } from '../../services/socket';
 import { DEFAULT_SHOP_ID } from '../../env';
 import FilterTabs from '../../components/FilterTabs';
@@ -19,9 +20,15 @@ import './index.scss';
 
 const FILTER_TABS = [
   { key: '', label: '全部' },
-  { key: 'active', label: '进行中' },
-  { key: 'review', label: '待评价' },
+  { key: 'pending_payment', label: '待支付' },
+  { key: 'paid', label: '已支付' },
+  { key: 'accepted', label: '已接单' },
+  { key: 'preparing', label: '制作中' },
+  { key: 'ready_for_delivery', label: '待配送' },
+  { key: 'ready_for_pickup', label: '待取餐' },
+  { key: 'delivering', label: '配送中' },
   { key: 'refund', label: '退款售后' },
+  { key: 'completed', label: '已完成' },
 ];
 
 const OrderListPage = () => {
@@ -39,6 +46,7 @@ const OrderListPage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [activeFilter, setActiveFilter] = useState('');
   const [shopName, setShopName] = useState('');
+  const [counts, setCounts] = useState<OrderStatusCounts | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [canRetry, setCanRetry] = useState(false);
 
@@ -88,17 +96,20 @@ const OrderListPage = () => {
         params.status = currentFilter;
       }
 
-      const response = await get<PaginatedData<Order>>('/orders', params);
+      const response = await get<PaginatedData<Order> & { counts?: OrderStatusCounts }>('/orders', params);
 
       // 丢弃过期请求，避免筛选切换后旧响应覆盖新列表
       if (seq !== requestSeqRef.current) return;
 
-      const { items, total } = response.data;
+      const { items, total, counts: respCounts } = response.data;
       // 分组筛选(active/review/refund)由服务端解析；前端不再按单状态二次过滤
       const list = items || [];
       const maxPage = Math.ceil((total || 0) / pageSize);
 
       setOrders((prev) => (pageNum === 1 ? list : [...prev, ...list]));
+      if (respCounts) {
+        setCounts(respCounts);
+      }
       setLoadError(false);
       setCanRetry(false);
       setPage(pageNum);
@@ -188,7 +199,14 @@ const OrderListPage = () => {
   return (
     <View className='order-list-page'>
       <FilterTabs
-        tabs={FILTER_TABS}
+        tabs={FILTER_TABS.map((tab) => ({
+          ...tab,
+          count: counts
+            ? tab.key === ''
+              ? counts.all
+              : counts[tab.key as keyof OrderStatusCounts] ?? 0
+            : undefined,
+        }))}
         activeKey={activeFilter}
         onChange={switchFilter}
       />

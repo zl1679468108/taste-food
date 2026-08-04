@@ -446,27 +446,21 @@ export const DELIVERY_TYPE_MAP: Record<string, string> = {
 
 /**
  * 备注快捷标签（T246.5）
- * COMMON 三种配送方式都展示；PICKUP 仅到店自取/堂食（需要到店）展示。
+ * 仅保留口味偏好类标签，到店时间/保温/打包/餐具等非口味项由用户手动填写。
  */
 export const ORDER_REMARK_TAGS_COMMON: readonly string[] = [
-  '不要餐具',
   '多加辣',
   '少辣',
   '不要葱',
   '不要香菜',
 ];
 
-/** 到店场景（自取/堂食）专属备注标签 */
-export const ORDER_REMARK_TAGS_PICKUP: readonly string[] = [
-  '到店时间约 15 分钟',
-  '到店时间约 30 分钟',
-  '请帮忙保温',
-  '打包带走',
-];
+/** 到店场景（自取/堂食）专属备注标签 — 当前已清空，仅保留口味标签 */
+export const ORDER_REMARK_TAGS_PICKUP: readonly string[] = [];
 
 /**
  * 按配送类型返回备注快捷标签。
- * 到店场景（pickup/dine_in）额外追加到店时间等标签。
+ * 目前所有配送方式均只展示口味偏好类标签。
  */
 export function getRemarkTagsByDeliveryType(
   deliveryType: DeliveryType | string,

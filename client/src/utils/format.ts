@@ -10,6 +10,5 @@ export {
   formatTime,
   formatRelativeTime,
   shortOrderId,
-  pickupCode,
   truncateText,
 } from '@taste-food/shared/format';

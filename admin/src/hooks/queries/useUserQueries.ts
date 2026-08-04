@@ -1,17 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getUsers, getMe, createUser, updateUser, updateMe,
-  CreateUserPayload, UpdateUserPayload,
+  getUsers, getMe, getUserProfile, createUser, updateUser, updateMe,
+  CreateUserPayload, UpdateUserPayload, GetUsersParams, UserProfile,
 } from '@/services/user';
 import { queryKeys } from './queryKeys';
 import { STALE_TIMES } from '@/lib/queryClient';
 
 // ---- 查询 ----
 
-export function useUsers(params: { page: number; pageSize: number; role?: string; keyword?: string }) {
+export function useUsers(params: GetUsersParams) {
   return useQuery({
     queryKey: queryKeys.users.list(params),
     queryFn: () => getUsers(params),
+    staleTime: STALE_TIMES.STANDARD,
+  });
+}
+
+/** 用户画像（抽屉数据源；§3.24 / T312.1） */
+export function useUserProfile(userId?: string) {
+  return useQuery<UserProfile>({
+    queryKey: userId ? queryKeys.users.profile(userId) : ['users', 'profile', 'noop'],
+    queryFn: () => getUserProfile(userId as string),
+    enabled: !!userId,
     staleTime: STALE_TIMES.STANDARD,
   });
 }

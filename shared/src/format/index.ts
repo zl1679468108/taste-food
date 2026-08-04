@@ -81,22 +81,6 @@ export function shortOrderId(orderId: string, orderNo?: string): string {
 }
 
 /**
- * 取餐码（T246.5）
- * 自取/堂食订单到店报号用：取业务单号（无则订单 ID）末 4 位字母数字。
- * @param orderId 完整订单 ID
- * @param orderNo 可选业务单号（优先）
- * @returns 4 位大写取餐码；无有效来源时返回空串
- */
-export function pickupCode(orderId: string, orderNo?: string): string {
-  const source = ((orderNo || '').trim() || (orderId || '').trim()).replace(
-    /[^a-zA-Z0-9]/g,
-    '',
-  );
-  if (!source) return '';
-  return source.slice(-4).toUpperCase();
-}
-
-/**
  * 限制文本长度
  * @param text 原始文本
  * @param maxLength 最大长度

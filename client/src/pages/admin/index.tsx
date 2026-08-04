@@ -4,7 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro';
 import { get, post, isDuplicateSubmitError } from '../../utils/request';
 import { useAuthStore } from '../../stores/authStore';
 import { useAsyncAction, useKeyedAsyncAction } from '../../hooks/useAsyncAction';
-import { formatPriceWithSymbol, formatTime, formatRelativeTime, shortOrderId, pickupCode } from '../../utils/format';
+import { formatPriceWithSymbol, formatTime, formatRelativeTime, shortOrderId } from '../../utils/format';
 import { ORDER_STATUS_COLOR_MAP, DELIVERY_TYPE_MAP, getOrderStatusLabel, getMerchantOrderActionHint, getMerchantAfterSaleLabel } from '../../utils/constants';
 import { DeliveryTrackPoint, DeliveryType, Order, OrderStatus } from '../../types/order';
 import { getOrderStatusActions, type OrderStatusAction } from '@taste-food/shared/types';
@@ -796,17 +796,6 @@ const AdminPage = () => {
                       }) || getOrderStatusLabel(order.status, order.deliveryType)}
                     </Text>
                   </View>
-                  {/* T246.5 待取餐的自取单在列表直出取餐码，便于店员叫号核对 */}
-                  {order.deliveryType === DeliveryType.PICKUP
-                    && order.status === OrderStatus.READY_FOR_PICKUP
-                    && pickupCode(order.id, order.orderNo) ? (
-                    <View className='order-card__pickup'>
-                      <Text className='order-card__pickup-label'>取餐码</Text>
-                      <Text className='order-card__pickup-code'>
-                        {pickupCode(order.id, order.orderNo)}
-                      </Text>
-                    </View>
-                  ) : null}
                   <View className='order-card__items'>
                     {order.items.slice(0, 3).map((item) => (
                       <Text key={item.id} className='order-card__item'>
@@ -951,17 +940,6 @@ const AdminPage = () => {
                   </View>
                 </View>
               )}
-
-              {/* T246.5 取餐码：自取订单核对用，字号放大 */}
-              {selectedOrder.deliveryType === DeliveryType.PICKUP
-                && pickupCode(selectedOrder.id, selectedOrder.orderNo) ? (
-                <View className='action-modal__pickup-code'>
-                  <Text className='action-modal__pickup-code-label'>取餐码</Text>
-                  <Text className='action-modal__pickup-code-value'>
-                    {pickupCode(selectedOrder.id, selectedOrder.orderNo)}
-                  </Text>
-                </View>
-              ) : null}
 
               <View className='action-modal__info-row'>
                 <Text className='action-modal__info-label'>配送方式</Text>

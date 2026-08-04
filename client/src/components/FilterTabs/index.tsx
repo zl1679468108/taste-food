@@ -5,6 +5,7 @@ import './index.scss';
 export interface FilterTabItem {
   key: string;
   label: string;
+  count?: number;
 }
 
 interface FilterTabsProps {
@@ -54,6 +55,11 @@ function FilterTabsInner({
             }}
           >
             <Text className='tf-filter-tabs__label'>{tab.label}</Text>
+            {typeof tab.count === 'number' && tab.count > 0 ? (
+              <View className='tf-filter-tabs__badge'>
+                <Text className='tf-filter-tabs__badge-text'>{tab.count > 99 ? '99+' : tab.count}</Text>
+              </View>
+            ) : null}
             {variant === 'underline' && active ? (
               <View className='tf-filter-tabs__indicator' />
             ) : null}

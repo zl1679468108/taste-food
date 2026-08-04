@@ -16,8 +16,10 @@ import { antdMessage as message } from '@/utils/antdApp';
 import {
   getDailyStats,
   getOrderStats,
+  getPendingStats,
   type DailyStatsItem,
   type OrderStats,
+  type PendingStats,
 } from '@/services/order';
 import { queryKeys } from './queryKeys';
 import { STALE_TIMES } from '@/lib/queryClient';
@@ -44,6 +46,8 @@ export interface DashboardStatsResult {
   todayStats: OrderStats;
   /** 日趋势（多店时按日期合并求和），按日期升序 */
   dailyStats: DailyStatsItem[];
+  /** 待处理聚合（**不限时间维度**，多店时为各店求和） */
+  pendingStats: PendingStats;
   /** 首屏加载中（无任何缓存数据） */
   isLoading: boolean;
   /** 后台刷新中 */
@@ -59,6 +63,12 @@ const EMPTY_TODAY_STATS: OrderStats = {
   pendingCount: 0,
   preparingCount: 0,
   completedCount: 0,
+};
+
+const EMPTY_PENDING_STATS: PendingStats = {
+  paid: 0,
+  accepted: 0,
+  total: 0,
 };
 
 /** 合并多店今日统计 */
@@ -95,6 +105,21 @@ function mergeDailyStats(list: (DailyStatsItem[] | undefined)[]): DailyStatsItem
     });
   });
   return Array.from(bucket.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** 合并多店待处理统计（**不限时间维度**，各店直接求和） */
+function mergePendingStats(list: (PendingStats | undefined)[]): PendingStats {
+  return list.reduce<PendingStats>(
+    (acc, cur) => {
+      if (!cur) return acc;
+      return {
+        paid: acc.paid + (cur.paid || 0),
+        accepted: acc.accepted + (cur.accepted || 0),
+        total: acc.total + (cur.total || 0),
+      };
+    },
+    { ...EMPTY_PENDING_STATS },
+  );
 }
 
 /**
@@ -135,7 +160,19 @@ export function useDashboardStats(params: DashboardStatsParams): DashboardStatsR
     })),
   });
 
-  const allQueries = [...todayQueries, ...dailyQueries];
+  // 待处理聚合（**不限时间维度**）：逐店 fan-out，客户端合并。与 today 同源级别，
+  // 但语义上脱离时间范围控件，故独立一组查询。
+  const pendingQueries = useQueries({
+    queries: stableShopIds.map((id) => ({
+      queryKey: queryKeys.orders.statsPending(id),
+      queryFn: () => getPendingStats(id),
+      enabled: active,
+      staleTime: STALE_TIMES.REALTIME,
+      refetchInterval: stableShopIds.length <= 5 ? 30 * 1000 : (false as const),
+    })),
+  });
+
+  const allQueries = [...todayQueries, ...dailyQueries, ...pendingQueries];
   const isError = allQueries.some((q) => q.isError);
   const isFetching = allQueries.some((q) => q.isFetching);
   const isLoading = active && allQueries.some((q) => q.isLoading);
@@ -155,10 +192,12 @@ export function useDashboardStats(params: DashboardStatsParams): DashboardStatsR
   // 店铺数量有限、数据量小，直接合并即可，避免 memo 依赖失真
   const todayStats = mergeTodayStats(todayQueries.map((q) => q.data));
   const dailyStats = mergeDailyStats(dailyQueries.map((q) => q.data));
+  const pendingStats = mergePendingStats(pendingQueries.map((q) => q.data));
 
   return {
     todayStats,
     dailyStats,
+    pendingStats,
     isLoading,
     isFetching,
     isError,

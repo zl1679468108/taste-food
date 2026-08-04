@@ -2,6 +2,7 @@ declare namespace API {
   interface UserRoleItem {
     role: string;
     shopId?: string | null;
+    shopName?: string;
     status: string;
   }
 

@@ -3,11 +3,10 @@ import type { RunTimeLayoutConfig } from '@umijs/max';
 import { history } from '@umijs/max';
 import { App, Dropdown, message as antdStaticMessage, Space } from 'antd';
 import { antdMessage as message, setAntdMessage } from '@/utils/antdApp';
-import { LogoutOutlined } from '@ant-design/icons';
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons';
 import { getCurrentUser, homePathForRole } from './services/auth';
 import ShopSelector from './components/ShopSelector';
 import NotificationBell from './components/NotificationBell';
-import RoleSwitcher from './components/RoleSwitcher';
 import { brand } from './theme';
 import brandLogo from './assets/images/brand-logo.png';
 import { computeAccess, EMPTY_ACCESS } from '@/utils/computeAccess';
@@ -111,6 +110,14 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
                   type: 'divider',
                 },
                 {
+                  key: 'account',
+                  icon: <UserOutlined />,
+                  label: '个人中心',
+                  onClick: () => {
+                    history.push('/account');
+                  },
+                },
+                {
                   key: 'logout',
                   icon: <LogoutOutlined />,
                   label: '退出登录',
@@ -140,10 +147,7 @@ export const layout: RunTimeLayoutConfig = ({ initialState, setInitialState }) =
     // 顶栏右侧：店铺选择器（业务页按当前店过滤）
     actionsRender: () => {
       if (!initialState?.currentUser) return [];
-      const isPlatform = !!initialState?.admin?.canPlatformAdmin;
       return [
-        // 平台/商家角色由 RoleSwitcher 展示，不再额外显示标签
-        ...(isPlatform ? [] : [<RoleSwitcher key="role-switcher" compact />]),
         <NotificationBell key="notification-bell" />,
         <ShopSelector key="shop-selector" />,
       ];

@@ -288,6 +288,20 @@ export interface OrderStats {
   completedCount: number;
 }
 
+/** 订单列表页状态标签数量（与 /api/orders counts 字段对应） */
+export interface OrderStatusCounts {
+  all: number;
+  pending_payment: number;
+  paid: number;
+  accepted: number;
+  preparing: number;
+  ready_for_delivery: number;
+  ready_for_pickup: number;
+  delivering: number;
+  refund: number;
+  completed: number;
+}
+
 
 /** 订单端可执行操作 */
 export interface OrderStatusAction {

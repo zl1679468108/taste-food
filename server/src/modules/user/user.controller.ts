@@ -14,7 +14,7 @@ import { PlatformOnly } from '../../common/decorators/shop-scope.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
 import { UserRole } from '../../common/constants/enums';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
-import { UserService, UserSummary, PaginatedUsers } from './user.service';
+import { UserService, UserSummary, PaginatedUsers, UserProfile } from './user.service';
 import { CreateUserDto, UpdateUserDto } from './dto/user.dto';
 
 @Controller('users')
@@ -28,13 +28,24 @@ export class UserController {
     @Query('pageSize') pageSize?: string,
     @Query('role') role?: string,
     @Query('keyword') keyword?: string,
+    @Query('status') status?: string,           // T312.5
+    @Query('registeredWithinDays') registeredWithinDays?: string, // T312.5
     @CurrentUser() user?: CurrentUserPayload,
   ): Promise<ApiResponse<PaginatedUsers>> {
     const p = parseInt(page || '1', 10) || 1;
     const ps = parseInt(pageSize || '20', 10) || 20;
+    const days = registeredWithinDays ? parseInt(registeredWithinDays, 10) : undefined;
     // 商家仅看本店绑定账号；平台管理员看全部
     const shopFilter = user?.shopId || undefined;
-    const users = await this.userService.getUsers(p, ps, role, shopFilter, keyword);
+    const users = await this.userService.getUsers(
+      p,
+      ps,
+      role,
+      shopFilter,
+      keyword,
+      status,
+      Number.isFinite(days) ? days : undefined,
+    );
     return success(users);
   }
 
@@ -59,6 +70,23 @@ export class UserController {
       return success(detail); // 列表已过滤；详情若越权在 service 层可再加
     }
     return success(detail);
+  }
+
+  /**
+   * 用户详情 + 画像（§3.24 / T312.2）
+   * 用于后台「用户管理」抽屉。商家仅本人/本店绑定可见，平台管理员跨店可查。
+   */
+  @Get(':id/profile')
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  async getUserProfile(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<UserProfile>> {
+    const profile = await this.userService.getUserProfile(id, {
+      userId: user.userId,
+      shopId: user.shopId,
+    });
+    return success(profile);
   }
 
   @Post()

@@ -2,6 +2,8 @@ import Taro from '@tarojs/taro';
 import { DEFAULT_SHOP_ID } from '../env';
 
 const STORAGE_KEY = 'tf_dine_context';
+/** 堂食上下文有效期：2 小时（毫秒） */
+const DINE_CONTEXT_TTL = 2 * 60 * 60 * 1000;
 
 export interface DineContext {
   shopId: string;
@@ -87,6 +89,14 @@ export function loadDineContext(): DineContext | null {
   try {
     const parsed = JSON.parse(raw) as DineContext;
     if (!parsed?.tableNo) return null;
+    // 超过有效期则视为过期，静默清除
+    if (parsed.updatedAt) {
+      const age = Date.now() - new Date(parsed.updatedAt).getTime();
+      if (age > DINE_CONTEXT_TTL) {
+        safeRemoveStorage(STORAGE_KEY);
+        return null;
+      }
+    }
     return {
       shopId: parsed.shopId || DEFAULT_SHOP_ID,
       tableNo: String(parsed.tableNo),

@@ -9,19 +9,21 @@ import {
   HttpStatus,
   ForbiddenException,
   NotFoundException,
+  BadRequestException,
   ServiceUnavailableException,
   Res,
   StreamableFile,
 } from '@nestjs/common';
 import dayjs from 'dayjs';
+import * as QRCode from 'qrcode';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../common/decorators/current-user.decorator';
-import { UserRole, OrderStatus } from '../../common/constants/enums';
+import { UserRole, OrderStatus, DeliveryType } from '../../common/constants/enums';
 import { DEFAULT_SHOP_ID } from '../../common/constants/shop';
 import { resolveAdminTargetShopId, isPlatformAdmin } from '../../common/utils/admin-shop-scope';
 import { success, ApiResponse } from '../../common/interfaces/api-response.interface';
 import { PaginatedData } from '../../common/interfaces/pagination.interface';
-import { OrderService, OrderRecord, OrderStats, DailyStatsItem, DeliveryTrackPointRecord, RiderLocationReportResult } from './order.service';
+import { OrderService, OrderRecord, OrderStats, PendingStats, DailyStatsItem, DeliveryTrackPointRecord, RiderLocationReportResult, OrderStatusCounts } from './order.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto, OrderQueryDto, CancelRequestDto, ResolveCancelRequestDto } from './dto/update-order.dto';
 import { DeliveryTrackPointDto } from './dto/delivery-track.dto';
@@ -75,7 +77,7 @@ export class OrderController {
   async getOrders(
     @Query() query: OrderQueryDto,
     @CurrentUser() user: CurrentUserPayload,
-  ): Promise<ApiResponse<PaginatedData<OrderRecord>>> {
+  ): Promise<ApiResponse<PaginatedData<OrderRecord> & { counts: OrderStatusCounts }>> {
     const page = parseInt(query.page || '1', 10) || 1;
     const pageSize = parseInt(query.pageSize || '20', 10) || 20;
     // 商家锁定绑定店；平台管理员可用 query.shop_id 切换。
@@ -89,28 +91,39 @@ export class OrderController {
         });
 
     let result: PaginatedData<OrderRecord>;
+    let countScope: { type: 'user' | 'shop' | 'rider' | 'pool'; id?: string } | null = null;
 
     if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.user_id) {
       result = await this.orderService.findByUserId(query.user_id, page, pageSize, query.status, query.keyword);
+      countScope = { type: 'user', id: query.user_id };
     } else if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.rider_id) {
       result = await this.orderService.findByRiderId(query.rider_id, query.status, page, pageSize, query.keyword);
+      countScope = { type: 'rider', id: query.rider_id };
     } else if (user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) {
       result = await this.orderService.findByShopId(
         adminShopId, query.status, page, pageSize, query.is_pool === 'true', query.keyword,
       );
+      countScope = { type: 'shop', id: adminShopId };
     } else if (user.role === UserRole.RIDER && query.is_pool === 'true') {
       // 骑手跨店抢单：可不传 shop_id 查看全部店铺待抢单；传则按店过滤
       result = await this.orderService.findDeliveryPool(page, pageSize, query.shop_id, query.keyword);
+      countScope = { type: 'pool', id: query.shop_id };
     } else if (user.role === UserRole.RIDER) {
       result = await this.orderService.findByRiderId(user.userId, query.status, page, pageSize, query.keyword);
+      countScope = { type: 'rider', id: user.userId };
     } else if (user.role === UserRole.CUSTOMER) {
       // 顾客订单列表支持按 status 筛选（待支付/已支付等 Tab）
       result = await this.orderService.findByUserId(user.userId, page, pageSize, query.status, query.keyword);
+      countScope = { type: 'user', id: user.userId };
     } else {
       result = { items: [], total: 0, page, pageSize };
     }
 
-    return success(result);
+    const counts = countScope
+      ? await this.orderService.countOrdersByScope(countScope.type, countScope.id, query.keyword)
+      : this.orderService.emptyCounts();
+
+    return success({ ...result, counts });
   }
 
   @Get('export')
@@ -163,6 +176,17 @@ export class OrderController {
     return success(stats);
   }
 
+  @Get('stats/pending')
+  @Roles(UserRole.ADMIN, UserRole.MERCHANT)
+  async getPendingStats(
+    @Query('shop_id') queryShopId: string | undefined,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<PendingStats>> {
+    const shopId = this.resolveAdminShopId(user, queryShopId);
+    const pending = await this.orderService.getPendingStats(shopId);
+    return success(pending);
+  }
+
   @Get('stats/daily')
   @Roles(UserRole.ADMIN, UserRole.MERCHANT)
   async getDailyStats(
@@ -204,6 +228,47 @@ export class OrderController {
    * 配送轨迹腾讯静态地图（图片）。
    * 用于 PC 管理后台订单详情直接展示真实腾讯地图，Key 仅留在服务端。
    */
+  /**
+   * §3.23 / T246.9 到店核销二维码：内容为订单 ID，商家端扫码后调用 `/orders/:id/verify` 核销。
+   * 仅自取/堂食订单开放；权限校验与订单详情一致（顾客本人/本店商家/相关骑手）。
+   * 备注：客户端 Image 直接 `src={URL_API}/orders/${id}/qrcode` 加载，缓存 24h。
+   */
+  @Get(':id/qrcode')
+  async getOrderQrcode(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Res({ passthrough: true }) res: any,
+  ): Promise<StreamableFile> {
+    const order = await this.orderService.findById(id);
+    // 仅到店类订单开放核销二维码；外卖单走配送完成流程
+    if (order.deliveryType === DeliveryType.DELIVERY) {
+      throw new BadRequestException('外卖订单不支持到店核销二维码');
+    }
+    this.assertCanAccessOrder(order, user);
+
+    let png: Buffer;
+    try {
+      png = await QRCode.toBuffer(order.id, {
+        errorCorrectionLevel: 'M',
+        width: 280,
+        margin: 2,
+        color: {
+          dark: '#1F1F1F',
+          light: '#FFFFFF',
+        },
+      });
+    } catch (qrErr) {
+      throw new ServiceUnavailableException('二维码生成失败');
+    }
+
+    res.set({
+      'Content-Type': 'image/png',
+      'Content-Disposition': `inline; filename="qrcode-${id}.png"`,
+      'Cache-Control': 'private, max-age=86400',
+    });
+    return new StreamableFile(png);
+  }
+
   @Get(':id/delivery-map')
   async getDeliveryMap(
     @Param('id') id: string,
@@ -509,6 +574,28 @@ export class OrderController {
   ): Promise<ApiResponse<OrderRecord>> {
     const updated = await this.orderService.customerCompletePickup(id, userId);
     return success(updated, '已确认取餐');
+  }
+
+  /**
+   * §3.23 / T246.7: 商家到店核销（仅商家）
+   *   - 自取/堂食订单在 `ready_for_pickup` 状态下，商家扫码或输入订单 ID 推进至 `completed`
+   *   - 仅 `merchant` 角色，且通过 `assertCanAccessOrder` 校验店铺归属（多一层保护见 service `merchantVerifyPickup`）
+   *   - 已完成订单二次核销返回 409（业务幂等）
+   */
+  @Post(':id/verify')
+  @Roles(UserRole.MERCHANT)
+  async merchantVerifyPickup(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ApiResponse<OrderRecord>> {
+    const order = await this.orderService.findById(id);
+    this.assertCanAccessOrder(order, user);
+    const updated = await this.orderService.merchantVerifyPickup(id, {
+      userId: user.userId,
+      shopId: user.shopId,
+      role: String(user.role),
+    });
+    return success(updated, '已核销取餐');
   }
 
   /**

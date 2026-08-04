@@ -783,7 +783,7 @@
   font-weight: $weight-medium;
 }
 
-/* T246.5 取餐码卡片：到店报号，字号需远距离可读 */
+/* §3.23 / T246.9 到店核销二维码卡片：仅二维码，无文字码 */
 .pickup-code-card {
   display: flex;
   flex-direction: column;
@@ -799,13 +799,60 @@
     color: $text-secondary;
   }
 
-  &__value {
-    margin-top: $space-1;
-    font-size: $font-6xl;
-    font-weight: $weight-bold;
-    line-height: $leading-tight;
-    letter-spacing: 4px;
-    color: $primary;
+  &__qr-row {
+    margin-top: $space-3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: $space-1;
+  }
+
+  &__qr-thumb {
+    width: 96px;
+    height: 96px;
+    background: #FFFFFF;
+    border-radius: $radius-md;
+    padding: $space-1;
+  }
+
+  &__qr-tip {
+    font-size: $font-2xs;
+    color: $text-tertiary;
+  }
+
+  &__qr-expand {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+    padding: $space-6;
+  }
+
+  &__qr-expand-img {
+    width: 280px;
+    height: 280px;
+    background: #FFFFFF;
+    padding: $space-3;
+    border-radius: $radius-md;
+  }
+
+  &__qr-expand-hint {
+    margin-top: $space-4;
+    font-size: $font-sm;
+    color: #FFFFFF;
+  }
+
+  &__qr-expand-close {
+    position: absolute;
+    top: $space-10;
+    right: $space-4;
+    font-size: $font-sm;
+    color: #FFFFFF;
+    padding: $space-2 $space-3;
   }
 
   &__hint {

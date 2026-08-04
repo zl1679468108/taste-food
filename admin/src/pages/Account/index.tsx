@@ -1,6 +1,6 @@
 import React from 'react';
-import { Typography, Descriptions, Tag, Empty, Space } from 'antd';
-import { SwapOutlined, UserOutlined, FormOutlined } from '@ant-design/icons';
+import { Typography, Tag, Empty, Space, Divider, Button } from 'antd';
+import { SwapOutlined, UserOutlined, FormOutlined, ShopOutlined, PhoneOutlined, SafetyCertificateOutlined, PlusOutlined } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -38,8 +38,21 @@ const roleLabel: Record<string, string> = {
   customer: '顾客',
 };
 
+const roleColor: Record<string, string> = {
+  admin: 'red',
+  merchant: 'orange',
+  rider: 'blue',
+  customer: 'default',
+};
+
+/** 截断 UUID：只显示前 8 和后 4 位 */
+function truncateId(id?: string | null): string {
+  if (!id || id.length <= 16) return id || '—';
+  return `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+
 // ═══════════════════════════════════════════════════════════
-// 卡片 1：账号信息
+// 卡片 1：账号信息（重新设计）
 // ═══════════════════════════════════════════════════════════
 const AccountInfoCard: React.FC = () => {
   const { initialState } = useModel('@@initialState');
@@ -52,91 +65,115 @@ const AccountInfoCard: React.FC = () => {
     (roles.length === 1 && roles[0].role !== role);
 
   return (
-    <Row gutter={[16, 16]} style={{ alignItems: 'stretch' }}>
-      <Col xs={24} lg={10} style={{ display: 'flex', flexDirection: 'column' }}>
-        <TableCard title="账号信息" style={{ flex: 1 }}>
-          <Space align="start" size={16}>
-            <Avatar
-              size={48}
-              icon={<UserOutlined />}
-              style={{
-                background: brand.primaryLight,
-                color: brand.primary,
-                flexShrink: 0,
-              }}
-            />
-            <div>
-              <Title level={5} style={{ margin: 0 }}>
+    <div className="account-profile-grid">
+      {/* ── 左侧：个人信息卡片 ── */}
+      <div className="account-profile-main">
+        <TableCard style={{ height: '100%' }} bodyStyle={{ padding: 0 }}>
+          {/* 头部区域：渐变背景 + 头像信息 */}
+          <div className="profile-header">
+            <div className="profile-header-bg" />
+            <div className="profile-avatar-wrap">
+              <Avatar
+                size={64}
+                icon={<UserOutlined />}
+                className="profile-avatar"
+              />
+              <div className="profile-badge">
+                <Tag color={roleColor[role] || 'default'} className="profile-role-tag">
+                  {roleLabel[role] || role}
+                </Tag>
+              </div>
+            </div>
+            <div className="profile-name-section">
+              <Title level={4} className="profile-name">
                 {user?.name || '用户'}
               </Title>
-              <Text type="secondary">{user?.username || user?.id}</Text>
+              <Text type="secondary" className="profile-id">
+                ID: {truncateId(user?.id)}
+              </Text>
             </div>
-          </Space>
-          <Descriptions
-            column={1}
-            size="small"
-            style={{ marginTop: brand.space5 }}
-            items={[
-              {
-                key: 'role',
-                label: '当前角色',
-                children: <Tag color="orange">{roleLabel[role] || role}</Tag>,
-              },
-              {
-                key: 'shop',
-                label: '绑定店铺',
-                children: user?.shopId || '—',
-              },
-              {
-                key: 'phone',
-                label: '手机号',
-                children: user?.phone || '—',
-              },
-              {
-                key: 'roles',
-                label: '可用角色',
-                children: roles.length > 0 ? (
-                  <Space wrap>
+          </div>
+
+          <Divider style={{ margin: 0 }} />
+
+          {/* 信息网格 */}
+          <div className="profile-info-grid">
+            <div className="profile-info-item">
+              <div className="info-label">
+                <ShopOutlined className="info-icon" />
+                <span>绑定店铺</span>
+              </div>
+              <div className="info-value">
+                <Text strong>{truncateId(user?.shopId) || '未绑定'}</Text>
+              </div>
+            </div>
+            <div className="profile-info-item">
+              <div className="info-label">
+                <PhoneOutlined className="info-icon" />
+                <span>手机号</span>
+              </div>
+              <div className="info-value">
+                <Text strong>{user?.phone || '未设置'}</Text>
+              </div>
+            </div>
+            <div className="profile-info-item profile-info-item--full">
+              <div className="info-label">
+                <SafetyCertificateOutlined className="info-icon" />
+                <span>可用角色</span>
+              </div>
+              <div className="info-value">
+                {roles.length > 0 ? (
+                  <Space wrap size={6}>
                     {roles.map((r: API.UserRoleItem) => (
-                      <Tag key={`${r.role}-${r.shopId || ''}`}>
+                      <Tag key={`${r.role}-${r.shopId || ''}`} color={roleColor[r.role] || 'default'}>
                         {roleLabel[r.role] || r.role}
+                        {r.shopId ? `(店铺)` : ''}
                       </Tag>
                     ))}
                   </Space>
                 ) : (
-                  roleLabel[role] || role
-                ),
-              },
-            ]}
-          />
+                  <Tag color={roleColor[role]}>{roleLabel[role]}</Tag>
+                )}
+              </div>
+            </div>
+          </div>
         </TableCard>
-      </Col>
-      <Col xs={24} lg={14} style={{ display: 'flex', flexDirection: 'column' }}>
+      </div>
+
+      {/* ── 右侧：角色切换卡片（紧凑）── */}
+      <div className="account-profile-side">
         <TableCard
           title={
-            <Space>
-              <SwapOutlined />
+            <Space size={8}>
+              <SwapOutlined style={{ color: brand.primary }} />
               <span>角色切换</span>
             </Space>
           }
-          style={{ flex: 1 }}
+          style={{ height: '100%' }}
         >
           {canSwitchRole ? (
             <RoleSwitcher />
           ) : (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="当前仅有一个角色，可在「我的申请」中申请商家/骑手"
-            />
+            <div className="role-empty-hint">
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <Text type="secondary" style={{ fontSize: 13 }}>
+                    当前仅有一个角色
+                    <br />
+                    <a onClick={() => document.querySelector('.apply-btn')?.scrollIntoView({ behavior: 'smooth' })}>
+                      前往申请 →
+                    </a>
+                  </Text>
+                }
+              />
+            </div>
           )}
         </TableCard>
-      </Col>
-    </Row>
+      </div>
+    </div>
   );
 };
-
-// 消息中心已统一由顶栏铃铛入口承载（components/NotificationBell），
-// 点击「查看全部」进入独立的 /messages 消息中心页面，个人中心不再重复展示。
 
 // ═══════════════════════════════════════════════════════════
 // 卡片 2：我的申请
@@ -265,16 +302,40 @@ const ApplicationsCard: React.FC = () => {
     },
   ];
 
+  const emptyState = (
+    <div className="apply-empty">
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description={
+          <span className="apply-empty__tips">还没有申请记录，提交身份申请等待管理员审批</span>
+        }
+      />
+      <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+        提交身份申请
+      </Button>
+    </div>
+  );
+
   return (
     <TableCard
       title={
-        <Space>
-          <FormOutlined />
+        <Space size={8}>
+          <FormOutlined style={{ color: brand.primary }} />
           <span>我的申请</span>
         </Space>
       }
-      extra={<Text type="secondary">申请商家或骑手身份，等待平台管理员审批</Text>}
+      extra={
+        <Button
+          type="primary"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={() => setOpen(true)}
+        >
+          提交申请
+        </Button>
+      }
       style={{ marginTop: brand.space4 }}
+      className="apply-btn"
     >
       <Table
         rowKey="id"
@@ -283,7 +344,7 @@ const ApplicationsCard: React.FC = () => {
         columns={columns}
         size={DEFAULT_TABLE_SIZE}
         pagination={DEFAULT_TABLE_PAGINATION}
-        locale={DEFAULT_TABLE_LOCALE}
+        locale={{ ...DEFAULT_TABLE_LOCALE, emptyText: emptyState }}
       />
 
       <Modal
@@ -355,7 +416,7 @@ const ApplicationsCard: React.FC = () => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// 主页面：个人中心（两卡片纵向排列）
+// 主页面：个人中心
 // ═══════════════════════════════════════════════════════════
 const AccountPage: React.FC = () => {
   return (

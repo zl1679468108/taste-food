@@ -10,13 +10,15 @@ import {
   Form,
   Input,
   Select,
+  Tooltip,
 } from 'antd';
 import { antdMessage as message } from '@/utils/antdApp';
-import { UserOutlined, TeamOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { UserOutlined, TeamOutlined, EditOutlined, EyeOutlined } from '@ant-design/icons';
 import { useModel } from '@umijs/max';
-import { User } from '@/services/user';
+import { User, GetUsersParams } from '@/services/user';
 import {
   useUsers,
+  useUserProfile,
   useShops,
   useCreateUser,
   useUpdateUser,
@@ -32,6 +34,7 @@ import {
   DEFAULT_TABLE_LOCALE,
 } from '@/utils/table';
 import { brand } from '@/theme';
+import UserProfileDrawer from './components/UserProfileDrawer';
 
 const { Text } = Typography;
 
@@ -40,6 +43,12 @@ const roleMap: Record<string, { color: string; text: string }> = {
   admin: { color: 'red', text: '平台管理员' },
   merchant: { color: 'orange', text: '商家' },
   rider: { color: 'green', text: '骑手' },
+};
+
+const statusMap: Record<string, { color: string; text: string }> = {
+  active: { color: 'green', text: '正常' },
+  disabled: { color: 'red', text: '已禁用' },
+  banned: { color: 'volcano', text: '已拉黑' },
 };
 
 /** openid 脱敏：保留前 4 + 后 4 */
@@ -61,24 +70,38 @@ const UserPage: React.FC = () => {
   const { initialState, setInitialState } = useModel('@@initialState');
   const currentUser = initialState?.currentUser;
   const isPlatformAdmin = !!currentUser && currentUser.role === 'admin' && !currentUser.shopId;
-  const isMerchantUser = currentUser?.role === 'merchant' || (!!currentUser?.shopId && currentUser?.role === 'admin');
 
-const [searchText, setSearchText] = useState('');
-const [roleFilter, setRoleFilter] = useState<string | undefined>();
-const [page, setPage] = useState(1);
-const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-const [modalOpen, setModalOpen] = useState(false);
-const [editing, setEditing] = useState<User | null>(null);
-const [form] = Form.useForm();
-const watchRole = Form.useWatch('role', form);
+  const [searchText, setSearchText] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(); // T312.5
+  const [rangeFilter, setRangeFilter] = useState<number | undefined>();  // T312.5
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<User | null>(null);
+  const [drawerUserId, setDrawerUserId] = useState<string | null>(null); // §3.24
+  const [form] = Form.useForm();
+  const watchRole = Form.useWatch('role', form);
 
-useEffect(() => {
-  setPage(1);
-}, [searchText, roleFilter]);
+  useEffect(() => {
+    setPage(1);
+  }, [searchText, roleFilter, statusFilter, rangeFilter]);
 
-const usersQuery = useUsers({ page, pageSize, role: roleFilter, keyword: searchText });
-const loading = usersQuery.isPending;
-const total = usersQuery.data?.total ?? 0;
+  const userListParams: GetUsersParams = useMemo(
+    () => ({
+      page,
+      pageSize,
+      role: roleFilter,
+      keyword: searchText,
+      status: statusFilter,
+      registeredWithinDays: rangeFilter,
+    }),
+    [page, pageSize, roleFilter, searchText, statusFilter, rangeFilter],
+  );
+
+  const usersQuery = useUsers(userListParams);
+  const loading = usersQuery.isPending;
+  const total = usersQuery.data?.total ?? 0;
   const users = useMemo<User[]>(
     () =>
       (usersQuery.data?.items || []).map((u: any) => ({
@@ -88,6 +111,11 @@ const total = usersQuery.data?.total ?? 0;
       })),
     [usersQuery.data],
   );
+
+  // 用户画像（抽屉数据源）
+  const profileQuery = useUserProfile(drawerUserId || undefined);
+  const profile = profileQuery.data;
+  const profileLoading = profileQuery.isPending;
 
   // 店铺列表只用于平台管理员的绑定选择
   const shopsQuery = useShops({ enabled: isPlatformAdmin });
@@ -121,6 +149,15 @@ const total = usersQuery.data?.total ?? 0;
       shopId: record.shopId,
     });
     setModalOpen(true);
+  };
+
+  // 打开详情抽屉（§3.24 / T312.1）
+  const openDrawer = (record: User) => {
+    setDrawerUserId(record.id);
+  };
+
+  const closeDrawer = () => {
+    setDrawerUserId(null);
   };
 
   const handleSubmit = async () => {
@@ -217,11 +254,21 @@ const total = usersQuery.data?.total ?? 0;
       title: '角色',
       dataIndex: 'role',
       key: 'role',
-      width: 120,
+      width: 100,
       render: (role: string, record: User) => {
         const text = resolveRoleLabel(role, record.shopId);
         const color = roleMap[role]?.color || 'default';
         return <Tag color={color}>{text}</Tag>;
+      },
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 90,
+      render: (status?: string) => {
+        const info = statusMap[status || 'active'] || statusMap.active;
+        return <Tag color={info.color}>{info.text}</Tag>;
       },
     },
     {
@@ -243,53 +290,82 @@ const total = usersQuery.data?.total ?? 0;
       },
     },
     {
-      title: 'OpenID',
-      dataIndex: 'openid',
-      key: 'openid',
-      width: 160,
-      render: (openid?: string) => (
-        <Text type="secondary" style={{ fontFamily: 'monospace', fontSize: 12 }}>
-          {maskOpenid(openid)}
-        </Text>
-      ),
+      title: '手机号',
+      dataIndex: 'phone',
+      key: 'phone',
+      width: 130,
+      render: (phone?: string) =>
+        phone ? (
+          <Text style={{ fontFamily: 'monospace', fontSize: 12 }} copyable={{ text: phone }}>
+            {phone.replace(/^(\d{3})\d{4}(\d{4})$/, '$1****$2')}
+          </Text>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
     },
     {
       title: '注册时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 160,
-      render: (time: string) => formatTime(time),
+      width: 150,
+      render: (time: string) => formatTime(time, 'YYYY-MM-DD HH:mm'),
     },
     {
       title: '最后登录',
       dataIndex: 'lastLoginAt',
       key: 'lastLoginAt',
-      width: 160,
+      width: 150,
       render: (time?: string) =>
-        time ? formatTime(time, 'YYYY-MM-DD HH:mm:ss') : <Text type="secondary">—</Text>,
+        time ? formatTime(time, 'YYYY-MM-DD HH:mm') : <Text type="secondary">—</Text>,
     },
     {
       title: '操作',
       key: 'action',
-      width: 100,
+      width: 140,
       fixed: 'right' as const,
       render: (_: unknown, record: User) => {
         const canEdit = isPlatformAdmin || record.id === currentUser?.id;
-        if (!canEdit) return <Text type="secondary">—</Text>;
         return (
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-            编辑
-          </Button>
+          <Space size={4} split={<Text type="secondary">|</Text>}>
+            <Tooltip title="查看用户详情 / 画像">
+              <Button
+                type="link"
+                size="small"
+                icon={<EyeOutlined />}
+                onClick={() => openDrawer(record)}
+              >
+                详情
+              </Button>
+            </Tooltip>
+            {canEdit ? (
+              <Button
+                type="link"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEdit(record)}
+              >
+                编辑
+              </Button>
+            ) : (
+              <Text type="secondary">—</Text>
+            )}
+          </Space>
         );
       },
     },
   ];
 
+  // 当前打开抽屉的用户的店铺名（用于画像卡显示）
+  const drawerShopName = useMemo(() => {
+    if (!profile?.shopId) return undefined;
+    return shopNameMap.get(profile.shopId);
+  }, [profile?.shopId, shopNameMap]);
+
   return (
     <div className="tf-page">
       <PageHeaderActions
         icon={<TeamOutlined style={{ marginRight: 'var(--tf-space-2)' }} />}
-        title="用户管理"
+        title={isPlatformAdmin ? '用户管理' : '顾客管理'}
         addText={isPlatformAdmin ? '新建用户' : undefined}
         onAdd={isPlatformAdmin ? openCreate : undefined}
         onRefresh={() => usersQuery.refetch()}
@@ -308,7 +384,7 @@ const total = usersQuery.data?.total ?? 0;
 
       <TableCard>
         <SearchFilterBar
-          searchPlaceholder="搜索昵称 / ID / OpenID"
+          searchPlaceholder="搜索昵称 / ID / OpenID / 手机号"
           onSearch={setSearchText}
           onSearchClear={() => setSearchText('')}
           filterPlaceholder="按角色筛选"
@@ -320,6 +396,28 @@ const total = usersQuery.data?.total ?? 0;
             { label: '骑手', value: 'rider' },
           ]}
           onFilterChange={setRoleFilter}
+          filter2Placeholder="状态"
+          filter2Value={statusFilter}
+          filter2Options={[
+            { label: '正常', value: 'active' },
+            { label: '已禁用', value: 'disabled' },
+            { label: '已拉黑', value: 'banned' },
+          ]}
+          onFilter2Change={setStatusFilter}
+          extra={
+            <Select
+              allowClear
+              placeholder="注册时间"
+              value={rangeFilter ? String(rangeFilter) : undefined}
+              onChange={(v?: string) => setRangeFilter(v ? Number(v) : undefined)}
+              options={[
+                { label: '最近 7 天', value: '7' },
+                { label: '最近 30 天', value: '30' },
+                { label: '最近 90 天', value: '90' },
+              ]}
+              style={{ width: 130 }}
+            />
+          }
         />
         <Table
           columns={columns}
@@ -328,17 +426,21 @@ const total = usersQuery.data?.total ?? 0;
           loading={loading}
           size="small"
           pagination={{
-    ...DEFAULT_TABLE_PAGINATION,
-    current: page,
-    total,
-    pageSize,
-    onChange: (p: number, ps: number) => {
-      setPage(p);
-      setPageSize(ps);
-    },
-  }}
+            ...DEFAULT_TABLE_PAGINATION,
+            current: page,
+            total,
+            pageSize,
+            onChange: (p: number, ps: number) => {
+              setPage(p);
+              setPageSize(ps);
+            },
+          }}
           locale={DEFAULT_TABLE_LOCALE}
-          scroll={{ x: 1160 }}
+          scroll={{ x: 1240 }}
+          onRow={(record) => ({
+            onClick: () => openDrawer(record),
+            style: { cursor: 'pointer' },
+          })}
         />
       </TableCard>
 
@@ -439,6 +541,15 @@ const total = usersQuery.data?.total ?? 0;
           ) : null}
         </Form>
       </Modal>
+
+      <UserProfileDrawer
+        userId={drawerUserId || undefined}
+        open={!!drawerUserId}
+        onClose={closeDrawer}
+        profile={profile}
+        loading={profileLoading}
+        shopName={drawerShopName}
+      />
     </div>
   );
 };

@@ -420,49 +420,6 @@
   color: $primary;
 }
 
-/* T246.5 商家端取餐码：远距离核对，字号放大 */
-.action-modal__pickup-code {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: $space-2;
-  margin: $space-2 0;
-  padding: $space-2 $space-3;
-  border-radius: $radius-md;
-  background: $primary-ghost;
-}
-
-.action-modal__pickup-code-label {
-  font-size: $font-sm;
-  color: $text-secondary;
-}
-
-.action-modal__pickup-code-value {
-  font-size: $font-4xl;
-  font-weight: $weight-bold;
-  letter-spacing: 3px;
-  color: $primary;
-}
-
-/* T246.5 订单列表待取餐单的取餐码 */
-.order-card__pickup {
-  display: flex;
-  align-items: baseline;
-  gap: $space-1;
-  margin-bottom: $space-1;
-}
-
-.order-card__pickup-label {
-  font-size: $font-2xs;
-  color: $text-tertiary;
-}
-
-.order-card__pickup-code {
-  font-size: $font-lg;
-  font-weight: $weight-bold;
-  letter-spacing: 2px;
-  color: $primary;
-}
 
 .action-modal__alert {
   margin: $space-2 0;

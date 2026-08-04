@@ -1,10 +1,13 @@
 -- ============================================================
 -- 小买卖点餐系统 - 数据库初始化脚本 (Supabase PostgreSQL)
--- 版本: 1.0.7 (与代码实现同步)
--- 更新日期: 2026-08-01
+-- 版本: 1.0.8 (与代码实现同步)
+-- 更新日期: 2026-08-04
 -- 版本策略: 语义化小版本迭代（MAJOR.MINOR.PATCH），避免虚高主版本号
 -- 包含所有核心业务表及结构，默认关闭 RLS。
 -- 注意：此脚本必须与代码实现保持一致（三位一体同步）
+--
+-- 1.0.8
+-- 1. count_orders_by_scope RPC（v33）：订单列表状态数量单条 SQL 聚合，支撑 Tab 数字角标
 --
 -- 1.0.7
 -- 1. tf_export_jobs 批量异步导出任务表（T267）：状态机 pending→processing→completed/failed，产物存 Supabase 私有桶 export-files
@@ -304,11 +307,14 @@ CREATE TABLE IF NOT EXISTS "tf_users" (
   "nick_name" text,
   "avatar_url" text,
   "last_login_at" timestamptz, -- 最后登录时间（由服务端在登录/刷新令牌时更新）
+  "status" text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'banned')), -- 账号状态：active=正常 / disabled=禁用 / banned=拉黑（§3.24 / T312.4）
   "created_at" timestamptz DEFAULT now(),
   "updated_at" timestamptz DEFAULT now()
 );
-COMMENT ON TABLE "tf_users" IS '系统用户账号（微信 OpenID / 密码账号通用）；平台管理员/商家/骑手/顾客共表。last_login_at 记录最后登录或刷新令牌时间。';
+COMMENT ON TABLE "tf_users" IS '系统用户账号（微信 OpenID / 密码账号通用）；平台管理员/商家/骑手/顾客共表。last_login_at 记录最后登录或刷新令牌时间。status 用于账号管理（§3.24）。';
 ALTER TABLE "tf_users" DISABLE ROW LEVEL SECURITY;
+
+CREATE INDEX IF NOT EXISTS idx_users_status ON tf_users(status);
 
 -- 10.1 [Legacy] 旧 JWT refresh 持久化表（1.0.1 起主路径改用 tf_user_sessions）
 -- 保留以兼容历史库；新登录不再写入。确认无依赖后可手工 DROP。
@@ -1088,6 +1094,49 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON tf_notifications(us
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON tf_notifications(user_id, is_read);
 
 -- ============================================================
+-- 顾客标签（§3.25）：商家为本店顾客打标，用于分组运营
+-- ============================================================
+CREATE TABLE IF NOT EXISTS "tf_customer_tags" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "name" text NOT NULL,
+  "color" text NOT NULL DEFAULT '#1677ff',
+  "created_at" timestamptz DEFAULT now(),
+  "updated_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_customer_tags" DISABLE ROW LEVEL SECURITY;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_tags_shop_name ON tf_customer_tags(shop_id, name);
+CREATE INDEX IF NOT EXISTS idx_customer_tags_shop ON tf_customer_tags(shop_id);
+
+CREATE TABLE IF NOT EXISTS "tf_customer_tag_relations" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "user_id" uuid NOT NULL REFERENCES tf_users(id) ON DELETE CASCADE,
+  "tag_id" uuid NOT NULL REFERENCES tf_customer_tags(id) ON DELETE CASCADE,
+  "created_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_customer_tag_relations" DISABLE ROW LEVEL SECURITY;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_tag_rel_uniq ON tf_customer_tag_relations(user_id, tag_id);
+CREATE INDEX IF NOT EXISTS idx_customer_tag_rel_shop_user ON tf_customer_tag_relations(shop_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_customer_tag_rel_tag ON tf_customer_tag_relations(tag_id);
+
+-- ============================================================
+-- 站内信（§3.25）：商家 → 本店顾客
+-- ============================================================
+CREATE TABLE IF NOT EXISTS "tf_messages" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
+  "from_user_id" uuid NOT NULL REFERENCES tf_users(id) ON DELETE CASCADE,
+  "to_user_id" uuid NOT NULL REFERENCES tf_users(id) ON DELETE CASCADE,
+  "content" text NOT NULL,
+  "read_at" timestamptz,
+  "created_at" timestamptz DEFAULT now()
+);
+ALTER TABLE "tf_messages" DISABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_messages_shop_to_created ON tf_messages(shop_id, to_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_shop_created ON tf_messages(shop_id, created_at DESC);
+
+-- ============================================================
 -- 批量异步导出任务表（T267）
 -- 记录后台导出任务状态、参数与产物存储路径。仅产出 Excel（xlsx），不走 CSV。
 -- ============================================================
@@ -1341,3 +1390,64 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 COMMENT ON FUNCTION get_daily_stats(uuid, date, date) IS
   '日趋势聚合（v30）：PostgreSQL 端 GROUP BY 按日聚合，'
   'Node 端不再加载区间内全部订单行。日期桶由 generate_series 补齐零值日。';
+
+-- ============================================================
+-- 订单列表状态数量聚合（v33）：单条 SQL 返回各状态计数
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION count_orders_by_scope(
+  p_scope_type text,
+  p_scope_id text,
+  p_keyword text
+)
+RETURNS TABLE (
+  all_count integer,
+  pending_payment integer,
+  paid integer,
+  accepted integer,
+  preparing integer,
+  ready_for_delivery integer,
+  ready_for_pickup integer,
+  delivering integer,
+  refund integer,
+  completed integer
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    COUNT(*)::integer AS all_count,
+    COUNT(*) FILTER (WHERE o.status = 'pending_payment')::integer AS pending_payment,
+    COUNT(*) FILTER (WHERE o.status = 'paid')::integer AS paid,
+    COUNT(*) FILTER (WHERE o.status = 'accepted')::integer AS accepted,
+    COUNT(*) FILTER (WHERE o.status = 'preparing')::integer AS preparing,
+    COUNT(*) FILTER (WHERE o.status = 'ready_for_delivery')::integer AS ready_for_delivery,
+    COUNT(*) FILTER (WHERE o.status = 'ready_for_pickup')::integer AS ready_for_pickup,
+    COUNT(*) FILTER (WHERE o.status = 'delivering')::integer AS delivering,
+    COUNT(*) FILTER (WHERE o.status IN ('cancelled', 'rejected') OR o.cancel_requested_at IS NOT NULL)::integer AS refund,
+    COUNT(*) FILTER (WHERE o.status = 'completed')::integer AS completed
+  FROM tf_orders o
+  WHERE (
+    CASE
+      WHEN p_scope_type = 'user' THEN o.user_id = p_scope_id
+      WHEN p_scope_type = 'shop' THEN (p_scope_id IS NULL OR p_scope_id = '' OR o.shop_id = p_scope_id::uuid)
+      WHEN p_scope_type = 'rider' THEN o.rider_id = p_scope_id
+      WHEN p_scope_type = 'pool' THEN
+        o.delivery_type = 'delivery'
+        AND o.rider_id IS NULL
+        AND o.status IN ('ready_for_delivery', 'preparing', 'delivering')
+        AND (p_scope_id IS NULL OR p_scope_id = '' OR o.shop_id = p_scope_id::uuid)
+      ELSE TRUE
+    END
+  )
+  AND (
+    p_keyword IS NULL OR p_keyword = ''
+    OR o.order_no ILIKE '%' || p_keyword || '%'
+    OR o.contact_name ILIKE '%' || p_keyword || '%'
+    OR o.contact_phone ILIKE '%' || p_keyword || '%'
+  );
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+COMMENT ON FUNCTION count_orders_by_scope(text, text, text) IS
+  '订单列表状态数量聚合（v33）：单次 SQL 按作用域(user/shop/rider/pool)聚合各状态订单数，'
+  '退款售后 = cancelled + rejected + cancel_requested_at 非空，避免前端/Node 端多次查询。';

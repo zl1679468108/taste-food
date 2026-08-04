@@ -34,6 +34,7 @@ export const queryKeys = {
       ['orders', 'list', params] as const,
     detail: (id: string) => ['orders', 'detail', id] as const,
     statsToday: (shopId?: string) => ['orders', 'stats', 'today', shopId] as const,
+    statsPending: (shopId?: string) => ['orders', 'stats', 'pending', shopId] as const,
     statsDaily: (
       shopId: string | undefined,
       days: number,
@@ -50,9 +51,44 @@ export const queryKeys = {
   // ---------- user ----------
   users: {
     all: () => ['users'] as const,
-    list: (params: { page: number; pageSize: number; role?: string }) =>
-      ['users', 'list', params] as const,
+    list: (params: {
+      page: number;
+      pageSize: number;
+      role?: string;
+      keyword?: string;
+      status?: string;
+      registeredWithinDays?: number;
+    }) => ['users', 'list', params] as const,
     me: () => ['users', 'me'] as const,
+    profile: (id: string) => ['users', 'profile', id] as const,
+  },
+
+  // ---------- 顾客管理（商家视角，§3.24 / T313） ----------
+  customers: {
+    all: () => ['customers'] as const,
+    list: (params: {
+      page: number;
+      pageSize: number;
+      keyword?: string;
+      sortBy?: string;
+      hasOrderWithinDays?: number;
+      tagIds?: string[];
+    }) => ['customers', 'list', params] as const,
+    profile: (id: string) => ['customers', 'profile', id] as const,
+    tags: (id: string) => ['customers', 'tags', id] as const,
+  },
+
+  // ---------- 顾客标签（店铺级，§3.25） ----------
+  shopTags: {
+    all: () => ['shopTags'] as const,
+    list: () => ['shopTags', 'list'] as const,
+  },
+
+  // ---------- 站内信（商家 → 顾客，§3.25 / T314） ----------
+  messages: {
+    all: () => ['messages'] as const,
+    list: (params: { toUserId?: string; page?: number; pageSize?: number }) =>
+      ['messages', 'list', params] as const,
   },
 
   // ---------- notification ----------
