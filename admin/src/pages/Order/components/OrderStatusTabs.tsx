@@ -1,28 +1,36 @@
 import React from 'react';
 import { Badge, Tabs } from 'antd';
 import { brand } from '@/theme';
-import type { OrderStatusBadges } from '../hooks/useOrderStatusBadges';
+import type { OrderStatusCounts } from '@/services/order';
 
 export interface OrderStatusTabsProps {
   activeKey: string;
   onChange: (key: string) => void;
-  /** 各状态 Tab 的角标数量（key 与 tab key 对应，如 paid / ready_for_delivery / refund） */
-  badges?: OrderStatusBadges;
+  /**
+   * 各状态 Tab 的角标数量，直接由 `GET /api/orders` 的 `data.counts` 透传。
+   *   - key=''（全部）→ counts.all
+   *   - 其他 → counts[<status>]（如 paid / accepted / ... / refund）
+   * 未到位（首次加载）时传 `undefined`，自动隐藏所有角标。
+   */
+  counts?: OrderStatusCounts;
 }
+
+/** Tabs 中「全部」对应的虚拟 key；counts 里以 `all` 字段承载 */
+const ALL_KEY = '';
 
 const OrderStatusTabs: React.FC<OrderStatusTabsProps> = ({
   activeKey,
   onChange,
-  badges = {},
+  counts,
 }) => {
   const renderLabel = (key: string, label: string) => {
-    const count = badges[key];
-    if (!count || count <= 0) return label;
+    const value = counts ? counts[key as keyof OrderStatusCounts] ?? 0 : 0;
+    if (!value || value <= 0) return label;
     return (
       <span>
         {label}
         <Badge
-          count={count}
+          count={value}
           color={brand.primary}
           style={{ marginLeft: 'var(--tf-space-2)', fontSize: 11 }}
         />
@@ -31,7 +39,7 @@ const OrderStatusTabs: React.FC<OrderStatusTabsProps> = ({
   };
 
   const items = [
-    { key: '', label: renderLabel('', '全部') },
+    { key: ALL_KEY, label: renderLabel('all', '全部') },
     { key: 'pending_payment', label: renderLabel('pending_payment', '待支付') },
     {
       key: 'paid',

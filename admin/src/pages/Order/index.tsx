@@ -6,6 +6,13 @@ import { DownloadOutlined, ShoppingOutlined } from '@ant-design/icons';
 import { forceCompleteOrder, Order } from '@/services/order';
 import { useOrders } from '@/hooks/queries';
 import { useShopContext } from '@/hooks/useShopContext';
+import {
+  connectSocket,
+  disconnectSocket,
+  onOrderNew,
+  offOrderNew,
+  OrderNewEvent,
+} from '@/services/socket';
 import { DEFAULT_PAGE_SIZE, DEFAULT_TABLE_LOCALE } from '@/utils/table';
 import PageHeaderActions from '@/components/PageHeaderActions';
 import TableCard from '@/components/TableCard';
@@ -18,7 +25,6 @@ import OrderAcceptModal from './components/OrderAcceptModal';
 import { useOrderExport } from './hooks/useOrderExport';
 import { useOrderDetail } from './hooks/useOrderDetail';
 import { useOrderStatusActions } from './hooks/useOrderStatusActions';
-import { useOrderStatusBadges } from './hooks/useOrderStatusBadges';
 import { useReasonModal } from './hooks/useReasonModal';
 import { useAcceptModal } from './hooks/useAcceptModal';
 
@@ -90,13 +96,26 @@ const OrderPage: React.FC = () => {
     handleResolveCancelRequest,
   } = useOrderStatusActions({ refreshDetailSnapshot, findOrder });
 
-  const orderStatusBadges = useOrderStatusBadges({
-    ready,
-    shopId,
-    onNewOrder: () => {
-      ordersQuery.refetch();
-    },
-  });
+  // 各 Tab 角标数量：直接消费 `GET /api/orders` 返回的 data.counts。
+  // 轮询与新单刷新由 useOrders(refetchInterval) + 本 useEffect(WS) 共同兜底。
+  const orderStatusCounts = ordersQuery.data?.counts;
+
+  // WS 新单：本店新单到达时主动 refetch（带动 counts 一起刷新）。
+  useEffect(() => {
+    if (!ready || !shopId) return;
+    connectSocket();
+    const handler = (data: OrderNewEvent) => {
+      const nested = (data.order || {}) as Record<string, unknown>;
+      const evtShopId = String(data.shopId || nested.shop_id || '');
+      if (evtShopId && evtShopId !== String(shopId)) return;
+      void ordersQuery.refetch();
+    };
+    onOrderNew(handler);
+    return () => {
+      offOrderNew(handler);
+      disconnectSocket();
+    };
+  }, [ready, shopId, ordersQuery]);
 
   const reasonModal = useReasonModal();
   const acceptModal = useAcceptModal();
@@ -169,7 +188,7 @@ const OrderPage: React.FC = () => {
             const qs = params.toString();
             history.replace(qs ? `${location.pathname}?${qs}` : location.pathname);
           }}
-          badges={orderStatusBadges}
+          counts={orderStatusCounts}
         />
 
         <SearchFilterBar

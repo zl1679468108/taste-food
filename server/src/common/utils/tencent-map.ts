@@ -24,6 +24,21 @@ type CacheEntry = { value: GeocodeResult | null; expiresAt: number };
 
 const geocodeCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_FETCH_TIMEOUT_MS = 5000;
+
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function getMapKey(): string {
   return (process.env.TENCENT_MAP_KEY || process.env.QQ_MAP_KEY || '').trim();
@@ -96,7 +111,7 @@ export async function geocodeAddress(
     }
 
     const url = `https://apis.map.qq.com/ws/geocoder/v1/?${params.toString()}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) {
       logger.warn(`腾讯地图 geocode HTTP ${res.status}`);
       geocodeCache.set(ck, { value: null, expiresAt: Date.now() + 5 * 60 * 1000 });
@@ -215,7 +230,7 @@ export async function fetchStaticMapImage(options: {
 
   try {
     const url = `https://apis.map.qq.com/ws/staticmap/v2/?${params.toString()}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     const contentType = res.headers.get('content-type') || '';
     const buf = Buffer.from(await res.arrayBuffer());
     if (!res.ok) {

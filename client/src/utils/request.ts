@@ -8,6 +8,13 @@ import { useAuthStore } from '../stores/authStore';
 const Taro = (TaroImport as typeof TaroImport & { default?: typeof TaroImport }).default || TaroImport;
 const isTestEnv = process.env.NODE_ENV === 'test';
 
+/**
+ * 请求默认超时（ms）。
+ * 之前硬编码 10000，下单等重接口在后端偶发抖动（地图 geocode 5s、购物车商品较多）
+ * 时容易撞 10s 红线被 Taro 取消。放宽到 30s，仍在微信小程序 60s 上限内，留足余量。
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 // ==================== 熔断器（Circuit Breaker）====================
 // 连续 N 个 5xx 错误后阻断后续请求，避免服务端过载时客户端雪崩式重试。
 
@@ -319,7 +326,7 @@ async function request<T>(
         method,
         data,
         header: headers,
-        timeout: options?.timeout || 10000,
+        timeout: options?.timeout || DEFAULT_REQUEST_TIMEOUT_MS,
       });
 
       const rawData = response.data;

@@ -1151,53 +1151,55 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     const orderNo = await this.allocateOrderNo(dto.shopId, dto.deliveryType);
 
     // 服务端校验菜品价格：base price + 规格加价（分），不信任客户端传入的 price
+    // 批量查询菜品，避免 N+1 问题导致大购物车下单超时
+    const menuItemIds = dto.items.map((item) => item.menuItemId);
+    const menuItemMap = await this.menuService.getMenuItemsByIds(menuItemIds);
+
     const verifiedItems: { menuItemId: string; name: string; quantity: number; price: number; specDesc: string; imageUrl: string }[] = [];
     for (const item of dto.items) {
-      try {
-        const menuItem = await this.menuService.getMenuItemById(item.menuItemId);
-        if (menuItem.status && menuItem.status !== MenuItemStatus.ACTIVE) {
-          throw new BadRequestException(`菜品 ${menuItem.name} 不存在或已下架`);
-        }
-        if (menuItem.shopId && menuItem.shopId !== dto.shopId) {
-          throw new BadRequestException(`菜品 ${menuItem.name} 不属于当前店铺`);
-        }
-        let unitPrice = menuItem.price; // 基础价（分）
-
-        // 有 specOptionIds 时按 option.priceAdjust 累加核价；无则兼容旧客户端仅用 base price
-        if (item.specOptionIds && item.specOptionIds.length > 0) {
-          const uniqueOptionIds = Array.from(new Set(item.specOptionIds));
-          const specGroups = await this.menuService.getMenuItemSpecs(item.menuItemId);
-          const optionMap = new Map<string, number>();
-          for (const group of specGroups) {
-            for (const option of group.options || []) {
-              optionMap.set(option.id, option.priceAdjust || 0);
-            }
-          }
-
-          let priceAdjustTotal = 0;
-          for (const optionId of uniqueOptionIds) {
-            if (!optionMap.has(optionId)) {
-              throw new BadRequestException(
-                `菜品 ${menuItem.name} 不包含规格选项 ${optionId}`,
-              );
-            }
-            priceAdjustTotal += optionMap.get(optionId) || 0;
-          }
-          unitPrice = menuItem.price + priceAdjustTotal;
-        }
-
-        verifiedItems.push({
-          menuItemId: item.menuItemId,
-          name: menuItem.name,
-          quantity: item.quantity,
-          price: unitPrice, // verifiedItems.price = base + sum(priceAdjust)
-          specDesc: item.specDesc || '',
-          imageUrl: menuItem.imageUrl || item.imageUrl || '',
-        });
-      } catch (e) {
-        if (e instanceof BadRequestException) throw e;
+      const menuItem = menuItemMap.get(item.menuItemId);
+      if (!menuItem) {
         throw new BadRequestException(`菜品 ${item.name || item.menuItemId} 不存在或已下架`);
       }
+      if (menuItem.status && menuItem.status !== MenuItemStatus.ACTIVE) {
+        throw new BadRequestException(`菜品 ${menuItem.name} 不存在或已下架`);
+      }
+      if (menuItem.shopId && menuItem.shopId !== dto.shopId) {
+        throw new BadRequestException(`菜品 ${menuItem.name} 不属于当前店铺`);
+      }
+      let unitPrice = menuItem.price; // 基础价（分）
+
+      // 有 specOptionIds 时按 option.priceAdjust 累加核价；无则兼容旧客户端仅用 base price
+      if (item.specOptionIds && item.specOptionIds.length > 0) {
+        const uniqueOptionIds = Array.from(new Set(item.specOptionIds));
+        const specGroups = menuItem.specs || [];
+        const optionMap = new Map<string, number>();
+        for (const group of specGroups) {
+          for (const option of group.options || []) {
+            optionMap.set(option.id, option.priceAdjust || 0);
+          }
+        }
+
+        let priceAdjustTotal = 0;
+        for (const optionId of uniqueOptionIds) {
+          if (!optionMap.has(optionId)) {
+            throw new BadRequestException(
+              `菜品 ${menuItem.name} 不包含规格选项 ${optionId}`,
+            );
+          }
+          priceAdjustTotal += optionMap.get(optionId) || 0;
+        }
+        unitPrice = menuItem.price + priceAdjustTotal;
+      }
+
+      verifiedItems.push({
+        menuItemId: item.menuItemId,
+        name: menuItem.name,
+        quantity: item.quantity,
+        price: unitPrice, // verifiedItems.price = base + sum(priceAdjust)
+        specDesc: item.specDesc || '',
+        imageUrl: menuItem.imageUrl || item.imageUrl || '',
+      });
     }
 
     // 配送费从店铺配置获取，不信任客户端传值（复用上方已查询的 shopForOrder）

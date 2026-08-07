@@ -1,12 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Table, Tag, Typography, Avatar, Space, Button, Tooltip, Select } from 'antd';
 import { antdMessage as message } from '@/utils/antdApp';
-import { UserOutlined, EyeOutlined, TeamOutlined, PlusOutlined, TagsOutlined } from '@ant-design/icons';
-import { ShopCustomerSummary, CustomerSortBy, CustomerTag } from '@/services/customer';
+import { UserOutlined, EyeOutlined, TeamOutlined, PlusOutlined } from '@ant-design/icons';
+import { ShopCustomerSummary, CustomerSortBy } from '@/services/customer';
 import {
   useShopCustomers,
   useShopCustomerProfile,
-  useShopTags,
 } from '@/hooks/queries/useCustomerQueries';
 import SearchFilterBar from '@/components/SearchFilterBar';
 import { formatTime, shortOrderId, formatPrice } from '@/utils/format';
@@ -19,7 +18,6 @@ import {
 } from '@/utils/table';
 import { brand } from '@/theme';
 import CustomerProfileDrawer from './components/CustomerProfileDrawer';
-import TagManageModal from './components/TagManageModal';
 
 const { Text } = Typography;
 
@@ -51,17 +49,13 @@ const CustomerManagementPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [sortBy, setSortBy] = useState<CustomerSortBy>('last_order');
   const [rangeFilter, setRangeFilter] = useState<number | undefined>();
-  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [drawerId, setDrawerId] = useState<string | null>(null);
-  const [tagManageOpen, setTagManageOpen] = useState(false);
-
-  const { data: shopTags = [] } = useShopTags();
 
   useEffect(() => {
     setPage(1);
-  }, [searchText, sortBy, rangeFilter, tagFilter]);
+  }, [searchText, sortBy, rangeFilter]);
 
   const params = useMemo(
     () => ({
@@ -70,9 +64,8 @@ const CustomerManagementPage: React.FC = () => {
       keyword: searchText || undefined,
       sortBy,
       hasOrderWithinDays: rangeFilter,
-      tagIds: tagFilter.length ? tagFilter : undefined,
     }),
-    [page, pageSize, searchText, sortBy, rangeFilter, tagFilter],
+    [page, pageSize, searchText, sortBy, rangeFilter],
   );
 
   const customersQuery = useShopCustomers(params);
@@ -175,24 +168,6 @@ const CustomerManagementPage: React.FC = () => {
       },
     },
     {
-      title: '标签',
-      dataIndex: 'tags',
-      key: 'tags',
-      width: 200,
-      render: (tags: CustomerTag[]) =>
-        tags && tags.length ? (
-          <Space size={[4, 4]} wrap>
-            {tags.map((t) => (
-              <Tag key={t.id} color={t.color} style={{ marginRight: 0 }}>
-                {t.name}
-              </Tag>
-            ))}
-          </Space>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
-    },
-    {
       title: '操作',
       key: 'action',
       width: 100,
@@ -216,11 +191,6 @@ const CustomerManagementPage: React.FC = () => {
         icon={<TeamOutlined style={{ marginRight: 'var(--tf-space-2)' }} />}
         title="顾客管理"
         onRefresh={() => customersQuery.refetch()}
-        extra={
-          <Button icon={<TagsOutlined />} onClick={() => setTagManageOpen(true)}>
-            标签管理
-          </Button>
-        }
       />
 
       <TableCard>
@@ -233,26 +203,14 @@ const CustomerManagementPage: React.FC = () => {
           filterOptions={sortOptions}
           onFilterChange={(v) => setSortBy((v as CustomerSortBy) || 'last_order')}
           extra={
-            <>
-              <Select
-                mode="multiple"
-                allowClear
-                maxTagCount="responsive"
-                placeholder="按标签筛选"
-                value={tagFilter}
-                onChange={(v?: string[]) => setTagFilter(v || [])}
-                options={shopTags.map((t) => ({ label: t.name, value: t.id }))}
-                style={{ minWidth: 160 }}
-              />
-              <Select
-                allowClear
-                placeholder="下单时间"
-                value={rangeFilter ? String(rangeFilter) : undefined}
-                onChange={(v?: string) => setRangeFilter(v ? Number(v) : undefined)}
-                options={rangeOptions}
-                style={{ width: 130 }}
-              />
-            </>
+            <Select
+              allowClear
+              placeholder="下单时间"
+              value={rangeFilter ? String(rangeFilter) : undefined}
+              onChange={(v?: string) => setRangeFilter(v ? Number(v) : undefined)}
+              options={rangeOptions}
+              style={{ width: 130 }}
+            />
           }
         />
 
@@ -291,8 +249,6 @@ const CustomerManagementPage: React.FC = () => {
         profile={profile}
         loading={profileLoading}
       />
-
-      <TagManageModal open={tagManageOpen} onClose={() => setTagManageOpen(false)} />
     </div>
   );
 };

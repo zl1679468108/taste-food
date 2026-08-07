@@ -6,6 +6,7 @@
  * - 服务端 handleConnection 会按 token 中的 shopId 自动加入 `shop:${shopId}` 房间，
  *   前端无需手动 join
  * - 连接采用引用计数：多个面板/组件同时订阅只保留一条连接，最后一个卸载时才真正断开
+ * - 心跳监控：检测服务端 ping 超时并主动重连，防止长连接假死
  */
 import { io, Socket } from 'socket.io-client';
 import type { InboxNotification } from '@/services/notification';
@@ -65,6 +66,12 @@ let refCount = 0;
 let bound = false;
 /** 区分「首次连接」与「断线重连」，只有后者需要触发数据对齐 */
 let hasConnectedOnce = false;
+let lastToken: string | null = null;
+
+// 心跳监控
+let lastPingAt = 0;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_TIMEOUT_MS = 45_000; // 服务端 pingInterval 25s + pingTimeout 10s + 缓冲
 
 const deliveryTrackCbs = new Set<DeliveryTrackCallback>();
 const notificationCbs = new Set<NotificationCallback>();
@@ -74,6 +81,28 @@ const reconnectCbs = new Set<ReconnectCallback>();
 function readToken(): string {
   if (typeof window === 'undefined') return '';
   return localStorage.getItem('token') || '';
+}
+
+function startHeartbeatMonitor(): void {
+  if (heartbeatTimer) return;
+  lastPingAt = Date.now();
+  heartbeatTimer = setInterval(() => {
+    if (!current || !connected) {
+      stopHeartbeatMonitor();
+      return;
+    }
+    if (Date.now() - lastPingAt > HEARTBEAT_TIMEOUT_MS) {
+      console.warn('[Socket] 心跳超时，主动重连');
+      current.disconnect();
+    }
+  }, 10_000);
+}
+
+function stopHeartbeatMonitor(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
 }
 
 /**
@@ -147,6 +176,7 @@ export function connectSocket(): Socket | null {
   const token = readToken();
   if (!token) return null;
 
+  lastToken = token;
   refCount += 1;
   if (current) {
     bind(current);
@@ -170,10 +200,16 @@ export function connectSocket(): Socket | null {
     return null;
   }
 
+  // 重连时自动更新 auth token
+  current.io.on('reconnect_attempt', () => {
+    if (current) current.auth = { token: readToken() };
+  });
+
   current.on('connect', () => {
     const isReconnect = hasConnectedOnce;
     connected = true;
     hasConnectedOnce = true;
+    startHeartbeatMonitor();
     // 断线期间服务端推送的事件已经丢了，通知订阅方重新拉一次数据做对齐。
     // 首次连接不触发：此时组件自己的初始化请求已经在跑，重复拉取没有意义。
     if (isReconnect) emitReconnected();
@@ -181,16 +217,17 @@ export function connectSocket(): Socket | null {
 
   current.on('disconnect', () => {
     connected = false;
+    stopHeartbeatMonitor();
+  });
+
+  // 监听服务端 ping
+  current.on('ping', () => {
+    lastPingAt = Date.now();
   });
 
   current.on('connect_error', (error: unknown) => {
     connected = false;
     console.error('[Socket] 连接错误:', error instanceof Error ? error.message : error);
-  });
-
-  // 重连时带上最新 token（access token 可能已被 refresh 轮换）
-  current.io.on('reconnect_attempt', () => {
-    if (current) current.auth = { token: readToken() };
   });
 
   bind(current);
@@ -215,6 +252,8 @@ export function disconnectSocket(): void {
     connected = false;
     bound = false;
     hasConnectedOnce = false;
+    lastToken = null;
+    stopHeartbeatMonitor();
     deliveryTrackCbs.clear();
     notificationCbs.clear();
     orderNewCbs.clear();

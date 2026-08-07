@@ -68,6 +68,7 @@ export class OrderController {
     @Body() dto: CreateOrderDto,
     @CurrentUser('userId') userId: string,
   ): Promise<ApiResponse<OrderRecord>> {
+    const start = Date.now();
     // 不修改入参 DTO，创建新对象传入 service
     const order = await this.orderService.create({ ...dto, userId });
     return success(order, '订单创建成功');
@@ -206,46 +207,6 @@ export class OrderController {
         : undefined;
     const daily = await this.orderService.getDailyStats(shopId, daysNum, range);
     return success(daily);
-  }
-
-  /**
-   * 订单状态数量聚合（v34）：一次请求返回各状态 count，替代前端多次按状态查列表的 count。
-   * 权限与查询口径同 GET /api/orders，仅返回 counts 不返回明细。
-   */
-  @Get('counts')
-  async getOrderCounts(
-    @Query() query: OrderQueryDto,
-    @CurrentUser() user: CurrentUserPayload,
-  ): Promise<ApiResponse<OrderStatusCounts>> {
-    const requestedShopId = query.shop_id?.trim() || undefined;
-    const isPlatformAllShops = isPlatformAdmin(user) && !requestedShopId;
-    const adminShopId = isPlatformAllShops
-      ? undefined
-      : resolveAdminTargetShopId(user.shopId, requestedShopId, {
-          lockToBoundShop: !!user.shopId,
-        });
-
-    let countScope: { type: 'user' | 'shop' | 'rider' | 'pool'; id?: string } | null = null;
-
-    if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.user_id) {
-      countScope = { type: 'user', id: query.user_id };
-    } else if ((user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) && query.rider_id) {
-      countScope = { type: 'rider', id: query.rider_id };
-    } else if (user.role === UserRole.ADMIN || user.role === UserRole.MERCHANT) {
-      countScope = { type: 'shop', id: adminShopId };
-    } else if (user.role === UserRole.RIDER && query.is_pool === 'true') {
-      countScope = { type: 'pool', id: query.shop_id };
-    } else if (user.role === UserRole.RIDER) {
-      countScope = { type: 'rider', id: user.userId };
-    } else if (user.role === UserRole.CUSTOMER) {
-      countScope = { type: 'user', id: user.userId };
-    }
-
-    const counts = countScope
-      ? await this.orderService.countOrdersByScope(countScope.type, countScope.id, query.keyword)
-      : this.orderService.emptyCounts();
-
-    return success(counts);
   }
 
   /**

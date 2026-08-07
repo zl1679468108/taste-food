@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import Taro from '@tarojs/taro';
 import { WS_URL } from '../env';
 import newOrderAlertSrc from '../assets/sounds/new-order.wav';
+import { logger } from '../utils/logger';
 
 // 微信小程序全局对象类型声明（避免 TS 报错，运行时由微信小程序环境注入）
 declare const wx: unknown;
@@ -10,6 +11,12 @@ let socket: Socket | null = null;
 let isConnected = false;
 let lastUserId: string | null = null;
 let lastUserRole: string | null = null;
+let lastToken: string | null = null;
+
+// 心跳监控：记录最后收到 ping 的时间，超时则主动重连
+let lastPingAt = 0;
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+const HEARTBEAT_TIMEOUT_MS = 45_000; // 服务端 pingInterval 25s + pingTimeout 10s + 缓冲
 
 export interface OrderEventSummary {
   orderId?: string;
@@ -74,6 +81,29 @@ export function isSocketConnected(): boolean {
   return isConnected;
 }
 
+function startHeartbeatMonitor(): void {
+  if (heartbeatTimer) return;
+  lastPingAt = Date.now();
+  heartbeatTimer = setInterval(() => {
+    if (!socket || !isConnected) {
+      stopHeartbeatMonitor();
+      return;
+    }
+    // 如果超过阈值未收到服务端 ping，认为连接失效，触发重连
+    if (Date.now() - lastPingAt > HEARTBEAT_TIMEOUT_MS) {
+      logger.warn('[Socket] 心跳超时，主动重连');
+      socket.disconnect(); // 触发自动重连逻辑
+    }
+  }, 10_000);
+}
+
+function stopHeartbeatMonitor(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
 export function connectSocket(token: string, userId?: string, role?: string): void {
   if (socket) {
     disconnectSocket();
@@ -81,6 +111,7 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
 
   lastUserId = userId || null;
   lastUserRole = role || null;
+  lastToken = token;
 
   // 禁用 socket.io 内部的 debug 日志（避免 console.log 复杂对象导致调试器克隆失败）
   if (typeof globalThis !== 'undefined') {
@@ -115,8 +146,16 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
     forceNew: true,
   });
 
+  // 重连时自动更新 auth token（access token 可能已被 refresh 轮换）
+  socket.io.on('reconnect_attempt', () => {
+    if (socket && lastToken) {
+      socket.auth = { token: lastToken };
+    }
+  });
+
   socket.on('connect', () => {
     isConnected = true;
+    startHeartbeatMonitor();
     // 连接/重连后绑定事件 handler，确保回调可用
     bindOrderHandlers();
     // 重放 joinUserRoom：连接建立后重新声明身份（服务端 handleConnection 已根据 JWT
@@ -128,11 +167,17 @@ export function connectSocket(token: string, userId?: string, role?: string): vo
 
   socket.on('disconnect', () => {
     isConnected = false;
+    stopHeartbeatMonitor();
+  });
+
+  // 监听服务端 ping，更新心跳时间戳
+  socket.on('ping', () => {
+    lastPingAt = Date.now();
   });
 
   socket.on('connect_error', (error: unknown) => {
     const msg = error instanceof Error ? error.message : String(error);
-    console.warn('[Socket] 连接错误:', msg);
+    logger.warn('[Socket] 连接错误:', msg);
     isConnected = false;
   });
 }
@@ -208,6 +253,8 @@ export function disconnectSocket(): void {
     // 清除缓存的用户身份，避免下次连接复用旧身份（导致加入错误房间）
     lastUserId = null;
     lastUserRole = null;
+    lastToken = null;
+    stopHeartbeatMonitor();
   }
 }
 

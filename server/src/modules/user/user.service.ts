@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
 import { supabase, hasSupabase } from '../../database/supabase.client';
@@ -100,6 +101,8 @@ export interface UserProfile extends UserSummary {
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   private toSummary(u: any): UserSummary {
     return {
       id: u.id,
@@ -373,7 +376,7 @@ export class UserService {
       }
     } catch (err) {
       // 画像失败不应阻塞基本资料展示
-      console.warn('[user] computeUserStats failed:', (err as Error)?.message);
+      this.logger.warn('[user] computeUserStats failed:', (err as Error)?.message);
     }
 
     return stats;

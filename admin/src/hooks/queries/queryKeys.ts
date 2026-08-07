@@ -72,16 +72,8 @@ export const queryKeys = {
       keyword?: string;
       sortBy?: string;
       hasOrderWithinDays?: number;
-      tagIds?: string[];
     }) => ['customers', 'list', params] as const,
     profile: (id: string) => ['customers', 'profile', id] as const,
-    tags: (id: string) => ['customers', 'tags', id] as const,
-  },
-
-  // ---------- 顾客标签（店铺级，§3.25） ----------
-  shopTags: {
-    all: () => ['shopTags'] as const,
-    list: () => ['shopTags', 'list'] as const,
   },
 
   // ---------- 站内信（商家 → 顾客，§3.25 / T314） ----------

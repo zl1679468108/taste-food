@@ -426,6 +426,43 @@ export class MenuService {
     return await this.toMenuItemResponse(withSpecs, userId);
   }
 
+  /**
+   * 批量按 ID 查询菜品（用于订单创建等 N+1 热点路径）。
+   * 返回的 Map 以传入 id 为 key；不存在的 id 不会出现在 Map 中。
+   */
+  async getMenuItemsByIds(ids: string[]): Promise<Map<string, MenuItemResponseDto>> {
+    const uniqueIds = Array.from(new Set(ids)).filter(Boolean);
+    if (uniqueIds.length === 0) return new Map();
+
+    if (hasSupabase() && supabase) {
+      const { data, error } = await queryMenuItems((select) =>
+        supabase!.from('tf_menu_items').select(select).in('id', uniqueIds),
+      );
+      if (error) {
+        this.logger.warn(`[Menu] 批量查询菜品失败: ${error.message}`);
+        return new Map();
+      }
+      const items = (data || []).map((row: any) => this.toMenuItem(row));
+      const withSpecs = await this.attachSpecsToItems(items);
+      const result = new Map<string, MenuItemResponseDto>();
+      for (const item of withSpecs) {
+        const dto = await this.toMenuItemResponse(item);
+        result.set(item.id, dto);
+      }
+      return result;
+    }
+
+    await this.seedIfEmpty();
+    const result = new Map<string, MenuItemResponseDto>();
+    for (const id of uniqueIds) {
+      const item = memoryMenuItems.get(id);
+      if (!item) continue;
+      const [withSpecs] = await this.attachSpecsToItems([item]);
+      result.set(id, await this.toMenuItemResponse(withSpecs));
+    }
+    return result;
+  }
+
   /** 店铺级规格组列表（管理端绑定时下拉用） */
   async getShopSpecGroups(shopId?: string): Promise<SpecGroupResponseDto[]> {
     const sid = shopId || DEFAULT_SHOP_ID;

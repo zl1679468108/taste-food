@@ -1,6 +1,11 @@
 import { createClient, SupabaseClient, PostgrestError } from '@supabase/supabase-js';
 import { assertMemoryFallbackAllowed } from '../common/utils/memory-guard';
 
+const logger = {
+  log: (message: string) => console.log(message),
+  warn: (message: string) => console.warn(message),
+};
+
 let supabaseInstance: SupabaseClient | null = null;
 let supabaseHealthy = false;
 let supabaseReady = false;
@@ -88,7 +93,7 @@ function initializeSupabase(): Promise<SupabaseClient | null> {
 
   if (!config) {
     assertMemoryFallbackAllowed('SUPABASE_URL 或 SUPABASE_KEY 未配置');
-    console.warn('[Supabase] SUPABASE_URL 或 SUPABASE_KEY 未配置，使用内存模式。');
+    logger.warn('[Supabase] SUPABASE_URL 或 SUPABASE_KEY 未配置，使用内存模式。');
     return Promise.resolve(null);
   }
 
@@ -102,7 +107,7 @@ function initializeSupabase(): Promise<SupabaseClient | null> {
       supabaseHealthy = true;
       supabaseReady = true;
       consecutiveHealthFailures = 0;
-      console.log('[Supabase] 连接成功，使用 Supabase 模式。');
+      logger.log('[Supabase] 连接成功，使用 Supabase 模式。');
       scheduleHealthCheck();
       return client;
     })
@@ -111,7 +116,7 @@ function initializeSupabase(): Promise<SupabaseClient | null> {
       supabaseReady = false;
       const msg = formatErrorMessage(err);
       assertMemoryFallbackAllowed(`连接失败: ${msg}`);
-      console.warn(
+      logger.warn(
         `[Supabase] 连接失败: ${msg}，回退到内存模式。${proxyHint(msg)}`,
       );
       // 不保留失效实例；后续调用会重新尝试初始化
@@ -196,7 +201,7 @@ function scheduleHealthCheck(): void {
     } catch (err) {
       consecutiveHealthFailures += 1;
       const msg = formatErrorMessage(err);
-      console.warn(
+      logger.warn(
         `[Supabase] 健康检查失败(${consecutiveHealthFailures}): ${msg}${proxyHint(msg)}`,
       );
       supabaseHealthy = false;

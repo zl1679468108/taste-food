@@ -39,3 +39,29 @@
   4. `sleep ≥ 50s` 等 stats/today + stats/daily + stats/pending 全 200 完成（单个 1-3s；react-query 全完才退出 loading）
   5. 截图。点击跳转验 `waitForURL('**/merchant/order**status=paid|accepted')` + Tab 激活
 - **当前 dev 库真实数据**：1 单 paid + 10 单 accepted = 总待处理 11 单（用于演示「不限时间维度」与旧 `todayStats.pendingCount=0` 的对比，证明改造口径正确）。
+
+## 订单 count 接口合并（v36，2026-08-04 晚）
+- 用户要求：把数据列表的 data 和 count 集中在一个接口；count 按 status 拆分；删除独立 `/api/orders/counts?shop_id=...` 接口。
+- **决定**：保留 list 接口已有的 `data.counts` 字段，删独立 counts 接口；前端 `useOrderStatusBadges` 改为接收 counts 入参（不再自己发请求），WS 新单订阅上移到 `admin/src/pages/Order/index.tsx`。
+- 后端：`server/src/modules/order/order.controller.ts` 删除 `@Get('counts')`（原 211-249 行）；`GET /api/orders` 内部仍调用 `countOrdersByScope` 填 counts（不变）。
+- 前端：
+  - `admin/src/services/order.ts` 删除 `getOrderStatusCounts`；`getOrders` 返回类型 `counts` 收紧为**必填**。
+  - `admin/src/pages/Order/hooks/useOrderStatusBadges.ts` 重写为纯函数 hook（`useMemo`，仅消费 counts 入参）。
+  - `admin/src/pages/Order/index.tsx` 改调 + 新增 WS 新单订阅 useEffect（按 `shopId` 过滤，触发 `ordersQuery.refetch()`）。
+- 索引：`v34-order-counts-perf.sql` 5 个索引**保留**（继续支撑 list 接口内嵌的 `count_orders_by_scope` 调用），注释略调为「被 GET /api/orders 内嵌调用」。
+- 文档：`docs/tasks.md` T317 备注加 v36 回退说明；`docs/migrations/v34-order-counts-perf.sql` / `docs/database-init.sql` 注释里的接口名改为 list 内嵌。
+- 验证：`server npx tsc --noEmit` 0 错；`admin npx tsc --noEmit` 0 错；`admin jest src/__tests__/order.test.ts` 6/6 通过。
+- **DB 无迁移**（接口合并属于纯重构；索引继续服务于 list 接口内的 RPC 调用，无需新增/删除）。
+
+## 订单 Tab 角标覆盖全部状态（v37，2026-08-04 晚）
+- 用户反馈：v36 合并接口后 counts 没透到全部 Tab 上（之前 hook 用 BADGE_KEYS 只挑 4 个：`paid`/`ready_for_delivery`/`ready_for_pickup`/`refund`）。
+- 决定：counts **全部 10 个状态**应用到 Tab 角标（不做人工挑选）；「全部」tab 显示 `counts.all`；薄包装 hook 一并删除。
+- 改动：
+  - **删除** `admin/src/pages/Order/hooks/useOrderStatusBadges.ts`（包括 `OrderStatusBadges` 类型）。
+  - `OrderStatusTabs.tsx` props `badges?: OrderStatusBadges` → `counts?: OrderStatusCounts`（更准确）；renderLabel 按 `counts[key as keyof OrderStatusCounts]` 取值；首项 `key=''` 走 `counts.all`。
+  - `Order/index.tsx` 直接 `counts={ordersQuery.data?.counts}`。
+- 零值策略：`renderLabel` 在 `value <= 0` 时不渲染 Badge（避免噪声）。截图确认：「待支付 0」「待配送 0」不显示角标。
+- 验证：`admin npx tsc --noEmit` 0 错；`admin jest src/__tests__/order.test.ts` 6/6；Playwright 跑 `tests/shoot-order-tabs.mjs` 截图：
+  - 全部 39 / 已支付 1 / 已接单 10 / 制作中 1 / 待取餐 3 / 配送中 1 / 退款售后 11 / 已完成 12
+  - 截图存 `test-results/order-tabs-all-badges.png` + `order-tabs-accepted.png`。
+- 经验：v36 之后 hook 已退化为字段提取，转发逻辑薄到不应再独立包装；类型用 `OrderStatusCounts` 比 `Record<string, number>` 精确；遇到 0 跳过 `Badge` 避免视觉噪声。

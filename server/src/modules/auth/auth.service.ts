@@ -850,13 +850,25 @@ export class AuthService {
       `&secret=${encodeURIComponent(secret)}` +
       `&js_code=${encodeURIComponent(code)}` +
       `&grant_type=authorization_code`;
-    const resp = await fetch(url);
-    const data = (await resp.json()) as { openid?: string; errcode?: number; errmsg?: string };
-    if (!data.openid) {
-      this.logger.error(`微信 code2Session 失败: errcode=${data.errcode} errmsg=${data.errmsg}`);
-      throw new UnauthorizedException('微信登录失败，请重试');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const resp = await fetch(url, { signal: controller.signal });
+      const data = (await resp.json()) as { openid?: string; errcode?: number; errmsg?: string };
+      clearTimeout(timer);
+      if (!data.openid) {
+        this.logger.error(`微信 code2Session 失败: errcode=${data.errcode} errmsg=${data.errmsg}`);
+        throw new UnauthorizedException('微信登录失败，请重试');
+      }
+      return { openid: data.openid };
+    } catch (e) {
+      clearTimeout(timer);
+      if (e instanceof Error && e.name === 'AbortError') {
+        this.logger.error('微信 code2Session 请求超时');
+        throw new UnauthorizedException('微信登录超时，请重试');
+      }
+      throw e;
     }
-    return { openid: data.openid };
   }
 
 

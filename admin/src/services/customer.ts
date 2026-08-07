@@ -2,13 +2,6 @@ import request from '@/utils/request';
 
 export type CustomerSortBy = 'last_order' | 'total_spent' | 'order_count';
 
-/** 店铺级顾客标签（§3.25） */
-export interface CustomerTag {
-  id: string;
-  name: string;
-  color: string;
-}
-
 /** 商家视角「本店顾客」列表项（§3.24 / T313） */
 export interface ShopCustomerSummary {
   id: string;
@@ -27,8 +20,6 @@ export interface ShopCustomerSummary {
   avgOrderValue: number;
   /** 本店最近下单时间 ISO */
   lastOrderAt?: string;
-  /** 该顾客当前被商家打的标签（店铺级） */
-  tags: CustomerTag[];
 }
 
 export interface GetShopCustomersParams {
@@ -75,43 +66,3 @@ export const getShopCustomers = (params: GetShopCustomersParams) =>
 
 export const getShopCustomerProfile = (id: string) =>
   request.get(`/api/merchant/customers/${id}/profile`) as Promise<ShopCustomerProfile>;
-
-// ============ 顾客标签（§3.25） ============
-
-/** 店铺标签列表 */
-export const getShopTags = () =>
-  request.get('/api/merchant/customers/tags') as Promise<CustomerTag[]>;
-
-/** 新建标签 */
-export const createShopTag = (data: { name: string; color?: string }) =>
-  request.post('/api/merchant/customers/tags', data) as Promise<CustomerTag>;
-
-/** 更新标签名/色 */
-export const updateShopTag = (id: string, data: { name?: string; color?: string }) =>
-  request.patch(`/api/merchant/customers/tags/${id}`, data) as Promise<CustomerTag>;
-
-/** 删除标签 */
-export const deleteShopTag = (id: string) =>
-  request.delete(`/api/merchant/customers/tags/${id}`) as Promise<void>;
-
-/** 取某顾客在本店的标签 */
-export const getCustomerTags = (id: string) =>
-  request.get(`/api/merchant/customers/${id}/tags`) as Promise<CustomerTag[]>;
-
-/** 全量替换某顾客在本店的标签 */
-export const setCustomerTags = (id: string, tagIds: string[]) =>
-  request.put(`/api/merchant/customers/${id}/tags`, { tagIds }) as Promise<CustomerTag[]>;
-
-/** 标签可选配色（与 antd Tag 兼容的 hex / 预设名） */
-export const TAG_COLOR_OPTIONS = [
-  '#1677ff',
-  '#52c41a',
-  '#fa8c16',
-  '#eb2f96',
-  '#722ed1',
-  '#13c2c2',
-  '#f5222d',
-  '#faad14',
-  '#2f54eb',
-  '#a0d911',
-];

@@ -476,43 +476,34 @@
 
 ---
 
-### 3.25 顾客标签 + 站内信（商家运营）✅ 2026-08-03
+### 3.25 站内信（商家运营）✅ 2026-08-03（顾客标签已移除）
 
-> 关联任务：`T313.7`–`T313.9`（标签）、`T314`（站内信）。目标：让「顾客管理」从「查阅」升级为「可运营」——
-> 商家能给本店顾客打标签分组、能主动发站内信触达，与「用户管理（平台账号治理）」职责彻底分离。
+> 关联任务：`T314`（站内信）。目标：让「顾客管理」从「查阅」升级为「可运营」——
+> 商家能主动发站内信触达本店顾客，与「用户管理（平台账号治理）」职责彻底分离。
+>
+> ⚠️ **顾客标签（T313.7 / T313.8）已于 2026-08-04 判定为伪需求并彻底移除**（前端+后端代码及 `tf_customer_tags` / `tf_customer_tag_relations` 两张表，迁移 v36 drop）。理由：线下小餐饮店手动打标 ROI 低、徒增项目学习成本；「顾客管理」列表/画像功能保留。
 
-**数据模型（v32 migration）**
+**数据模型（v32 migration；标签表见上注已移除）**
 
-- `tf_customer_tags`（店铺级标签定义：`id / shop_id / name / color`；同一店铺 `name` 唯一）
-- `tf_customer_tag_relations`（顾客↔标签多对多：`user_id / tag_id`，唯一约束）
 - `tf_messages`（商家→顾客站内信：`shop_id / from_user_id / to_user_id / content / read_at`；`read_at` 由顾客在微信小程序侧读取时写入）
 
 **接口**
 
 | 接口 | 方法 | 权限 | 说明 |
 |------|------|------|------|
-| `/api/merchant/customers/tags` | GET | MERCHANT | 店铺标签列表 |
-| `/api/merchant/customers/tags` | POST | MERCHANT | 新建标签（同名冲突 409） |
-| `/api/merchant/customers/tags/:id` | PATCH | MERCHANT | 改标签名/色 |
-| `/api/merchant/customers/tags/:id` | DELETE | MERCHANT | 删标签（级联移除关联） |
-| `/api/merchant/customers/:id/tags` | GET | MERCHANT | 取某顾客本店标签 |
-| `/api/merchant/customers/:id/tags` | PUT | MERCHANT | 全量替换某顾客标签 |
-| `/api/merchant/customers` | GET | MERCHANT | 列表新增 `tagIds` 过滤（命中任一标签），返回项含 `tags` |
 | `/api/merchant/messages/customers/:id` | POST | MERCHANT | 发送站内信（校验收件人为本店顾客） |
 | `/api/merchant/messages` | GET | MERCHANT | 发件箱（可 `toUserId` 过滤） |
 | `/api/merchant/messages/:id/read` | PATCH | MERCHANT | 标记已读 |
 
 **前端（商家「顾客管理」）**
 
-- 列表新增「标签」列、顶部「按标签筛选」（多选）、「标签管理」按钮（标签 CRUD 弹窗）。
-- 顾客详情抽屉新增「标签」区块 +「管理标签」按钮（勾选式分配，支持快速新建）、「发送站内信」按钮（历史列表 + 发送框，显示已读/未读）。
+- 顾客详情抽屉提供「发送站内信」按钮（历史列表 + 发送框，显示已读/未读）。
 
 **验收口径**
 
-1. 商家能新建/改名/改色/删除标签；删除后该标签从所有顾客上消失。
-2. 列表能按标签筛选顾客；顾客行能看到其标签。
-3. 抽屉里能给顾客打/卸标签并即时反映到列表。
-4. 商家能给本店顾客发站内信；发件箱可见历史与已读状态；非本店顾客被拒（400）。
+1. 商家能给本店顾客发站内信；发件箱可见历史与已读状态；非本店顾客被拒（400）。
+
+> 📋 **规划中（T318）**：当前站内信为商家→顾客单向，计划扩为顾客↔商家双向会话——新增顾客侧接口、小程序收件箱/回复 UI、顾客读取回写 `read_at`（替换"商家手动 markRead"语义），详见 `docs/tasks.md`。
 
 ---
 

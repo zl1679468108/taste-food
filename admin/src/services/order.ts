@@ -96,7 +96,7 @@ export interface OrderStats {
   completedCount: number;
 }
 
-/** 订单列表状态标签数量（v34：GET /api/orders/counts） */
+/** 订单列表状态标签数量（合并至 GET /api/orders，data.counts 直接返回） */
 export interface OrderStatusCounts {
   all: number;
   pending_payment: number;
@@ -132,16 +132,13 @@ export const getOrders = (params: { shop_id?: string; status?: string; page: num
   if (params.shop_id) query.shop_id = params.shop_id;
   if (params.status) query.status = params.status;
   if (params.keyword) query.keyword = params.keyword;
-  return request.get('/api/orders', { params: query }) as Promise<{ items: Order[]; total: number; counts?: OrderStatusCounts }>;
-};
-
-/** 订单状态数量聚合（v34）：一次请求替代多次按状态查列表 count */
-export const getOrderStatusCounts = (params: { shop_id?: string; keyword?: string }) => {
-  const query: Record<string, string> = {};
-  // 平台管理员全店视角：不传 shop_id，由后端跨店查询
-  if (params.shop_id) query.shop_id = params.shop_id;
-  if (params.keyword) query.keyword = params.keyword;
-  return request.get('/api/orders/counts', { params: query }) as Promise<OrderStatusCounts>;
+  // 后端固定返回 counts（无视 status/keyword 过滤，给到角标用）；接口契约见
+  // GET /api/orders 服务端 List 接口实现。
+  return request.get('/api/orders', { params: query }) as Promise<{
+    items: Order[];
+    total: number;
+    counts: OrderStatusCounts;
+  }>;
 };
 
 export const getOrder = (id: string) =>

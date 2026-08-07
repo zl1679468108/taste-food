@@ -316,21 +316,7 @@ ALTER TABLE "tf_users" DISABLE ROW LEVEL SECURITY;
 
 CREATE INDEX IF NOT EXISTS idx_users_status ON tf_users(status);
 
--- 10.1 [Legacy] 旧 JWT refresh 持久化表（1.0.1 起主路径改用 tf_user_sessions）
--- 保留以兼容历史库；新登录不再写入。确认无依赖后可手工 DROP。
-CREATE TABLE IF NOT EXISTS "tf_refresh_tokens" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "token_hash" text NOT NULL, -- refresh_token 的哈希值（不存明文）
-  "user_id" text NOT NULL, -- 对应 tf_users.id
-  "expires_at" timestamptz NOT NULL,
-  "revoked" boolean DEFAULT false,
-  "created_at" timestamptz DEFAULT now()
-);
-ALTER TABLE "tf_refresh_tokens" DISABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON tf_refresh_tokens(token_hash);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON tf_refresh_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON tf_refresh_tokens(expires_at);
+-- 10.1 [已移除] tf_refresh_tokens 已于 v38 删除（Legacy 死表，零引用；双 Token 统一由 tf_user_sessions 承载）
 
 
 -- 10.2 用户会话表（不透明双 Token，对齐 family-bookkeeping；1.0.1 已执行并回并）
@@ -456,7 +442,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_shop_created_at
 CREATE INDEX IF NOT EXISTS idx_orders_shop_status_created_at
   ON tf_orders(shop_id, status, created_at DESC);
 
--- v34 订单状态数量聚合性能优化：支撑 GET /api/orders/counts 单次 RPC
+-- v34 订单状态数量聚合性能优化：支撑 count_orders_by_scope RPC（被 GET /api/orders 内嵌调用，填充 data.counts）
 CREATE INDEX IF NOT EXISTS idx_orders_shop_status
   ON tf_orders(shop_id, status);
 CREATE INDEX IF NOT EXISTS idx_orders_status_shop
@@ -528,45 +514,22 @@ ALTER TABLE "tf_daily_stats" DISABLE ROW LEVEL SECURITY;
 -- 每日统计索引
 CREATE INDEX IF NOT EXISTS idx_daily_stats_shop_date ON tf_daily_stats(shop_id, stat_date);
 
--- 15. 菜品销售明细表（用于精确统计和历史追溯）
--- menu_item_id/order_id 使用 ON DELETE SET NULL 保留历史销量记录
-CREATE TABLE IF NOT EXISTS "tf_item_sales" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "menu_item_id" uuid REFERENCES tf_menu_items(id) ON DELETE SET NULL,
-  "shop_id" uuid REFERENCES tf_shops(id) ON DELETE CASCADE,
-  "order_id" uuid REFERENCES tf_orders(id) ON DELETE SET NULL,
-  "order_date" date NOT NULL,
-  "quantity" integer NOT NULL DEFAULT 0,
-  "revenue" integer NOT NULL DEFAULT 0,
-  "created_at" timestamptz DEFAULT now(),
-  "updated_at" timestamptz DEFAULT now()
-);
-ALTER TABLE "tf_item_sales" DISABLE ROW LEVEL SECURITY;
-
-CREATE INDEX IF NOT EXISTS idx_item_sales_menu_item ON tf_item_sales(menu_item_id);
-CREATE INDEX IF NOT EXISTS idx_item_sales_shop_date ON tf_item_sales(shop_id, order_date);
-CREATE INDEX IF NOT EXISTS idx_item_sales_order_id ON tf_item_sales(order_id);
+-- 15. [已移除] tf_item_sales 已于 v38 删除（死表，零应用代码引用；销量统计由 tf_menu_items.monthly_sales 覆盖）
 
 -- 原子更新菜品销量的 RPC 函数（防止并发竞态）
+-- 注：原实现还写入 tf_item_sales 明细表，该表已于 v38 删除（销量统计由 tf_menu_items.monthly_sales 覆盖）
 CREATE OR REPLACE FUNCTION atomic_increment_menu_sales(
   p_menu_item_id uuid,
   p_quantity integer,
   p_shop_id uuid,
   p_order_date date
 ) RETURNS void AS $$
-DECLARE
-  v_current_sales integer;
 BEGIN
-  -- 乐观锁：先读后写，用 WHERE 条件保证原子性
   UPDATE tf_menu_items
   SET monthly_sales = monthly_sales + p_quantity,
       updated_at = now()
   WHERE id = p_menu_item_id
     AND shop_id = p_shop_id;
-
-  -- 记录到菜品销售明细表
-  INSERT INTO tf_item_sales (menu_item_id, shop_id, order_id, order_date, quantity, revenue)
-  VALUES (p_menu_item_id, p_shop_id, NULL, p_order_date, p_quantity, 0);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -594,6 +557,7 @@ $$ LANGUAGE plpgsql;
 
 -- 原子创建订单：在一个事务内插入订单、订单项、更新销量
 -- p_user_id 类型为 text 与 tf_orders.user_id 列类型一致（存储 OpenID 或 Auth UID）
+-- 注：原实现还写入 tf_item_sales 明细表，该表已于 v38 删除（销量统计由 tf_menu_items.monthly_sales 覆盖）
 CREATE OR REPLACE FUNCTION atomic_create_order(
   p_order_id uuid,
   p_shop_id uuid,
@@ -617,7 +581,6 @@ DECLARE
   v_item jsonb;
   v_order_id uuid;
 BEGIN
-  -- Step 1: Insert order（order_no 可空，由服务层生成后传入）
   INSERT INTO tf_orders (id, order_no, shop_id, user_id, status, total, delivery_fee, delivery_type, address, table_no, remark, contact_name, contact_phone, invoice_needed, invoice_title, invoice_tax_no, created_at, updated_at)
   VALUES (p_order_id, p_order_no, p_shop_id, p_user_id, 'pending_payment', p_total, p_delivery_fee, p_delivery_type, p_address, p_table_no, p_remark, p_contact_name, p_contact_phone, COALESCE(p_invoice_needed, false), p_invoice_title, p_invoice_tax_no, now(), now())
   RETURNING id INTO v_order_id;
@@ -626,10 +589,8 @@ BEGIN
   VALUES (v_order_id, p_shop_id, 'pending_payment', now())
   ON CONFLICT (order_id, status) DO NOTHING;
 
-  -- Step 2: Insert order items and increment sales atomically
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
   LOOP
-    -- Insert order item (含 shop_id 多租户字段)
     INSERT INTO tf_order_items (order_id, shop_id, menu_item_id, name, quantity, price, spec_desc, image_url)
     VALUES (
       v_order_id,
@@ -642,19 +603,13 @@ BEGIN
       v_item->>'imageUrl'
     );
 
-    -- Increment monthly sales
     UPDATE tf_menu_items
     SET monthly_sales = COALESCE(monthly_sales, 0) + (v_item->>'quantity')::integer,
         updated_at = now()
     WHERE id = (v_item->>'menuItemId')::uuid
       AND shop_id = p_shop_id;
-
-    -- Record item sales
-    INSERT INTO tf_item_sales (menu_item_id, shop_id, order_id, order_date, quantity, revenue)
-    VALUES ((v_item->>'menuItemId')::uuid, p_shop_id, v_order_id, p_order_date, (v_item->>'quantity')::integer, 0);
   END LOOP;
 
-  -- Return created order ID
   RETURN jsonb_build_object('orderId', v_order_id::text, 'success', true);
 END;
 $$ LANGUAGE plpgsql;
@@ -1105,33 +1060,6 @@ CREATE TABLE IF NOT EXISTS "tf_notifications" (
 ALTER TABLE "tf_notifications" DISABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON tf_notifications(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON tf_notifications(user_id, is_read);
-
--- ============================================================
--- 顾客标签（§3.25）：商家为本店顾客打标，用于分组运营
--- ============================================================
-CREATE TABLE IF NOT EXISTS "tf_customer_tags" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
-  "name" text NOT NULL,
-  "color" text NOT NULL DEFAULT '#1677ff',
-  "created_at" timestamptz DEFAULT now(),
-  "updated_at" timestamptz DEFAULT now()
-);
-ALTER TABLE "tf_customer_tags" DISABLE ROW LEVEL SECURITY;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_tags_shop_name ON tf_customer_tags(shop_id, name);
-CREATE INDEX IF NOT EXISTS idx_customer_tags_shop ON tf_customer_tags(shop_id);
-
-CREATE TABLE IF NOT EXISTS "tf_customer_tag_relations" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "shop_id" uuid NOT NULL REFERENCES tf_shops(id) ON DELETE CASCADE,
-  "user_id" uuid NOT NULL REFERENCES tf_users(id) ON DELETE CASCADE,
-  "tag_id" uuid NOT NULL REFERENCES tf_customer_tags(id) ON DELETE CASCADE,
-  "created_at" timestamptz DEFAULT now()
-);
-ALTER TABLE "tf_customer_tag_relations" DISABLE ROW LEVEL SECURITY;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_tag_rel_uniq ON tf_customer_tag_relations(user_id, tag_id);
-CREATE INDEX IF NOT EXISTS idx_customer_tag_rel_shop_user ON tf_customer_tag_relations(shop_id, user_id);
-CREATE INDEX IF NOT EXISTS idx_customer_tag_rel_tag ON tf_customer_tag_relations(tag_id);
 
 -- ============================================================
 -- 站内信（§3.25）：商家 → 本店顾客

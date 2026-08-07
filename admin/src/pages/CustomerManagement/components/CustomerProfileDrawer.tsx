@@ -18,16 +18,13 @@ import {
   ShoppingOutlined,
   ClockCircleOutlined,
   RiseOutlined,
-  TagsOutlined,
   MessageOutlined,
 } from '@ant-design/icons';
 import { ShopCustomerProfile } from '@/services/customer';
-import { useCustomerTags } from '@/hooks/queries/useCustomerQueries';
 import { formatTime, shortOrderId } from '@/utils/format';
 import { formatPrice } from '@/utils/format';
 import { brand } from '@/theme';
 import OrderStatusTag from '@/components/OrderStatusTag';
-import TagAssignModal from './TagAssignModal';
 import MessageModal from './MessageModal';
 
 const { Text, Paragraph } = Typography;
@@ -53,8 +50,6 @@ const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
   profile,
   loading,
 }) => {
-  const { data: tags = [] } = useCustomerTags(profileId);
-  const [tagAssignOpen, setTagAssignOpen] = useState(false);
   const [messageOpen, setMessageOpen] = useState(false);
 
   return (
@@ -71,13 +66,6 @@ const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
       }
       extra={
         <Space>
-          <Button
-            size="small"
-            icon={<TagsOutlined />}
-            onClick={() => setTagAssignOpen(true)}
-          >
-            管理标签
-          </Button>
           <Button
             size="small"
             type="primary"
@@ -117,27 +105,6 @@ const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
               </div>
             </div>
           </Space>
-
-          {/* 标签 */}
-          <div>
-            <Text strong>
-              <TagsOutlined style={{ marginRight: 6 }} />
-              标签
-            </Text>
-            <div style={{ marginTop: 8 }}>
-              {tags.length ? (
-                <Space size={[6, 6]} wrap>
-                  {tags.map((t) => (
-                    <Tag key={t.id} color={t.color}>
-                      {t.name}
-                    </Tag>
-                  ))}
-                </Space>
-              ) : (
-                <Text type="secondary">尚未打标签</Text>
-              )}
-            </div>
-          </div>
 
           {/* 基本资料 */}
           <Descriptions
@@ -262,12 +229,6 @@ const CustomerProfileDrawer: React.FC<CustomerProfileDrawerProps> = ({
         </Space>
       )}
 
-      <TagAssignModal
-        open={tagAssignOpen}
-        onClose={() => setTagAssignOpen(false)}
-        customerId={profileId}
-        customerName={profile?.nickName}
-      />
       <MessageModal
         open={messageOpen}
         onClose={() => setMessageOpen(false)}

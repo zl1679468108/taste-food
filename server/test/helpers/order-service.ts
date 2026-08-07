@@ -70,6 +70,9 @@ export function createOrderService(options: TestOrderServiceOptions = {}) {
   const menuItems = options.menuItems || {};
   const specGroupsByMenuItemId = options.specGroupsByMenuItemId || {};
 
+  // Track the last queried shopId for menu service mock
+  let currentShopId = defaultShop.id;
+
   const gateway = {
     emitOrderCreated: (order: OrderRecord) => orderCreatedEvents.push(order),
     emitOrderUpdated: (order: OrderRecord, previousStatus: string) => {
@@ -84,21 +87,48 @@ export function createOrderService(options: TestOrderServiceOptions = {}) {
     findAllByShop: async () => options.promotions || [],
   };
   const shopService = {
-    findById: async (shopId: string) => ({
-      ...defaultShop,
-      id: shopId,
-    }),
+    findById: async (shopId: string) => {
+      currentShopId = shopId; // Track shopId for menu service
+      return {
+        ...defaultShop,
+        id: shopId,
+      };
+    },
   };
   const menuService = {
-    getMenuItemById: async (menuItemId: string) => (
-      menuItems[menuItemId] || {
+    getMenuItemById: async (menuItemId: string) => {
+      const item = menuItems[menuItemId] || {
         id: menuItemId,
         name: `菜品-${menuItemId}`,
         price: 1200,
         imageUrl: '',
-      }
-    ),
+      };
+      return {
+        ...item,
+        status: item.status || MenuItemStatus.ACTIVE,
+        shopId: item.shopId || currentShopId,
+        specs: specGroupsByMenuItemId[menuItemId] || [],
+      };
+    },
     getMenuItemSpecs: async (menuItemId: string) => specGroupsByMenuItemId[menuItemId] || [],
+    getMenuItemsByIds: async (menuItemIds: string[]) => {
+      const map = new Map();
+      for (const id of menuItemIds) {
+        const item = menuItems[id] || {
+          id,
+          name: `菜品-${id}`,
+          price: 1200,
+          imageUrl: '',
+        };
+        map.set(id, {
+          ...item,
+          status: item.status || MenuItemStatus.ACTIVE,
+          shopId: item.shopId || currentShopId,
+          specs: specGroupsByMenuItemId[id] || [],
+        });
+      }
+      return map;
+    },
   };
   const addressService = {
     findByUserId: async () => [],
